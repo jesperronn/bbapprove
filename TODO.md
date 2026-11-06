@@ -1,6 +1,6 @@
 # TODO
 
-- [ ] **Interactive interface** (fzf or similar): pick PRs from the eligible list instead of all-or-nothing `--apply`.
+- [x] **Interactive interface** (`-i/--interactive`): fzf multi-select of eligible PRs, sorted by repo, all preselected; ENTER approves+merges the picks.
 - [ ] **TUI dashboard**: checklist of PRs, approve/merge one by one.
   - Colorize: dividers per project/repo, build status, SonarQube/quality-gate status, skipped-vs-eligible, merge-check failures.
   - Pull build/quality status from the PR (build-status and merge-check endpoints).

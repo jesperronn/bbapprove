@@ -47,6 +47,16 @@ STUB
   : >"$STUB_LOG"
 }
 
+make_fzf_stub() { # picks lines whose text matches $STUB_FZF_PICK (regex); records stdin
+  cat >"$TEST_TMP/bin/fzf" <<'STUB'
+#!/usr/bin/env bash
+cat >"$STUB_FZF_INPUT"
+grep -E "${STUB_FZF_PICK:-^$}" "$STUB_FZF_INPUT" || exit 1
+STUB
+  chmod +x "$TEST_TMP/bin/fzf"
+  export STUB_FZF_INPUT="$TEST_TMP/fzf.in"
+}
+
 run_script() { PATH="$TEST_TMP/bin:$PATH" "$SCRIPT_UNDER_TEST" "$@" 2>&1; }
 
 test_dry_run_classifies() {
@@ -86,6 +96,24 @@ test_stale_version_retried() {
   assert_contains "$out" "MERGED  PROJ/repo#1" "merge succeeds after out-of-date retry"
   assert_not_contains "$out" "NOT MERGED" "no PR left unmerged after retry"
   assert_eq "$(grep -c 'pull-requests/1/merge' "$STUB_LOG")" "2" "#1 merge attempted twice"
+  cleanup_test_tmp; TEST_TMP=""
+}
+
+test_interactive_only_picked_are_merged() {
+  setup_stub; make_fzf_stub
+  local out; out="$(STUB_FZF_PICK='PROJ/repo#6' run_script -i)"
+  assert_contains "$out" "MERGED  PROJ/repo#6" "picked PR merged"
+  assert_not_contains "$(cat "$STUB_LOG")" "pull-requests/1/approve" "unpicked PR untouched"
+  assert_contains "$(cat "$STUB_FZF_INPUT")" "PROJ/repo#1" "eligible PR offered in picker"
+  assert_not_contains "$(cat "$STUB_FZF_INPUT")" "some-library" "ineligible PR not offered"
+  cleanup_test_tmp; TEST_TMP=""
+}
+
+test_interactive_cancel_does_nothing() {
+  setup_stub; make_fzf_stub
+  local out; out="$(run_script -i)"
+  assert_contains "$out" "Cancelled." "cancel reported"
+  assert_not_contains "$(cat "$STUB_LOG")" "approve" "nothing approved on cancel"
   cleanup_test_tmp; TEST_TMP=""
 }
 

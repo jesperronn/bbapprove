@@ -9,6 +9,7 @@ BBAPPROVE_AUTHOR_EMAIL="${BBAPPROVE_AUTHOR_EMAIL:-renovate-bot@example.com}"
 BBAPPROVE_DISALLOW="${BBAPPROVE_DISALLOW:-some-library}"   # comma-separated, case-insensitive substrings
 BBAPPROVE_TOKEN="${BBAPPROVE_TOKEN:-}"
 BBAPPROVE_APPLY=0
+BBAPPROVE_INTERACTIVE=0
 BBAPPROVE_MERGE_RETRIES="${BBAPPROVE_MERGE_RETRIES:-4}"
 BBAPPROVE_RETRY_SLEEP="${BBAPPROVE_RETRY_SLEEP:-2}"
 BBAPPROVE_TARGETS=()
@@ -17,10 +18,11 @@ usage() {
   cat <<'USAGE'
 bbapprove — approve and merge Renovate PRs on Bitbucket Server.
 
-Usage: bbapprove [--apply] [--disallow a,b] [--token T] [PR_URL...]
+Usage: bbapprove [-i|--interactive] [--apply] [--disallow a,b] [--token T] [PR_URL...]
 
 With no PR_URL, every open PR where you are a reviewer is considered.
-Without --apply nothing is changed; eligibility is only reported.
+-i opens an fzf picker of eligible PRs; the PRs you pick are approved and merged.
+Without --apply (or -i) nothing is changed; eligibility is only reported.
 
 A PR is eligible when ALL hold:
   - author email is renovate-bot@example.com
@@ -84,7 +86,16 @@ process_pr() { # PR json
   label="$key/$repo#$id $(jq -r '.title' <<<"$pr")"
   if ! reason="$(check_eligible "$pr")"; then log "SKIP    $label — $reason"; return 0; fi
   if (( ! BBAPPROVE_APPLY )); then log "ELIGIBLE $label (dry-run)"; return 0; fi
+  act_on_pr "$pr"
+}
 
+act_on_pr() { # PR json: approve, then merge with retries
+  local pr="$1" key repo id version label
+  key="$(jq -r '.toRef.repository.project.key' <<<"$pr")"
+  repo="$(jq -r '.toRef.repository.slug' <<<"$pr")"
+  id="$(jq -r '.id' <<<"$pr")"
+  version="$(jq -r '.version' <<<"$pr")"
+  label="$key/$repo#$id $(jq -r '.title' <<<"$pr")"
   local base="/rest/api/1.0/projects/$key/repos/$repo/pull-requests/$id"
   api POST "$base/approve"
   if [[ "$LAST_CODE" != 2* ]]; then log "FAIL    $label — approve HTTP $LAST_CODE"; return 0; fi
@@ -106,6 +117,29 @@ process_pr() { # PR json
   log "APPROVED, NOT MERGED $label — merge HTTP $LAST_CODE: $(jq -r '[.errors[]?.message] | join("; ")' <<<"$API_BODY" 2>/dev/null || true)"
 }
 
+# fzf multi-select over eligible PRs (sorted by repo, all preselected); approves+merges the picks.
+interactive_run() { # PR json...
+  command -v fzf >/dev/null || { err "fzf is required for --interactive"; return 1; }
+  local pr reason lines="" i=0 elig=() picked line idx
+  for pr in "$@"; do
+    if reason="$(check_eligible "$pr")"; then
+      elig+=("$pr")
+      lines+="$i"$'\t'"$(jq -r '"\(.toRef.repository.project.key)/\(.toRef.repository.slug)#\(.id)\t\(.title)"' <<<"$pr")"$'\n'
+      i=$((i + 1))
+    fi
+  done
+  if (( ${#elig[@]} == 0 )); then log "No eligible PRs."; return 0; fi
+  picked="$(printf '%s' "$lines" | sort -t$'\t' -k2,2 -s | fzf --multi --delimiter=$'\t' --with-nth=2.. \
+    --bind 'start:select-all,ctrl-a:select-all,ctrl-d:deselect-all' \
+    --header 'TAB toggle · ctrl-a all · ctrl-d none · ENTER approve+merge selected · ESC cancel' \
+    --prompt 'approve> ')" || { log "Cancelled."; return 0; }
+  [[ -n "$picked" ]] || { log "Nothing selected."; return 0; }
+  while IFS= read -r line; do
+    idx="${line%%$'\t'*}"
+    act_on_pr "${elig[$idx]}"
+  done <<<"$picked"
+}
+
 parse_pr_url() { # url -> "KEY REPO ID"
   if [[ "$1" =~ /projects/([^/]+)/repos/([^/]+)/pull-requests/([0-9]+) ]]; then
     printf '%s %s %s' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}"
@@ -119,6 +153,7 @@ main() {
     case "$1" in
       -h|--help) usage; return 0 ;;
       --apply) BBAPPROVE_APPLY=1; shift ;;
+      -i|--interactive) BBAPPROVE_INTERACTIVE=1; shift ;;
       --disallow) BBAPPROVE_DISALLOW="$2"; shift 2 ;;
       --token) BBAPPROVE_TOKEN="$2"; shift 2 ;;
       -*) err "Unknown option: $1"; usage >&2; return 2 ;;
@@ -152,6 +187,7 @@ main() {
   fi
 
   local pr
+  if (( BBAPPROVE_INTERACTIVE )); then interactive_run ${prs[@]+"${prs[@]}"}; return; fi
   for pr in ${prs[@]+"${prs[@]}"}; do process_pr "$pr"; done
   (( BBAPPROVE_APPLY )) || log "Dry run — pass --apply to approve and merge."
 }

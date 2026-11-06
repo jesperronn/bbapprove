@@ -38,10 +38,12 @@ echo "$*" >>"$STUB_LOG"
 if [[ "$url" == *whoami* ]]; then printf 'me\n200'
 elif [[ "$url" == *dashboard/pull-requests* ]]; then printf '{"isLastPage":true,"values":%s}\n200' "$(cat "$STUB_PRS")"
 elif [[ "$url" == *"/merge"* && -n "${STUB_MERGE_FAIL:-}" ]]; then printf '{"errors":[{"message":"checks failed"}]}\n409'
+elif [[ "$url" == *"/merge"* && -n "${STUB_STALE_FILE:-}" && ! -e "$STUB_STALE_FILE" ]]; then touch "$STUB_STALE_FILE"; printf '{"errors":[{"message":"modify a pull request based on out-of-date information."}]}\n409'
+elif [[ "$url" =~ pull-requests/[0-9]+$ ]]; then printf '{"version":7}\n200'
 else printf '{}\n200'; fi
 STUB
   chmod +x "$TEST_TMP/bin/curl"
-  export STUB_LOG="$TEST_TMP/curl.log" STUB_PRS="$TEST_TMP/prs.json" BBAPPROVE_TOKEN=t
+  export BBAPPROVE_RETRY_SLEEP=0 STUB_LOG="$TEST_TMP/curl.log" STUB_PRS="$TEST_TMP/prs.json" BBAPPROVE_TOKEN=t
   : >"$STUB_LOG"
 }
 
@@ -65,7 +67,7 @@ test_apply_approves_and_merges() {
   local out; out="$(run_script --apply)"
   assert_contains "$out" "MERGED  PROJ/repo#1" "merged #1"
   assert_contains "$(cat "$STUB_LOG")" "pull-requests/1/approve" "approve called"
-  assert_contains "$(cat "$STUB_LOG")" "pull-requests/1/merge?version=3" "merge called with version"
+  assert_contains "$(cat "$STUB_LOG")" "pull-requests/1/merge?version=7" "merge uses freshly fetched version"
   assert_not_contains "$(cat "$STUB_LOG")" "pull-requests/2/approve" "disallowed never approved"
   cleanup_test_tmp; TEST_TMP=""
 }
@@ -75,6 +77,15 @@ test_merge_failure_reported() {
   local out; out="$(STUB_MERGE_FAIL=1 run_script --apply)"
   assert_contains "$out" "APPROVED, NOT MERGED PROJ/repo#1" "failed merge reported"
   assert_contains "$out" "checks failed" "merge error message shown"
+  cleanup_test_tmp; TEST_TMP=""
+}
+
+test_stale_version_retried() {
+  setup_stub
+  local out; out="$(STUB_STALE_FILE="$TEST_TMP/stale" run_script --apply)"
+  assert_contains "$out" "MERGED  PROJ/repo#1" "merge succeeds after out-of-date retry"
+  assert_not_contains "$out" "NOT MERGED" "no PR left unmerged after retry"
+  assert_eq "$(grep -c 'pull-requests/1/merge' "$STUB_LOG")" "2" "#1 merge attempted twice"
   cleanup_test_tmp; TEST_TMP=""
 }
 

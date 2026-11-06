@@ -9,6 +9,8 @@ BBAPPROVE_AUTHOR_EMAIL="${BBAPPROVE_AUTHOR_EMAIL:-renovate-bot@example.com}"
 BBAPPROVE_DISALLOW="${BBAPPROVE_DISALLOW:-some-library}"   # comma-separated, case-insensitive substrings
 BBAPPROVE_TOKEN="${BBAPPROVE_TOKEN:-}"
 BBAPPROVE_APPLY=0
+BBAPPROVE_MERGE_RETRIES="${BBAPPROVE_MERGE_RETRIES:-4}"
+BBAPPROVE_RETRY_SLEEP="${BBAPPROVE_RETRY_SLEEP:-2}"
 BBAPPROVE_TARGETS=()
 
 usage() {
@@ -26,7 +28,7 @@ A PR is eligible when ALL hold:
   - title does not mention a disallowed dependency (default: some-library)
   - update is minor/patch/digest (title "to vN" only, or branch renovate/major-*, is major)
 
-Env: BBAPPROVE_BASE_URL, BBAPPROVE_AUTHOR_EMAIL, BBAPPROVE_DISALLOW, BBAPPROVE_TOKEN.
+Env: BBAPPROVE_MERGE_RETRIES, BBAPPROVE_RETRY_SLEEP, BBAPPROVE_BASE_URL, BBAPPROVE_AUTHOR_EMAIL, BBAPPROVE_DISALLOW, BBAPPROVE_TOKEN.
 Token falls back to 1Password item BITBUCKET_TOKEN (same as bbpr).
 USAGE
 }
@@ -86,12 +88,22 @@ process_pr() { # PR json
   local base="/rest/api/1.0/projects/$key/repos/$repo/pull-requests/$id"
   api POST "$base/approve"
   if [[ "$LAST_CODE" != 2* ]]; then log "FAIL    $label — approve HTTP $LAST_CODE"; return 0; fi
-  api POST "$base/merge?version=$version" "{\"version\":$version}"
-  if [[ "$LAST_CODE" == 2* ]]; then
-    log "MERGED  $label"
-  else
-    log "APPROVED, NOT MERGED $label — merge HTTP $LAST_CODE: $(jq -r '[.errors[]?.message] | join("; ")' <<<"$API_BODY" 2>/dev/null || true)"
-  fi
+  # Re-fetch the PR right before merging: earlier merges in the same repo move the
+  # target branch and bump the PR version, so the one read at startup goes stale.
+  local attempt=0 fresh
+  while :; do
+    attempt=$((attempt + 1))
+    api GET "$base"
+    fresh="$(jq -r '.version // empty' <<<"$API_BODY" 2>/dev/null || true)"
+    [[ -n "$fresh" ]] || fresh="$version"
+    api POST "$base/merge?version=$fresh" "{\"version\":$fresh}"
+    if [[ "$LAST_CODE" == 2* ]]; then log "MERGED  $label"; return 0; fi
+    if [[ "$LAST_CODE" == 409 && "$API_BODY" == *"out-of-date"* ]] && (( attempt < BBAPPROVE_MERGE_RETRIES )); then
+      sleep "$BBAPPROVE_RETRY_SLEEP"; continue
+    fi
+    break
+  done
+  log "APPROVED, NOT MERGED $label — merge HTTP $LAST_CODE: $(jq -r '[.errors[]?.message] | join("; ")' <<<"$API_BODY" 2>/dev/null || true)"
 }
 
 parse_pr_url() { # url -> "KEY REPO ID"

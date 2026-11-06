@@ -36,7 +36,8 @@ err() { printf '%s\n' "$*" >&2; }
 
 fetch_token() {
   if [[ -z "$BBAPPROVE_TOKEN" ]] && command -v op >/dev/null 2>&1; then
-    BBAPPROVE_TOKEN="$(op item get BITBUCKET_TOKEN --fields label=token --reveal 2>/dev/null)" || BBAPPROVE_TOKEN=""
+    err "Waiting for 1Password: op item get BITBUCKET_TOKEN"
+    BBAPPROVE_TOKEN="$(op item get BITBUCKET_TOKEN --fields label=token --reveal)" || BBAPPROVE_TOKEN=""
   fi
   [[ -n "$BBAPPROVE_TOKEN" ]] || { err "No token: use --token, BBAPPROVE_TOKEN or 1Password (op)."; return 1; }
 }

@@ -75,7 +75,7 @@ test_dry_run_classifies() {
 test_apply_approves_and_merges() {
   setup_stub
   local out; out="$(run_script --apply)"
-  assert_contains "$out" "MERGED  PROJ/repo#1" "merged #1"
+  assert_contains "$out" "MERGED   PROJ/repo#1" "merged #1"
   assert_contains "$(cat "$STUB_LOG")" "pull-requests/1/approve" "approve called"
   assert_contains "$(cat "$STUB_LOG")" "pull-requests/1/merge?version=7" "merge uses freshly fetched version"
   assert_not_contains "$(cat "$STUB_LOG")" "pull-requests/2/approve" "disallowed never approved"
@@ -93,7 +93,7 @@ test_merge_failure_reported() {
 test_stale_version_retried() {
   setup_stub
   local out; out="$(STUB_STALE_FILE="$TEST_TMP/stale" run_script --apply)"
-  assert_contains "$out" "MERGED  PROJ/repo#1" "merge succeeds after out-of-date retry"
+  assert_contains "$out" "MERGED   PROJ/repo#1" "merge succeeds after out-of-date retry"
   assert_not_contains "$out" "NOT MERGED" "no PR left unmerged after retry"
   assert_eq "$(grep -c 'pull-requests/1/merge' "$STUB_LOG")" "2" "#1 merge attempted twice"
   cleanup_test_tmp; TEST_TMP=""
@@ -102,7 +102,7 @@ test_stale_version_retried() {
 test_interactive_only_picked_are_merged() {
   setup_stub; make_fzf_stub
   local out; out="$(STUB_FZF_PICK='PROJ/repo#6' run_script -i)"
-  assert_contains "$out" "MERGED  PROJ/repo#6" "picked PR merged"
+  assert_contains "$out" "MERGED   PROJ/repo#6" "picked PR merged"
   assert_not_contains "$(cat "$STUB_LOG")" "pull-requests/1/approve" "unpicked PR untouched"
   assert_contains "$(cat "$STUB_FZF_INPUT")" "PROJ/repo#1" "eligible PR offered in picker"
   assert_not_contains "$(cat "$STUB_FZF_INPUT")" "some-library" "ineligible PR not offered"
@@ -121,6 +121,44 @@ test_custom_disallow() {
   setup_stub
   local out; out="$(run_script --disallow some-library,jsoup)"
   assert_contains "$out" "disallowed dependency 'jsoup'" "custom disallow honored"
+  cleanup_test_tmp; TEST_TMP=""
+}
+
+test_help_color_only_when_forced() {
+  setup_stub
+  local plain colored
+  plain="$(run_script --help)"
+  assert_not_contains "$plain" $'\033[' "no color when not a TTY"
+  colored="$(FORCE_COLOR=1 run_script --help)"
+  assert_contains "$colored" $'\033[1m' "help is colored with FORCE_COLOR"
+  assert_not_contains "$(NO_COLOR=1 FORCE_COLOR=1 run_script --help)" $'\033[' "NO_COLOR wins"
+  cleanup_test_tmp; TEST_TMP=""
+}
+
+test_output_labels_colored_when_forced() {
+  setup_stub
+  local out; out="$(FORCE_COLOR=1 run_script)"
+  assert_contains "$out" $'\033[32mELIGIBLE' "ELIGIBLE green"
+  assert_contains "$out" $'\033[33mSKIP' "SKIP yellow"
+  cleanup_test_tmp; TEST_TMP=""
+}
+
+test_1password_wait_notice_dim() {
+  setup_stub
+  printf '#!/usr/bin/env bash\nprintf tok\n' >"$TEST_TMP/bin/op"; chmod +x "$TEST_TMP/bin/op"
+  local out; out="$(BBAPPROVE_TOKEN="" FORCE_COLOR=1 run_script)"
+  assert_contains "$out" $'\033[2mWaiting for 1Password' "1Password notice is dim"
+  cleanup_test_tmp; TEST_TMP=""
+}
+
+test_columns_aligned_and_pr_ref_colored() {
+  setup_stub
+  local out; out="$(run_script)"
+  local cols; cols="$(grep -E '^(ELIGIBLE|SKIP)' <<<"$out" | awk '{print index($0, $2)}' | sort -u | wc -l | tr -d ' ')"
+  assert_eq "$cols" "1" "ELIGIBLE/SKIP second column starts at same offset"
+  out="$(FORCE_COLOR=1 run_script)"
+  assert_contains "$out" $'\033[1m#1\033[0m' "PR number is bold"
+  assert_contains "$out" $'\033[2m/\033[0m' "slash is dim"
   cleanup_test_tmp; TEST_TMP=""
 }
 

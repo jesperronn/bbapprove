@@ -14,8 +14,30 @@ BBAPPROVE_MERGE_RETRIES="${BBAPPROVE_MERGE_RETRIES:-4}"
 BBAPPROVE_RETRY_SLEEP="${BBAPPROVE_RETRY_SLEEP:-2}"
 BBAPPROVE_TARGETS=()
 
+# Colors: only on a TTY, never with NO_COLOR; FORCE_COLOR=1 forces them on.
+setup_colors() {
+  C_RESET="" C_BOLD="" C_DIM="" C_RED="" C_GREEN="" C_YELLOW="" C_CYAN=""
+  if [[ -z "${NO_COLOR:-}" && ( -t 1 || -n "${FORCE_COLOR:-}" ) ]]; then
+    C_RESET=$'\033[0m' C_BOLD=$'\033[1m' C_DIM=$'\033[2m' C_RED=$'\033[31m'
+    C_GREEN=$'\033[32m' C_YELLOW=$'\033[33m' C_CYAN=$'\033[36m'
+  fi
+}
+setup_colors
+
+# Colorize help text: title bold, section headings and flags cyan, env names yellow, rule bullets dim.
+colorize_usage() {
+  if [[ -z "$C_RESET" ]]; then cat; return; fi
+  sed -E \
+    -e "1s/^(.*)$/${C_BOLD}\\1${C_RESET}/" \
+    -e "s/^(Usage:)/${C_BOLD}${C_CYAN}\\1${C_RESET}/" \
+    -e "s/^(A PR is eligible when ALL hold:)/${C_BOLD}${C_CYAN}\\1${C_RESET}/" \
+    -e "s/^(Env:)(.*)$/${C_BOLD}${C_CYAN}\\1${C_RESET}${C_YELLOW}\\2${C_RESET}/" \
+    -e "s/(^|[ [|])(--?[a-z]+)/\\1${C_GREEN}\\2${C_RESET}/g" \
+    -e "s/^(Token falls back.*)$/${C_DIM}\\1${C_RESET}/"
+}
+
 usage() {
-  cat <<'USAGE'
+  colorize_usage <<'USAGE'
 bbapprove — approve and merge Renovate PRs on Bitbucket Server.
 
 Usage: bbapprove [-i|--interactive] [--apply] [--disallow a,b] [--token T] [PR_URL...]
@@ -35,12 +57,26 @@ Token falls back to 1Password item BITBUCKET_TOKEN (same as bbpr).
 USAGE
 }
 
+# status WORD COLOR... -> WORD colored, padded to 8 columns so the PR column lines up.
+status() {
+  local word="$1"; shift
+  local pad=$(( 8 - ${#word} )); (( pad < 0 )) && pad=0
+  printf '%s%s%s%*s' "$*" "$word" "$C_RESET" "$pad" ""
+}
+
+# pr_label KEY REPO ID TITLE -> KEY (dim cyan) / (dim) REPO (cyan) #ID (bold) TITLE
+pr_label() {
+  local R="$C_RESET"
+  printf '%s%s%s%s/%s%s%s%s%s#%s%s %s' \
+    "$C_DIM$C_CYAN" "$1" "$R" "$C_DIM" "$R" "$C_CYAN" "$2" "$R" "$C_BOLD" "$3" "$R" "$4"
+}
+
 log() { printf '%s\n' "$*"; }
 err() { printf '%s\n' "$*" >&2; }
 
 fetch_token() {
   if [[ -z "$BBAPPROVE_TOKEN" ]] && command -v op >/dev/null 2>&1; then
-    err "Waiting for 1Password: op item get BITBUCKET_TOKEN"
+    err "${C_DIM}Waiting for 1Password: op item get BITBUCKET_TOKEN${C_RESET}"
     BBAPPROVE_TOKEN="$(op item get BITBUCKET_TOKEN --fields label=token --reveal)" || BBAPPROVE_TOKEN=""
   fi
   [[ -n "$BBAPPROVE_TOKEN" ]] || { err "No token: use --token, BBAPPROVE_TOKEN or 1Password (op)."; return 1; }
@@ -83,9 +119,9 @@ process_pr() { # PR json
   repo="$(jq -r '.toRef.repository.slug' <<<"$pr")"
   id="$(jq -r '.id' <<<"$pr")"
   version="$(jq -r '.version' <<<"$pr")"
-  label="$key/$repo#$id $(jq -r '.title' <<<"$pr")"
-  if ! reason="$(check_eligible "$pr")"; then log "SKIP    $label — $reason"; return 0; fi
-  if (( ! BBAPPROVE_APPLY )); then log "ELIGIBLE $label (dry-run)"; return 0; fi
+  label="$(pr_label "$key" "$repo" "$id" "$(jq -r '.title' <<<"$pr")")"
+  if ! reason="$(check_eligible "$pr")"; then log "$(status SKIP "$C_YELLOW") $label ${C_DIM}— $reason${C_RESET}"; return 0; fi
+  if (( ! BBAPPROVE_APPLY )); then log "$(status ELIGIBLE "$C_GREEN") $label ${C_DIM}(dry-run)${C_RESET}"; return 0; fi
   act_on_pr "$pr"
 }
 
@@ -95,10 +131,10 @@ act_on_pr() { # PR json: approve, then merge with retries
   repo="$(jq -r '.toRef.repository.slug' <<<"$pr")"
   id="$(jq -r '.id' <<<"$pr")"
   version="$(jq -r '.version' <<<"$pr")"
-  label="$key/$repo#$id $(jq -r '.title' <<<"$pr")"
+  label="$(pr_label "$key" "$repo" "$id" "$(jq -r '.title' <<<"$pr")")"
   local base="/rest/api/1.0/projects/$key/repos/$repo/pull-requests/$id"
   api POST "$base/approve"
-  if [[ "$LAST_CODE" != 2* ]]; then log "FAIL    $label — approve HTTP $LAST_CODE"; return 0; fi
+  if [[ "$LAST_CODE" != 2* ]]; then log "$(status FAIL "$C_RED") $label — approve HTTP $LAST_CODE"; return 0; fi
   # Re-fetch the PR right before merging: earlier merges in the same repo move the
   # target branch and bump the PR version, so the one read at startup goes stale.
   local attempt=0 fresh
@@ -108,13 +144,13 @@ act_on_pr() { # PR json: approve, then merge with retries
     fresh="$(jq -r '.version // empty' <<<"$API_BODY" 2>/dev/null || true)"
     [[ -n "$fresh" ]] || fresh="$version"
     api POST "$base/merge?version=$fresh" "{\"version\":$fresh}"
-    if [[ "$LAST_CODE" == 2* ]]; then log "MERGED  $label"; return 0; fi
+    if [[ "$LAST_CODE" == 2* ]]; then log "$(status MERGED "${C_GREEN}${C_BOLD}") $label"; return 0; fi
     if [[ "$LAST_CODE" == 409 && "$API_BODY" == *"out-of-date"* ]] && (( attempt < BBAPPROVE_MERGE_RETRIES )); then
       sleep "$BBAPPROVE_RETRY_SLEEP"; continue
     fi
     break
   done
-  log "APPROVED, NOT MERGED $label — merge HTTP $LAST_CODE: $(jq -r '[.errors[]?.message] | join("; ")' <<<"$API_BODY" 2>/dev/null || true)"
+  log "${C_RED}APPROVED, NOT MERGED${C_RESET} $label — merge HTTP $LAST_CODE: $(jq -r '[.errors[]?.message] | join("; ")' <<<"$API_BODY" 2>/dev/null || true)"
 }
 
 # fzf multi-select over eligible PRs (sorted by repo, all preselected); approves+merges the picks.
@@ -156,7 +192,7 @@ main() {
       -i|--interactive) BBAPPROVE_INTERACTIVE=1; shift ;;
       --disallow) BBAPPROVE_DISALLOW="$2"; shift 2 ;;
       --token) BBAPPROVE_TOKEN="$2"; shift 2 ;;
-      -*) err "Unknown option: $1"; usage >&2; return 2 ;;
+      -*) err "Unknown option: $1"; C_RESET="" usage >&2; return 2 ;;
       *) BBAPPROVE_TARGETS+=("$1"); shift ;;
     esac
   done

@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"bbapprove/internal/adapter"
@@ -52,7 +52,7 @@ func drainQuit(m *Model, c tea.Cmd) (quit bool) {
 	return quit
 }
 
-func lines(m *Model) []string { return strings.Split(plain(m.View()), "\n") }
+func lines(m *Model) []string { return strings.Split(plain(m.View().Content), "\n") }
 
 func TestLowercaseActsOnCursorRowAndIgnoresMarks(t *testing.T) {
 	m, fb, _, _ := fixture(t)
@@ -66,8 +66,8 @@ func TestLowercaseActsOnCursorRowAndIgnoresMarks(t *testing.T) {
 	}
 	send(m, "k", "k") // row 2 (lodash)
 	send(m, "d")
-	if m.mode != modeConfirmDecline || !strings.Contains(plain(m.View()), "decline 1 PR(s)? y/N") {
-		t.Fatalf("d keeps the confirm:\n%s", m.View())
+	if m.mode != modeConfirmDecline || !strings.Contains(plain(m.View().Content), "decline 1 PR(s)? y/N") {
+		t.Fatalf("d keeps the confirm:\n%s", m.View().Content)
 	}
 	send(m, "y")
 	typeText(m, "nope")
@@ -90,8 +90,8 @@ func TestUppercaseActsOnMarksAndUnmarks(t *testing.T) {
 	m, fb, _, _ := fixture(t)
 	send(m, "x", "j", "j", "x", "j", "x") // marks 0 (ok), 2 (SKIP), 3 (ok); cursor 3
 	send(m, "k", "k", "k")                // cursor on an unmarked row: A must still use the marks
-	if send(m, "A") != nil || !strings.Contains(plain(m.View()), "approve+merge 2 PR(s)? y/N") {
-		t.Fatalf("confirm count:\n%s", m.View())
+	if send(m, "A") != nil || !strings.Contains(plain(m.View().Content), "approve+merge 2 PR(s)? y/N") {
+		t.Fatalf("confirm count:\n%s", m.View().Content)
 	}
 	c := send(m, "y")
 	if !strings.Contains(m.msg, "skipped 1") {
@@ -107,8 +107,8 @@ func TestUppercaseActsOnMarksAndUnmarks(t *testing.T) {
 	// shared decline comment for the remaining marked row plus another mark
 	send(m, "x") // mark row 0 again (cursor 0)
 	send(m, "D")
-	if !strings.Contains(plain(m.View()), "decline 2 PR(s)? y/N") {
-		t.Fatalf("decline count:\n%s", m.View())
+	if !strings.Contains(plain(m.View().Content), "decline 2 PR(s)? y/N") {
+		t.Fatalf("decline count:\n%s", m.View().Content)
 	}
 	send(m, "y")
 	typeText(m, "same")
@@ -117,8 +117,8 @@ func TestUppercaseActsOnMarksAndUnmarks(t *testing.T) {
 		t.Fatalf("declined %v marks %v", fb.declined, m.marks)
 	}
 	send(m, "j", "x", "j", "j", "x", "C")
-	if !strings.Contains(plain(m.View()), "comment on 2 PR(s)") {
-		t.Fatalf("comment prompt:\n%s", m.View())
+	if !strings.Contains(plain(m.View().Content), "comment on 2 PR(s)") {
+		t.Fatalf("comment prompt:\n%s", m.View().Content)
 	}
 	send(m, "enter") // empty: refused
 	if !strings.Contains(m.msg, "empty comment") || len(fb.comments) != 0 || len(m.marks) != 2 {
@@ -242,7 +242,7 @@ func TestWithBG(t *testing.T) {
 func TestCursorRowBackground(t *testing.T) {
 	m, _, _, _ := fixture(t)
 	send(m, "x")
-	ls := strings.Split(m.View(), "\n")
+	ls := strings.Split(m.View().Content, "\n")
 	cur, other := ls[1], ls[2]
 	if !strings.HasPrefix(cur, bgCursor) || strings.Contains(other, bgCursor) {
 		t.Fatalf("cursor bg: %q / %q", cur, other)
@@ -269,7 +269,7 @@ func TestCursorRowBackground(t *testing.T) {
 	}
 	// truncated cursor row stays within the width and keeps the background
 	m.Update(tea.WindowSizeMsg{Width: 30, Height: 20})
-	c30 := strings.Split(m.View(), "\n")[1]
+	c30 := strings.Split(m.View().Content, "\n")[1]
 	if ansi.StringWidth(c30) > 30 || !strings.HasPrefix(c30, bgCursor) {
 		t.Fatalf("narrow: %d %q", ansi.StringWidth(c30), c30)
 	}
@@ -279,7 +279,7 @@ func TestNoColorHasNoEscapesOrBackground(t *testing.T) {
 	m, _, _, _ := fixture(t)
 	m.cfg.NoColor = true
 	send(m, "x")
-	v := m.View()
+	v := m.View().Content
 	if strings.Contains(v, "\x1b[") || strings.Contains(v, "48;5") {
 		t.Fatalf("escapes under NO_COLOR: %q", v)
 	}
@@ -290,15 +290,15 @@ func TestNoColorHasNoEscapesOrBackground(t *testing.T) {
 
 func TestHoverBackgroundFainter(t *testing.T) {
 	m, _, _, _ := fixture(t)
-	m.Update(tea.MouseMsg{X: 10, Y: 3, Action: tea.MouseActionMotion})
+	m.Update(tea.MouseMotionMsg{X: 10, Y: 3})
 	if m.hover != 2 {
 		t.Fatalf("hover %d", m.hover)
 	}
-	ls := strings.Split(m.View(), "\n")
+	ls := strings.Split(m.View().Content, "\n")
 	if !strings.HasPrefix(ls[3], bgHover) || !strings.HasPrefix(ls[1], bgCursor) {
 		t.Fatal("hover/cursor backgrounds missing")
 	}
-	m.Update(tea.MouseMsg{X: 10, Y: 0, Action: tea.MouseActionMotion})
+	m.Update(tea.MouseMotionMsg{X: 10, Y: 0})
 	if m.hover != -1 {
 		t.Fatal("header clears hover")
 	}
@@ -312,7 +312,7 @@ func TestViewNeverExceedsWidthOrHeight(t *testing.T) {
 		m.showHelp = help
 		for _, w := range []int{200, 100, 60, 40, 20, 8} {
 			m.Update(tea.WindowSizeMsg{Width: w, Height: 16})
-			ls := strings.Split(m.View(), "\n")
+			ls := strings.Split(m.View().Content, "\n")
 			if len(ls) != 16 {
 				t.Fatalf("help=%v w=%d: %d lines", help, w, len(ls))
 			}
@@ -333,7 +333,7 @@ func TestFooterLineOne(t *testing.T) {
 	if !strings.HasPrefix(s, "https://bb/pr/1") || !strings.HasSuffix(s, "bbapprove v1.0.0-rc.1") || ansi.StringWidth(s) != 100 {
 		t.Fatalf("line 1: %q", s)
 	}
-	if !strings.Contains(m.View(), cDim+"bbapprove v1.0.0-rc.1") {
+	if !strings.Contains(m.View().Content, cDim+"bbapprove v1.0.0-rc.1") {
 		t.Fatal("version must be dim")
 	}
 	send(m, "j")
@@ -384,7 +384,7 @@ func TestHintLineDropsFromTheEnd(t *testing.T) {
 }
 
 func click(x, y int) tea.MouseMsg {
-	return tea.MouseMsg{X: x, Y: y, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress}
+	return tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft}
 }
 
 func TestMouse(t *testing.T) {
@@ -408,11 +408,11 @@ func TestMouse(t *testing.T) {
 	if m.cursor != 1 || len(m.marks) != 0 {
 		t.Fatalf("outside clicks must be ignored: cursor %d marks %v", m.cursor, m.marks)
 	}
-	m.Update(tea.MouseMsg{Button: tea.MouseButtonWheelDown, Action: tea.MouseActionPress})
+	m.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
 	if m.cursor != 3 {
 		t.Fatalf("wheel down: %d", m.cursor)
 	}
-	m.Update(tea.MouseMsg{Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress})
+	m.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
 	if m.cursor != 0 {
 		t.Fatalf("wheel up: %d", m.cursor)
 	}
@@ -421,7 +421,7 @@ func TestMouse(t *testing.T) {
 func TestMouseWheelScrollsViewport(t *testing.T) {
 	m, _, _, _ := fixture(t)
 	m.Update(tea.WindowSizeMsg{Width: 100, Height: 5}) // body 2
-	m.Update(tea.MouseMsg{Button: tea.MouseButtonWheelDown, Action: tea.MouseActionPress})
+	m.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
 	if m.cursor != 3 || m.top != 2 {
 		t.Fatalf("cursor %d top %d", m.cursor, m.top)
 	}
@@ -432,7 +432,7 @@ func TestMouseIgnoredInPromptAndWhenDisabled(t *testing.T) {
 	send(m, "c")
 	m.Update(click(20, 3))
 	m.Update(click(0, 2))
-	m.Update(tea.MouseMsg{X: 10, Y: 3, Action: tea.MouseActionMotion})
+	m.Update(tea.MouseMotionMsg{X: 10, Y: 3})
 	if m.cursor != 0 || len(m.marks) != 0 || m.hover != -1 || m.mode != modeInput {
 		t.Fatalf("prompt: cursor %d marks %v hover %d", m.cursor, m.marks, m.hover)
 	}

@@ -12,7 +12,7 @@ import (
 
 	"golang.org/x/term"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"bbapprove/internal/adapter"
 	"bbapprove/internal/app"
@@ -29,6 +29,9 @@ type RunOptions struct {
 	Stdout  io.Writer
 	Stderr  io.Writer
 	Version string
+	// Width and Height set the initial window size when positive. Only for headless runs (tests):
+	// with a real terminal the size is detected, and without one Bubble Tea v2 draws nothing at 0x0.
+	Width, Height int
 }
 
 // Run configures the TUI from args/env (same variables as the CLI) and runs it. Returns the exit code.
@@ -100,9 +103,10 @@ func Run(ctx context.Context, o RunOptions) int {
 // runModel runs the program for m and prints the exit summary. Split from Run so tests can inject a
 // model that has a fake Backend.
 func runModel(ctx context.Context, o RunOptions, m *Model, mouse bool) int {
-	opts := []tea.ProgramOption{tea.WithInput(o.Stdin), tea.WithOutput(o.Stdout), tea.WithAltScreen(), tea.WithContext(ctx)}
-	if mouse {
-		opts = append(opts, tea.WithMouseAllMotion())
+	m.cfg.NoMouse = !mouse // mouse reporting is requested by Model.View
+	opts := []tea.ProgramOption{tea.WithInput(o.Stdin), tea.WithOutput(o.Stdout), tea.WithContext(ctx)}
+	if o.Width > 0 && o.Height > 0 {
+		opts = append(opts, tea.WithWindowSize(o.Width, o.Height))
 	}
 	p := tea.NewProgram(m, opts...)
 	final, err := p.Run()

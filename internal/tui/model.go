@@ -8,7 +8,7 @@ import (
 	"runtime"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"bbapprove/internal/adapter"
@@ -358,7 +358,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.cmtOutstanding, m.cmtOK, m.cmtFails = 0, 0, nil
 		}
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		return m.key(msg)
 	}
 	return m, nil
@@ -417,7 +417,7 @@ func (m *Model) rowByURL(url string) *row {
 	return nil
 }
 
-func (m *Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *Model) key(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	s := k.String()
 	if s == "ctrl+c" {
 		return m, tea.Quit
@@ -453,7 +453,7 @@ func (m *Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.cursor < n-1 {
 			m.cursor++
 		}
-	case "x", " ":
+	case "x", "space":
 		if i, ok := m.current(); ok {
 			m.toggleMark(i)
 		}
@@ -578,17 +578,22 @@ func (m *Model) mouse(e tea.MouseMsg) {
 		return
 	}
 	v := m.visible()
-	switch {
-	case e.Action == tea.MouseActionMotion:
+	switch e := e.(type) {
+	case tea.MouseMotionMsg:
 		m.hover = m.rowAt(e.Y)
-	case e.Action != tea.MouseActionPress:
-	case e.Button == tea.MouseButtonWheelUp:
-		m.cursor -= 3
-		m.clamp()
-	case e.Button == tea.MouseButtonWheelDown:
-		m.cursor += 3
-		m.clamp()
-	case e.Button == tea.MouseButtonLeft:
+	case tea.MouseWheelMsg:
+		switch e.Button {
+		case tea.MouseWheelUp:
+			m.cursor -= 3
+			m.clamp()
+		case tea.MouseWheelDown:
+			m.cursor += 3
+			m.clamp()
+		}
+	case tea.MouseClickMsg:
+		if e.Button != tea.MouseLeft {
+			return
+		}
 		n := m.rowAt(e.Y)
 		if n < 0 {
 			return
@@ -600,6 +605,7 @@ func (m *Model) mouse(e tea.MouseMsg) {
 		}
 		m.clamp()
 	}
+	// tea.MouseReleaseMsg changes nothing.
 }
 
 // pruneMarks drops marks on rows that are not visible (rows that just became hidden IGNORED rows).
@@ -717,12 +723,12 @@ func (m *Model) inputPrompt() string {
 
 // inputKey is the minimal single-line editor: printable runes, backspace, ctrl+u, enter, esc.
 // Every key is consumed here so no list action can fire while a prompt is active.
-func (m *Model) inputKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch k.Type {
-	case tea.KeyEsc:
+func (m *Model) inputKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case k.Code == tea.KeyEscape:
 		m.mode, m.pending, m.input = modeList, nil, nil
 		m.msg = "cancelled"
-	case tea.KeyEnter:
+	case k.Code == tea.KeyEnter:
 		text := strings.TrimSpace(string(m.input))
 		m.mode, m.input = modeList, nil
 		if m.inputKind == inputComment {
@@ -734,16 +740,16 @@ func (m *Model) inputKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.runComment(text)
 		}
 		return m, m.runDecline(text)
-	case tea.KeyBackspace:
+	case k.Code == tea.KeyBackspace:
 		if n := len(m.input); n > 0 {
 			m.input = m.input[:n-1]
 		}
-	case tea.KeyCtrlU:
+	case k.String() == "ctrl+u":
 		m.input = nil
-	case tea.KeySpace:
+	case k.Code == tea.KeySpace:
 		m.input = append(m.input, ' ')
-	case tea.KeyRunes:
-		for _, r := range k.Runes {
+	default:
+		for _, r := range k.Text {
 			if r >= ' ' && r != 0x7f {
 				m.input = append(m.input, r)
 			}
@@ -1028,8 +1034,20 @@ func (m *Model) hintLine(nVisible int) string {
 	return b.String()
 }
 
-// View renders the whole screen.
-func (m *Model) View() string {
+// View renders the whole screen and declares the terminal features the program wants: the alternate
+// screen, mouse reporting (all motion, for the hover highlight) unless disabled, and the window title.
+func (m *Model) View() tea.View {
+	v := tea.NewView(m.content())
+	v.AltScreen = true
+	v.WindowTitle = "bbapprove"
+	if !m.cfg.NoMouse {
+		v.MouseMode = tea.MouseModeAllMotion
+	}
+	return v
+}
+
+// content is the rendered screen text.
+func (m *Model) content() string {
 	v := m.view()
 	if m.cfg.NoColor {
 		return stripSGR(v)

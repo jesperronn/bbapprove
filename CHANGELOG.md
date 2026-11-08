@@ -23,6 +23,7 @@ All notable changes to this project are documented here. The format follows
   are listed as `WORKING…`. Truncated to the width on a TTY only, honours `NO_COLOR`.
 
 ### Changed
+- Internal: the TUI now uses Bubble Tea v2 (`charm.land/bubbletea/v2`); no behaviour change.
 - STATUS column redesigned as the row's action state and widened from 8 to 11 characters (CLI and TUI):
   eligible and untouched rows are blank; words are `SKIP`, `IGNORED`, `APPROVING…`, `DECLINING…`,
   `COMMENTING…`, `MERGED`, `DECLINED`, `COMMENTED`, `NOT MERGED` (was `APPROVED, NOT MERGED`) and `FAIL`.

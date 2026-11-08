@@ -13,7 +13,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"bbapprove/internal/adapter"
@@ -89,30 +89,31 @@ func fixture(t *testing.T) (*Model, *fakeBackend, *[]string, string) {
 	return m, fb, &opened, ign
 }
 
-func key(s string) tea.KeyMsg {
+func key(s string) tea.KeyPressMsg {
 	switch s {
 	case "up":
-		return tea.KeyMsg{Type: tea.KeyUp}
+		return tea.KeyPressMsg{Code: tea.KeyUp}
 	case "down":
-		return tea.KeyMsg{Type: tea.KeyDown}
+		return tea.KeyPressMsg{Code: tea.KeyDown}
 	case "space":
-		return tea.KeyMsg{Type: tea.KeySpace, Runes: []rune(" ")}
+		return tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}
 	case "esc":
-		return tea.KeyMsg{Type: tea.KeyEsc}
+		return tea.KeyPressMsg{Code: tea.KeyEscape}
 	case "ctrl+a":
-		return tea.KeyMsg{Type: tea.KeyCtrlA}
+		return tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl}
 	case "ctrl+d":
-		return tea.KeyMsg{Type: tea.KeyCtrlD}
+		return tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl}
 	case "ctrl+c":
-		return tea.KeyMsg{Type: tea.KeyCtrlC}
+		return tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}
 	case "enter":
-		return tea.KeyMsg{Type: tea.KeyEnter}
+		return tea.KeyPressMsg{Code: tea.KeyEnter}
 	case "backspace":
-		return tea.KeyMsg{Type: tea.KeyBackspace}
+		return tea.KeyPressMsg{Code: tea.KeyBackspace}
 	case "ctrl+u":
-		return tea.KeyMsg{Type: tea.KeyCtrlU}
+		return tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl}
 	}
-	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
+	r := []rune(s)
+	return tea.KeyPressMsg{Code: r[0], Text: s}
 }
 
 func send(m *Model, keys ...string) tea.Cmd {
@@ -161,12 +162,12 @@ func plain(s string) string { return ansi.Strip(s) }
 func TestLoadingThenList(t *testing.T) {
 	fb := &fakeBackend{prs: []adapter.PR{mkPR(1, "x")}}
 	m := New(Config{Backend: fb})
-	if !strings.Contains(m.View(), "Loading") {
+	if !strings.Contains(m.View().Content, "Loading") {
 		t.Fatal("expected loading line")
 	}
 	m.Update(m.Init()())
-	if strings.Contains(m.View(), "Loading") || !strings.Contains(plain(m.View()), "PRJ/repo#1") {
-		t.Fatalf("bad view:\n%s", m.View())
+	if strings.Contains(m.View().Content, "Loading") || !strings.Contains(plain(m.View().Content), "PRJ/repo#1") {
+		t.Fatalf("bad view:\n%s", m.View().Content)
 	}
 }
 
@@ -196,7 +197,7 @@ func TestScrollSmallViewport(t *testing.T) {
 	if m.top != 2 || m.cursor != 3 {
 		t.Fatalf("top=%d cursor=%d", m.top, m.cursor)
 	}
-	out := plain(m.View())
+	out := plain(m.View().Content)
 	if !strings.Contains(out, "#4") || strings.Contains(out, "#1 ") {
 		t.Fatalf("viewport wrong:\n%s", out)
 	}
@@ -209,7 +210,7 @@ func TestScrollSmallViewport(t *testing.T) {
 func TestMarking(t *testing.T) {
 	m, _, _, _ := fixture(t)
 	send(m, "x")
-	if !m.marks[0] || !strings.Contains(plain(m.View()), "▌") {
+	if !m.marks[0] || !strings.Contains(plain(m.View().Content), "▌") {
 		t.Fatal("row 0 should be marked")
 	}
 	send(m, "space") // toggles same row off
@@ -240,12 +241,12 @@ func TestIgnoreToggleAndHidden(t *testing.T) {
 	if !strings.Contains(m.msg, "ignored 'npm'") {
 		t.Fatalf("msg %q", m.msg)
 	}
-	out := plain(m.View())
+	out := plain(m.View().Content)
 	if strings.Contains(out, "#1 ") || strings.Contains(out, "#4 ") {
 		t.Fatalf("npm rows should be hidden:\n%s", out)
 	}
 	send(m, ".")
-	out = plain(m.View())
+	out = plain(m.View().Content)
 	if strings.Count(out, "IGNORED") != 2 {
 		t.Fatalf("want 2 IGNORED rows:\n%s", out)
 	}
@@ -257,7 +258,7 @@ func TestIgnoreToggleAndHidden(t *testing.T) {
 	if strings.Contains(string(b), "npm") {
 		t.Fatalf("entry not removed: %q", b)
 	}
-	if strings.Contains(plain(m.View()), "IGNORED") {
+	if strings.Contains(plain(m.View().Content), "IGNORED") {
 		t.Fatal("rows should be back to ELIGIBLE")
 	}
 }
@@ -279,8 +280,8 @@ func TestApproveMarkedConfirmAndParallel(t *testing.T) {
 	fb.errs["https://bb/pr/4"] = &PartialError{Err: errors.New("merge conflict")}
 	send(m, "ctrl+a")
 	c := send(m, "A")
-	if c != nil || !strings.Contains(plain(m.View()), "approve+merge 3 PR(s)? y/N") {
-		t.Fatalf("expected confirm prompt:\n%s", m.View())
+	if c != nil || !strings.Contains(plain(m.View().Content), "approve+merge 3 PR(s)? y/N") {
+		t.Fatalf("expected confirm prompt:\n%s", m.View().Content)
 	}
 	if len(fb.called) != 0 {
 		t.Fatal("called before confirmation")
@@ -294,7 +295,7 @@ func TestApproveMarkedConfirmAndParallel(t *testing.T) {
 		t.Fatalf("concurrency exceeded: %d", fb.maxSeen)
 	}
 	m.Update(tea.WindowSizeMsg{Width: 200, Height: 20})
-	out := plain(m.View())
+	out := plain(m.View().Content)
 	for _, want := range []string{"MERGED", "FAIL", "boom stderr", "NOT MERGED", "merge conflict"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
@@ -351,13 +352,13 @@ func TestHelpToggle(t *testing.T) {
 	m, _, _, _ := fixture(t)
 	closed := m.bodyHeight()
 	send(m, "?")
-	if !strings.Contains(plain(m.View()), "ctrl+a mark all") {
+	if !strings.Contains(plain(m.View().Content), "ctrl+a mark all") {
 		t.Fatal("extended help missing")
 	}
 	if m.bodyHeight() != closed-len(m.helpArea()) {
 		t.Fatalf("body %d should shrink from %d", m.bodyHeight(), closed)
 	}
-	if n := len(strings.Split(m.View(), "\n")); n != 20 {
+	if n := len(strings.Split(m.View().Content, "\n")); n != 20 {
 		t.Fatalf("view is %d lines, want exactly the height", n)
 	}
 }
@@ -367,21 +368,21 @@ func TestResizeRetruncatesAndWidthBound(t *testing.T) {
 	m.rows[0].pr.Title = "chore(deps): update dependency npm to v1.2.3 " + strings.Repeat("long ", 40)
 	for _, w := range []int{120, 60, 30, 12} {
 		m.Update(tea.WindowSizeMsg{Width: w, Height: 20})
-		for i, l := range strings.Split(strings.TrimRight(m.View(), "\n"), "\n") {
+		for i, l := range strings.Split(strings.TrimRight(m.View().Content, "\n"), "\n") {
 			if got := ansi.StringWidth(l); got > w {
 				t.Fatalf("width %d: line %d is %d wide: %q", w, i, got, plain(l))
 			}
 		}
 	}
 	m.Update(tea.WindowSizeMsg{Width: 60, Height: 20})
-	if !strings.Contains(plain(m.View()), "…") {
+	if !strings.Contains(plain(m.View().Content), "…") {
 		t.Fatal("expected ellipsis at width 60")
 	}
 }
 
 func TestOSC8Link(t *testing.T) {
 	m, _, _, _ := fixture(t)
-	v := m.View()
+	v := m.View().Content
 	if !strings.Contains(v, "\x1b]8;;https://bb/pr/1\x1b\\") || !strings.Contains(v, osc8Close) {
 		t.Fatalf("OSC 8 hyperlink missing: %q", v)
 	}
@@ -393,8 +394,8 @@ func TestOSC8Link(t *testing.T) {
 func TestLoadError(t *testing.T) {
 	m := New(Config{Backend: &fakeBackend{}})
 	m.Update(loadedMsg{err: errors.New("nope")})
-	if !strings.Contains(m.View(), "error: nope") {
-		t.Fatal(m.View())
+	if !strings.Contains(m.View().Content, "error: nope") {
+		t.Fatal(m.View().Content)
 	}
 }
 
@@ -456,17 +457,17 @@ func TestDeclinePromptsAndStatuses(t *testing.T) {
 	m, fb, _, _ := fixture(t)
 	fb.errs["https://bb/pr/2"] = errors.New("403\nforbidden")
 	send(m, "x", "j", "x", "D")
-	if !strings.Contains(plain(m.View()), "decline 2 PR(s)? y/N") {
-		t.Fatalf("confirm prompt:\n%s", m.View())
+	if !strings.Contains(plain(m.View().Content), "decline 2 PR(s)? y/N") {
+		t.Fatalf("confirm prompt:\n%s", m.View().Content)
 	}
 	send(m, "y")
-	if !strings.Contains(plain(m.View()), "comment (enter = none, esc = cancel): █") {
-		t.Fatalf("comment prompt:\n%s", m.View())
+	if !strings.Contains(plain(m.View().Content), "comment (enter = none, esc = cancel): █") {
+		t.Fatalf("comment prompt:\n%s", m.View().Content)
 	}
 	c := send(m, "enter")
 	drain(m, c)
 	m.Update(tea.WindowSizeMsg{Width: 200, Height: 20})
-	lines := strings.Split(plain(m.View()), "\n")
+	lines := strings.Split(plain(m.View().Content), "\n")
 	if !strings.Contains(lines[1], "DECLINED") || !strings.Contains(lines[2], "FAIL") || !strings.Contains(lines[2], "403 forbidden") {
 		t.Fatalf("statuses:\n%s", strings.Join(lines, "\n"))
 	}
@@ -482,11 +483,11 @@ func TestCommentFlow(t *testing.T) {
 	m, fb, _, _ := fixture(t)
 	fb.errs["https://bb/pr/3"] = errors.New("nope")
 	send(m, "x", "j", "j", "x", "C")
-	if !strings.Contains(plain(m.View()), "comment on 2 PR(s) (enter = send, esc = cancel): █") {
-		t.Fatalf("prompt:\n%s", m.View())
+	if !strings.Contains(plain(m.View().Content), "comment on 2 PR(s) (enter = send, esc = cancel): █") {
+		t.Fatalf("prompt:\n%s", m.View().Content)
 	}
 	typeText(m, "hi there")
-	before := plain(m.View())
+	before := plain(m.View().Content)
 	drain(m, send(m, "enter"))
 	sort.Slice(fb.comments, func(i, j int) bool { return fb.comments[i].url < fb.comments[j].url })
 	want := []call{{"https://bb/pr/1", "hi there"}, {"https://bb/pr/3", "hi there"}}
@@ -560,7 +561,7 @@ func TestPromptSwallowsActionKeys(t *testing.T) {
 
 func TestHeaderAndWidthBound(t *testing.T) {
 	m, _, _, _ := fixture(t)
-	first := strings.Split(plain(m.View()), "\n")[0]
+	first := strings.Split(plain(m.View().Content), "\n")[0]
 	if !strings.HasPrefix(first, "  STATUS") || !strings.Contains(first, "TITLE") {
 		t.Fatalf("header missing: %q", first)
 	}
@@ -569,10 +570,10 @@ func TestHeaderAndWidthBound(t *testing.T) {
 	typeText(m, strings.Repeat("comment ", 30))
 	for _, w := range []int{20, 40, 100} {
 		m.Update(tea.WindowSizeMsg{Width: w, Height: 12})
-		if strings.HasSuffix(m.View(), "\n") {
+		if strings.HasSuffix(m.View().Content, "\n") {
 			t.Fatal("View must not end with a newline")
 		}
-		lines := strings.Split(m.View(), "\n")
+		lines := strings.Split(m.View().Content, "\n")
 		if len(lines) > 12 {
 			t.Fatalf("w=%d: %d lines > height", w, len(lines))
 		}
@@ -582,7 +583,7 @@ func TestHeaderAndWidthBound(t *testing.T) {
 			}
 		}
 	}
-	if !strings.Contains(plain(m.View()), "█") {
+	if !strings.Contains(plain(m.View().Content), "█") {
 		t.Fatal("cursor must stay visible on a long input")
 	}
 }
@@ -598,8 +599,8 @@ func TestIgnoreUnmarksAndCounter(t *testing.T) {
 		t.Fatalf("hidden rows must be un-marked: %v", m.marks)
 	}
 	send(m, "u")
-	if !strings.Contains(plain(m.View()), "3 PRs, 0 marked") && !strings.Contains(plain(m.View()), "2 PRs, 0 marked") {
-		t.Fatalf("view:\n%s", m.View())
+	if !strings.Contains(plain(m.View().Content), "3 PRs, 0 marked") && !strings.Contains(plain(m.View().Content), "2 PRs, 0 marked") {
+		t.Fatalf("view:\n%s", m.View().Content)
 	}
 	send(m, "ctrl+a")
 	if m.marks[0] || m.marks[3] || len(m.marks) != 1 || m.msg != "1 marked" {
@@ -614,15 +615,15 @@ func TestIgnoreUnmarksAndCounter(t *testing.T) {
 
 func TestFooterShowsVersion(t *testing.T) {
 	m, _, _, _ := fixture(t)
-	if strings.Contains(plain(m.View()), "bbapprove ") {
+	if strings.Contains(plain(m.View().Content), "bbapprove ") {
 		t.Fatal("no version expected when unset")
 	}
 	m.cfg.Version = "v1.0.0-rc.1"
-	if !strings.Contains(plain(m.View()), "bbapprove v1.0.0-rc.1") {
+	if !strings.Contains(plain(m.View().Content), "bbapprove v1.0.0-rc.1") {
 		t.Fatal("footer missing version")
 	}
 	send(m, "?")
-	if !strings.Contains(plain(m.View()), "bbapprove v1.0.0-rc.1") {
+	if !strings.Contains(plain(m.View().Content), "bbapprove v1.0.0-rc.1") {
 		t.Fatal("extended help missing version")
 	}
 }
@@ -641,12 +642,12 @@ func TestIgnoreOnSkipRowWinsAndRestores(t *testing.T) {
 	if w, _, _ := m.status(m.rows[2]); w != wIgnored {
 		t.Fatalf("SKIP row must become IGNORED, got %q", w)
 	}
-	if strings.Contains(plain(m.View()), "#3 ") {
-		t.Fatalf("ignored SKIP row must be hidden:\n%s", m.View())
+	if strings.Contains(plain(m.View().Content), "#3 ") {
+		t.Fatalf("ignored SKIP row must be hidden:\n%s", m.View().Content)
 	}
 	send(m, "h")
-	if !strings.Contains(plain(m.View()), "IGNORED") {
-		t.Fatalf("h must show it:\n%s", m.View())
+	if !strings.Contains(plain(m.View().Content), "IGNORED") {
+		t.Fatalf("h must show it:\n%s", m.View().Content)
 	}
 	for m.rows[m.cursor].pr.Number != 3 {
 		send(m, "down")
@@ -654,5 +655,17 @@ func TestIgnoreOnSkipRowWinsAndRestores(t *testing.T) {
 	send(m, "i")
 	if w, _, why := m.status(m.rows[2]); w != "SKIP" || why != "major update" {
 		t.Fatalf("un-ignore must restore the original reason: %q %q", w, why)
+	}
+}
+
+func TestViewDeclaresTerminalFeatures(t *testing.T) {
+	m, _, _, _ := fixture(t)
+	v := m.View()
+	if !v.AltScreen || v.MouseMode != tea.MouseModeAllMotion || v.WindowTitle != "bbapprove" {
+		t.Fatalf("view fields: alt=%v mouse=%v title=%q", v.AltScreen, v.MouseMode, v.WindowTitle)
+	}
+	m.cfg.NoMouse = true
+	if m.View().MouseMode != tea.MouseModeNone {
+		t.Fatal("NoMouse must not request mouse reporting")
 	}
 }

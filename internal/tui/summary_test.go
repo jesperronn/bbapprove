@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"bbapprove/internal/adapter"
 	"bbapprove/internal/app"
@@ -74,22 +74,22 @@ func TestHAliasesDotToggle(t *testing.T) {
 		m, _, _, _ := fixture(t)
 		m.Update(tea.WindowSizeMsg{Width: 200, Height: 20})
 		send(m, "i")
-		if strings.Contains(plain(m.View()), "#1 ") {
+		if strings.Contains(plain(m.View().Content), "#1 ") {
 			t.Fatalf("%s: npm rows should be hidden", k)
 		}
 		send(m, k)
-		out := plain(m.View())
+		out := plain(m.View().Content)
 		if strings.Count(out, "IGNORED") != 2 || !strings.Contains(out, "— on your ignore list: npm") {
 			t.Fatalf("%s: want 2 IGNORED rows with reason:\n%s", k, out)
 		}
 		send(m, k)
-		if strings.Contains(plain(m.View()), "IGNORED") {
+		if strings.Contains(plain(m.View().Content), "IGNORED") {
 			t.Fatalf("%s: toggles back", k)
 		}
 	}
 	m, _, _, _ := fixture(t)
 	send(m, "?")
-	if !strings.Contains(plain(m.View()), ". or h ignored") {
+	if !strings.Contains(plain(m.View().Content), ". or h ignored") {
 		t.Fatal("help lacks h")
 	}
 }
@@ -275,7 +275,7 @@ func runWithKeys(t *testing.T, fb *fakeBackend, keys ...string) string {
 	out := &lockedBuf{}
 	done := make(chan int, 1)
 	go func() {
-		done <- runModel(context.Background(), RunOptions{Stdin: pr, Stdout: out, Stderr: os.Stderr}, m, false)
+		done <- runModel(context.Background(), RunOptions{Stdin: pr, Stdout: out, Stderr: os.Stderr, Width: 100, Height: 20}, m, false)
 	}()
 	waitFor(t, "list rendered", func() bool { return strings.Contains(out.String(), "chore(deps)") })
 	for _, k := range keys {

@@ -15,6 +15,9 @@ import (
 // DefaultTimeout bounds every adapter call.
 const DefaultTimeout = 10 * time.Second
 
+// MergeTimeout bounds `pr merge`, which retries internally and can legitimately take ~35s.
+const MergeTimeout = 60 * time.Second
+
 // PR is the normalized pull request the adapter emits. Missing optional fields decode to zero values.
 type PR struct {
 	URL     string `json:"url"`
@@ -44,12 +47,22 @@ type Client struct {
 	Timeout time.Duration
 }
 
-// run executes the adapter and returns trimmed stdout. On failure the error text is the adapter's stderr.
-func (c *Client) run(ctx context.Context, args ...string) (string, error) {
-	t := c.Timeout
-	if t <= 0 {
-		t = DefaultTimeout
+// timeout returns c.Timeout when set, otherwise def.
+func (c *Client) timeout(def time.Duration) time.Duration {
+	if c.Timeout > 0 {
+		return c.Timeout
 	}
+	return def
+}
+
+// run executes the adapter with DefaultTimeout and returns trimmed stdout. On failure the error text is the adapter's stderr.
+func (c *Client) run(ctx context.Context, args ...string) (string, error) {
+	return c.runFor(ctx, DefaultTimeout, args...)
+}
+
+// runFor is run with an explicit per-call timeout (overridden by c.Timeout when set).
+func (c *Client) runFor(ctx context.Context, def time.Duration, args ...string) (string, error) {
+	t := c.timeout(def)
 	ctx, cancel := context.WithTimeout(ctx, t)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, c.Path, args...)
@@ -119,6 +132,6 @@ func (c *Client) Approve(ctx context.Context, url string) error {
 
 // Merge runs `pr merge URL`.
 func (c *Client) Merge(ctx context.Context, url string) error {
-	_, err := c.run(ctx, "pr", "merge", url)
+	_, err := c.runFor(ctx, MergeTimeout, "pr", "merge", url)
 	return err
 }

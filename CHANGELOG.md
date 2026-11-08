@@ -15,6 +15,10 @@ All notable changes to this project are documented here. The format follows
   the run instead of being treated as empty. The CLI and TUI share one classification (`rules.Classify`).
 
 ### Added
+- TUI: the keyboard hint line follows the Shift key. Holding Shift shows the batch keys (`A approve marked  D decline
+  marked  C comment marked  ctrl+a mark all  x mark  ? help  q quit`), releasing it restores the instant keys.
+  Needs the kitty keyboard protocol (Ghostty, kitty, recent iTerm2, WezTerm); other terminals keep the instant
+  set. `BBAPPROVE_KITTY=0` turns the request off. The `h ignored` hint was dropped from the line (still in `?`).
 - CLI shows ignored PRs dim with `IGNORED` and the reason `on your ignore list: <entry>`; `--hide-ignored`
   omits them and the footer says `N ignored (hidden)`.
 - TUI: `h` is an alias of `.` (show/hide ignored rows).

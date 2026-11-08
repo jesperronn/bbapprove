@@ -94,6 +94,21 @@ The bottom two lines never wrap: line 1 shows the transient message or active pr
 row's PR URL (where `o` goes), with `bbapprove <version>` dim at the right; line 2 shows `N PRs, M marked`
 and as many key hints as fit the terminal width.
 
+### Hints follow the Shift key
+
+By default line 2 shows the instant keys: `a approve  d decline  c comment  i ignore  x mark  o open  ? help  q quit`.
+While you HOLD Shift it switches to the batch keys, and releasing Shift restores the instant set:
+`A approve marked  D decline marked  C comment marked  ctrl+a mark all  x mark  ? help  q quit`.
+Both sets never wrap (trailing items are dropped to fit) and `?` always lists both.
+
+This needs a terminal that speaks the kitty keyboard protocol (Ghostty, kitty, recent iTerm2, WezTerm,
+foot, Alacritty): bbapprove requests the enhancements (key release events, all keys as escape codes with
+associated text and alternate keys) and detects support from the terminal's reply. In any other terminal
+(Terminal.app, tmux without passthrough, ...) the hints simply stay on the instant set, and every key still
+works the same. The Shift state is also cleared when the window loses focus or a key arrives without Shift,
+in case a release is lost. `BBAPPROVE_KITTY=0` stops bbapprove from requesting the enhancements (hints
+never change; Bubble Tea still asks for basic key disambiguation).
+
 ### Mouse
 
 Mouse support is on by default: click a row to move the cursor, click the first three columns to toggle its
@@ -134,6 +149,7 @@ Fixed-width columns: `STATUS`, then the check glyphs, then the PR ref and title.
 | `BBAPPROVE_JOBS` | parallel PR fetches and merges (default: CPU count) |
 | `BBAPPROVE_ADAPTER` | forge adapter executable (default `adapters/bitbucket`) |
 | `BBAPPROVE_MOUSE` | `0` turns TUI mouse capture off (same as `--no-mouse`) |
+| `BBAPPROVE_KITTY` | `0` stops the TUI requesting the kitty keyboard protocol, so the hints never follow Shift |
 | `NO_COLOR`, `FORCE_COLOR` | colour control (colour only on a TTY by default) |
 
 Adapter-only (read by `adapters/bitbucket`): `BBAPPROVE_BASE_URL` (default `https://bitbucket.example.com`),

@@ -95,7 +95,7 @@ func Run(ctx context.Context, o RunOptions) int {
 	m := New(Config{
 		Backend: ClientBackend{Client: client}, IgnorePath: ignore.DefaultPath(),
 		Check: rc.Check, Concurrency: jobs, Ctx: ctx, Version: o.Version,
-		NoColor: env("NO_COLOR") != "", NoMouse: !mouse, Summary: summaryStyle(o.Stdout, env),
+		NoColor: env("NO_COLOR") != "", NoMouse: !mouse, NoKitty: env("BBAPPROVE_KITTY") == "0", Summary: summaryStyle(o.Stdout, env),
 	})
 	return runModel(ctx, o, m, mouse)
 }

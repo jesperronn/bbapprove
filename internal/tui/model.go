@@ -28,6 +28,9 @@ type Config struct {
 	Version     string // shown dim at the right of the footer's first line when non-empty
 	NoColor     bool   // strip every colour/style escape and skip the cursor background
 	NoMouse     bool   // ignore mouse events (Run also leaves mouse capture off)
+	// NoKitty stops View from requesting the kitty keyboard protocol enhancements (BBAPPROVE_KITTY=0);
+	// the hint line then never follows the Shift key.
+	NoKitty bool
 	// Summary styles the exit summary: Color for ANSI colours, Width (0 = never truncate) for lines.
 	// Run sets it from the stdout terminal and NO_COLOR; the zero value is plain and untruncated.
 	Summary app.Style
@@ -152,8 +155,14 @@ type Model struct {
 	marks       map[int]bool
 	showIgnored bool
 	showHelp    bool
-	mode        mode
-	pending     []int
+	// kitty is set once the terminal answered the keyboard-enhancements query, i.e. speaks the kitty
+	// keyboard protocol. shiftL/shiftR track the physical Shift keys from modifier-key press/release
+	// events; the hint line follows them only when kitty is set.
+	kitty   bool
+	shiftL  bool
+	shiftR  bool
+	mode    mode
+	pending []int
 	// pendingBatch is true when pending came from the marked set (uppercase keys): only then are the
 	// acted rows un-marked. pendingSkipped counts marked rows an A skipped as not eligible.
 	pendingBatch   bool
@@ -294,6 +303,9 @@ func (m *Model) helpArea() []string {
 		"a approve+merge  d decline  c comment  i ignore  o open: instant, on the cursor row only",
 		"A D C: approve (eligible only) / decline / comment ALL MARKED rows; no marks = nothing; marks",
 		"are cleared afterwards. Mouse: click row = cursor, left edge = mark, wheel = scroll, hover.",
+		"Hints: instant  a approve  d decline  c comment  i ignore  x mark  o open  ? help  q quit",
+		"Hints: batch    A approve marked  D decline marked  C comment marked  ctrl+a mark all  x mark",
+		"The hint line shows the batch set while Shift is held (terminals with the kitty keyboard protocol).",
 		"Mouse capture disables native text selection and cmd-click on links; hold Shift to bypass it",
 		"(Ghostty, iTerm2, kitty). Off with --no-mouse or BBAPPROVE_MOUSE=0.",
 	}
@@ -358,6 +370,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.cmtOutstanding, m.cmtOK, m.cmtFails = 0, 0, nil
 		}
+	case tea.KeyboardEnhancementsMsg:
+		m.kitty = true
+	case tea.BlurMsg:
+		m.shiftL, m.shiftR = false, false // a release while unfocused is never seen
+	case tea.KeyReleaseMsg:
+		switch msg.Key().Code {
+		case tea.KeyLeftShift:
+			m.shiftL = false
+		case tea.KeyRightShift:
+			m.shiftR = false
+		}
 	case tea.KeyPressMsg:
 		return m.key(msg)
 	}
@@ -417,8 +440,44 @@ func (m *Model) rowByURL(url string) *row {
 	return nil
 }
 
+// isModifierKey reports a press of a bare modifier or lock key (only reported by the kitty protocol).
+func isModifierKey(c rune) bool {
+	return c >= tea.KeyLeftShift && c <= tea.KeyIsoLevel5Shift ||
+		c == tea.KeyCapsLock || c == tea.KeyScrollLock || c == tea.KeyNumLock
+}
+
+// keyName is the key's string with a lone Shift+letter normalised to the uppercase letter, so a
+// terminal that reports "A" as shift+a still triggers the same action as one that sends "A".
+func keyName(k tea.KeyPressMsg) string {
+	if k.Text == "" && k.Mod == tea.ModShift && k.Code >= 'a' && k.Code <= 'z' {
+		return strings.ToUpper(string(k.Code))
+	}
+	return k.String()
+}
+
+// shiftHints reports whether the hint line shows the batch set: Shift is held and the terminal
+// reports modifier keys (kitty keyboard protocol). Anywhere else the instant set is always shown.
+func (m *Model) shiftHints() bool {
+	return m.kitty && !m.cfg.NoKitty && (m.shiftL || m.shiftR)
+}
+
 func (m *Model) key(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	s := k.String()
+	switch k.Code {
+	case tea.KeyLeftShift:
+		m.shiftL = true
+		return m, nil
+	case tea.KeyRightShift:
+		m.shiftR = true
+		return m, nil
+	}
+	if !k.Mod.Contains(tea.ModShift) {
+		// Safety net for a lost release: a key press without Shift means Shift is not held.
+		m.shiftL, m.shiftR = false, false
+	}
+	if isModifierKey(k.Code) {
+		return m, nil // a bare modifier never cancels a prompt or clears the message
+	}
+	s := keyName(k)
 	if s == "ctrl+c" {
 		return m, tea.Quit
 	}
@@ -996,9 +1055,16 @@ func (m *Model) statusLine() string {
 	return out
 }
 
+// hintItems is the default hint set (instant actions on the cursor row); shiftHintItems replaces it
+// while Shift is held (batch actions on the marked rows).
 var hintItems = [][2]string{
 	{"a", "approve"}, {"d", "decline"}, {"c", "comment"}, {"i", "ignore"},
-	{"x", "mark"}, {"o", "open"}, {"h", "ignored"}, {"?", "help"}, {"q", "quit"},
+	{"x", "mark"}, {"o", "open"}, {"?", "help"}, {"q", "quit"},
+}
+
+var shiftHintItems = [][2]string{
+	{"A", "approve marked"}, {"D", "decline marked"}, {"C", "comment marked"},
+	{"ctrl+a", "mark all"}, {"x", "mark"}, {"?", "help"}, {"q", "quit"},
 }
 
 // hintLine is footer line 2: counts first when they fit, then as many key hints as fit; hints are
@@ -1022,11 +1088,15 @@ func (m *Model) hintLine(nVisible int) string {
 		return true
 	}
 	counts := fmt.Sprintf("%d PRs, %d marked", nVisible, m.markedVisible())
-	first := hintItems[0][0] + " " + hintItems[0][1]
+	items := hintItems
+	if m.shiftHints() {
+		items = shiftHintItems
+	}
+	first := items[0][0] + " " + items[0][1]
 	if m.width <= 0 || ansi.StringWidth(counts)+2+ansi.StringWidth(first) <= m.width {
 		add(counts, cDim+counts+cReset)
 	}
-	for _, h := range hintItems {
+	for _, h := range items {
 		if !add(h[0]+" "+h[1], cBold+h[0]+cReset+cDim+" "+h[1]+cReset) {
 			break
 		}
@@ -1042,6 +1112,15 @@ func (m *Model) View() tea.View {
 	v.WindowTitle = "bbapprove"
 	if !m.cfg.NoMouse {
 		v.MouseMode = tea.MouseModeAllMotion
+	}
+	if !m.cfg.NoKitty {
+		// Kitty keyboard protocol: release events plus all keys as escape codes (the only way a bare
+		// Shift press is reported), with alternate keys and associated text so typed text is unchanged.
+		v.KeyboardEnhancements = tea.KeyboardEnhancements{
+			ReportEventTypes: true, ReportAlternateKeys: true,
+			ReportAllKeysAsEscapeCodes: true, ReportAssociatedText: true,
+		}
+		v.ReportFocus = true // a Shift release is never seen while unfocused
 	}
 	return v
 }

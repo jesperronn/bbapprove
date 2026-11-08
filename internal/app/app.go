@@ -67,7 +67,7 @@ A PR is eligible when ALL hold:
   - not on your ignore list (a PR on it is IGNORED whatever else applies, and never acted on)
 
 Env: BBAPPROVE_AUTHOR_EMAIL, BBAPPROVE_DISALLOW, BBAPPROVE_DISALLOW_FILE, BBAPPROVE_JOBS,
-     BBAPPROVE_ADAPTER, BBAPPROVE_TOKEN, BBAPPROVE_MOUSE; NO_COLOR, FORCE_COLOR.
+     BBAPPROVE_ADAPTER, BBAPPROVE_TOKEN, BBAPPROVE_MOUSE, BBAPPROVE_KITTY; NO_COLOR, FORCE_COLOR.
 `
 
 // usage returns the help text; the first line carries the version when known.

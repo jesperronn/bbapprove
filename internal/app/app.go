@@ -43,8 +43,9 @@ Usage: bbapprove [--apply] [--disallow a,b] [--token T] [PR_URL...]
 
 With no PR_URL, every open PR where you are a reviewer is considered.
 Without --apply nothing is changed; eligibility is only reported.
--i opens an interactive TUI: x/space mark, X mark all eligible, a approve+merge, d decline,
-c comment, i ignore dependency, . show ignored, o open, ? help, q quit.
+-i opens an interactive TUI: x/space mark, ctrl+a mark all eligible, a approve+merge, d decline,
+c comment (cursor row); A/D/C act on the marked rows; i ignore dependency, r reload, o open,
+? help, q quit. --no-mouse (or BBAPPROVE_MOUSE=0) turns mouse capture off.
 
 A PR is eligible when ALL hold:
   - author email is BBAPPROVE_AUTHOR_EMAIL (default renovate-bot@example.com)
@@ -54,7 +55,7 @@ A PR is eligible when ALL hold:
   - not already approved by you
 
 Env: BBAPPROVE_AUTHOR_EMAIL, BBAPPROVE_DISALLOW, BBAPPROVE_DISALLOW_FILE, BBAPPROVE_JOBS,
-     BBAPPROVE_ADAPTER, BBAPPROVE_TOKEN; NO_COLOR, FORCE_COLOR.
+     BBAPPROVE_ADAPTER, BBAPPROVE_TOKEN, BBAPPROVE_MOUSE; NO_COLOR, FORCE_COLOR.
 `
 
 // usage returns the help text; the first line carries the version when known.

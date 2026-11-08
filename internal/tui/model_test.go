@@ -99,6 +99,8 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeySpace, Runes: []rune(" ")}
 	case "esc":
 		return tea.KeyMsg{Type: tea.KeyEsc}
+	case "ctrl+a":
+		return tea.KeyMsg{Type: tea.KeyCtrlA}
 	case "ctrl+d":
 		return tea.KeyMsg{Type: tea.KeyCtrlD}
 	case "ctrl+c":
@@ -186,7 +188,7 @@ func TestNavigationBounds(t *testing.T) {
 
 func TestScrollSmallViewport(t *testing.T) {
 	m, _, _, _ := fixture(t)
-	m.Update(tea.WindowSizeMsg{Width: 100, Height: 6}) // header+status+2 help lines = 4 -> body 2
+	m.Update(tea.WindowSizeMsg{Width: 100, Height: 5}) // header + 2 footer lines = 3 -> body 2
 	if m.bodyHeight() != 2 {
 		t.Fatalf("body %d", m.bodyHeight())
 	}
@@ -214,7 +216,7 @@ func TestMarking(t *testing.T) {
 	if len(m.marks) != 0 {
 		t.Fatal("should be unmarked")
 	}
-	send(m, "X")
+	send(m, "ctrl+a")
 	if len(m.marks) != 3 || m.marks[2] { // row 3 (index 2) is SKIP
 		t.Fatalf("marks=%v", m.marks)
 	}
@@ -222,7 +224,7 @@ func TestMarking(t *testing.T) {
 	if len(m.marks) != 0 {
 		t.Fatal("u should clear")
 	}
-	send(m, "X", "ctrl+d")
+	send(m, "ctrl+a", "ctrl+d")
 	if len(m.marks) != 0 {
 		t.Fatal("ctrl+d should clear")
 	}
@@ -275,8 +277,8 @@ func TestApproveMarkedConfirmAndParallel(t *testing.T) {
 	m, fb, _, _ := fixture(t)
 	fb.errs["https://bb/pr/2"] = errors.New("boom\nstderr")
 	fb.errs["https://bb/pr/4"] = &PartialError{Err: errors.New("merge conflict")}
-	send(m, "X")
-	c := send(m, "a")
+	send(m, "ctrl+a")
+	c := send(m, "A")
 	if c != nil || !strings.Contains(plain(m.View()), "approve+merge 3 PR(s)? y/N") {
 		t.Fatalf("expected confirm prompt:\n%s", m.View())
 	}
@@ -298,15 +300,18 @@ func TestApproveMarkedConfirmAndParallel(t *testing.T) {
 			t.Errorf("missing %q in:\n%s", want, out)
 		}
 	}
-	if !strings.Contains(out, "SKIP") || strings.Count(out, "PRJ/repo#") != 4 {
+	if !strings.Contains(out, "SKIP") || strings.Count(strings.Join(strings.Split(out, "\n")[:5], "\n"), "PRJ/repo#") != 4 {
 		t.Errorf("rows must stay in list:\n%s", out)
 	}
 }
 
-func TestApproveCurrentRowWhenNoMarks(t *testing.T) {
+func TestApproveCurrentRowInstantly(t *testing.T) {
 	m, fb, _, _ := fixture(t)
-	send(m, "j", "a")
-	drain(m, send(m, "y"))
+	c := send(m, "j", "a")
+	if m.mode != modeList {
+		t.Fatal("a must not ask for confirmation")
+	}
+	drain(m, c)
 	if len(fb.called) != 1 || fb.called[0] != "https://bb/pr/2" {
 		t.Fatalf("called %v", fb.called)
 	}
@@ -315,7 +320,7 @@ func TestApproveCurrentRowWhenNoMarks(t *testing.T) {
 func TestConfirmCancel(t *testing.T) {
 	for _, k := range []string{"n", "esc", "N"} {
 		m, fb, _, _ := fixture(t)
-		send(m, "x", "a")
+		send(m, "x", "A")
 		c := send(m, k)
 		drain(m, c)
 		if len(fb.called) != 0 || m.mode != modeList || len(m.marks) != 1 {
@@ -344,13 +349,16 @@ func TestQuit(t *testing.T) {
 
 func TestHelpToggle(t *testing.T) {
 	m, _, _, _ := fixture(t)
-	before := len(strings.Split(m.View(), "\n"))
+	closed := m.bodyHeight()
 	send(m, "?")
-	if len(strings.Split(m.View(), "\n")) <= before-1 && !strings.Contains(plain(m.View()), "show/hide ignored") {
+	if !strings.Contains(plain(m.View()), "ctrl+a mark all") {
 		t.Fatal("extended help missing")
 	}
-	if m.bodyHeight() >= 20-3 {
-		t.Fatal("body should shrink")
+	if m.bodyHeight() != closed-len(m.helpArea()) {
+		t.Fatalf("body %d should shrink from %d", m.bodyHeight(), closed)
+	}
+	if n := len(strings.Split(m.View(), "\n")); n != 20 {
+		t.Fatalf("view is %d lines, want exactly the height", n)
 	}
 }
 
@@ -410,15 +418,15 @@ func TestDeclineFlow(t *testing.T) {
 		want    []call
 		wantMsg string
 	}{
-		{"marked rows incl SKIP with comment", []string{"x", "j", "j", "x", "d", "y"}, "no longer needed", []string{"enter"},
+		{"marked rows incl SKIP with comment", []string{"x", "j", "j", "x", "D", "y"}, "no longer needed", []string{"enter"},
 			[]call{{"https://bb/pr/1", "no longer needed"}, {"https://bb/pr/3", "no longer needed"}}, ""},
-		{"empty comment passes empty string", []string{"x", "d", "y"}, "", []string{"enter"},
+		{"empty comment passes empty string", []string{"x", "D", "y"}, "", []string{"enter"},
 			[]call{{"https://bb/pr/1", ""}}, ""},
-		{"current row when nothing marked", []string{"j", "j", "d", "y"}, "x", []string{"enter"},
+		{"cursor row with d", []string{"j", "j", "d", "y"}, "x", []string{"enter"},
 			[]call{{"https://bb/pr/3", "x"}}, ""},
-		{"esc at comment prompt", []string{"x", "d", "y"}, "abc", []string{"esc"}, nil, "cancelled"},
-		{"esc at confirm", []string{"x", "d", "esc"}, "", nil, nil, "cancelled"},
-		{"n at confirm", []string{"x", "d", "n"}, "", nil, nil, "cancelled"},
+		{"esc at comment prompt", []string{"x", "D", "y"}, "abc", []string{"esc"}, nil, "cancelled"},
+		{"esc at confirm", []string{"x", "D", "esc"}, "", nil, nil, "cancelled"},
+		{"n at confirm", []string{"x", "D", "n"}, "", nil, nil, "cancelled"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -447,7 +455,7 @@ func TestDeclineFlow(t *testing.T) {
 func TestDeclinePromptsAndStatuses(t *testing.T) {
 	m, fb, _, _ := fixture(t)
 	fb.errs["https://bb/pr/2"] = errors.New("403\nforbidden")
-	send(m, "x", "j", "x", "d")
+	send(m, "x", "j", "x", "D")
 	if !strings.Contains(plain(m.View()), "decline 2 PR(s)? y/N") {
 		t.Fatalf("confirm prompt:\n%s", m.View())
 	}
@@ -473,7 +481,7 @@ func TestDeclinePromptsAndStatuses(t *testing.T) {
 func TestCommentFlow(t *testing.T) {
 	m, fb, _, _ := fixture(t)
 	fb.errs["https://bb/pr/3"] = errors.New("nope")
-	send(m, "x", "j", "j", "x", "c")
+	send(m, "x", "j", "j", "x", "C")
 	if !strings.Contains(plain(m.View()), "comment on 2 PR(s) (enter = send, esc = cancel): █") {
 		t.Fatalf("prompt:\n%s", m.View())
 	}
@@ -574,7 +582,7 @@ func TestHeaderAndWidthBound(t *testing.T) {
 
 func TestIgnoreUnmarksAndCounter(t *testing.T) {
 	m, _, _, _ := fixture(t)
-	send(m, "X")
+	send(m, "ctrl+a")
 	if len(m.marks) != 3 {
 		t.Fatalf("marks %v", m.marks)
 	}
@@ -586,13 +594,13 @@ func TestIgnoreUnmarksAndCounter(t *testing.T) {
 	if !strings.Contains(plain(m.View()), "3 PRs, 0 marked") && !strings.Contains(plain(m.View()), "2 PRs, 0 marked") {
 		t.Fatalf("view:\n%s", m.View())
 	}
-	send(m, "X")
+	send(m, "ctrl+a")
 	if m.marks[0] || m.marks[3] || len(m.marks) != 1 || m.msg != "1 marked" {
-		t.Fatalf("X must skip ignored rows: %v %q", m.marks, m.msg)
+		t.Fatalf("ctrl+a must skip ignored rows: %v %q", m.marks, m.msg)
 	}
 	// decline targets never include hidden IGNORED rows
 	m.marks[0] = true // simulate a stale mark
-	if got := m.anyStatusTargets(); len(got) != 1 || got[0] != 1 {
+	if got := m.markedTargets(); len(got) != 1 || got[0] != 1 {
 		t.Fatalf("targets %v", got)
 	}
 }

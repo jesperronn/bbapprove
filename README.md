@@ -31,22 +31,51 @@ Anything else is reported as SKIP with the reason. Nothing is changed without `-
 
 ## Interactive TUI (`-i`)
 
-Lists the same PRs with live status, and acts on them one at a time or in bulk.
+Lists the same PRs with live status, and acts on them one at a time or in bulk. The TUI stays open
+after every action; only `q` / ctrl+c quits.
+
+**Lowercase keys act instantly on the row under the cursor and never touch marks. Uppercase keys act on
+the marked rows.** Actions run in the background, so you can mark rows, press `D`, and keep working
+(for example `a` on another row) while it runs. A row that is currently working answers "row busy".
 
 | Key | Action |
 | --- | --- |
 | `↑`/`↓`, `j`/`k` | move |
-| `x` / space | mark / unmark the current row |
-| `X` | mark all eligible rows |
-| `u` / ctrl+d | clear marks |
-| `a` | approve + merge the marked rows, else the current row |
-| `d` | decline (confirm, then optional comment) |
-| `c` | comment on the marked rows, else the current row |
+| `a` | approve + merge the cursor row at once (no prompt; refused when not eligible) |
+| `d` | decline the cursor row (y/N confirm, then optional comment) |
+| `c` | comment on the cursor row (empty comment refused) |
 | `i` | ignore the row's dependency (per-user list); on an already ignored row, un-ignore it |
+| `o` | open the cursor row's PR in the browser |
+| `x` / space | mark / unmark the cursor row |
+| `ctrl+a` | mark all eligible rows |
+| `u` / ctrl+d | clear marks |
+| `A` | approve + merge the marked eligible rows (`approve+merge N PR(s)? y/N`; others skipped, with a count) |
+| `D` | decline the marked rows (confirm, then one shared optional comment) |
+| `C` | comment on the marked rows (one shared comment, empty refused) |
+| `r` | reload the list (cursor and marks are kept by PR URL; per-row result statuses are reset) |
 | `.` | show/hide ignored rows |
-| `o` | open the PR in the browser |
-| `?` | toggle the longer help |
+| `?` | toggle the extended help |
 | `q` | quit |
+
+With no marked rows `A`/`D`/`C` only show "no marked rows". After a batch action the acted rows are un-marked.
+
+### Look and status bar
+
+The cursor row has a subtle full-width background and the `›` marker; marked rows show a bold yellow `▌` bar;
+the mouse-hovered row gets a fainter background. With `NO_COLOR` set only the markers remain.
+The bottom two lines never wrap: line 1 shows the transient message or active prompt, otherwise the cursor
+row's PR URL (where `o` goes), with `bbapprove <version>` dim at the right; line 2 shows `N PRs, M marked`
+and as many key hints as fit the terminal width.
+
+### Mouse
+
+Mouse support is on by default: click a row to move the cursor, click the first three columns to toggle its
+mark, wheel to scroll (3 rows), hover to highlight. Clicks outside the rows are ignored, and the mouse is
+ignored while a text prompt is open.
+
+Trade-off: capturing the mouse disables the terminal's native text selection and cmd-click on links.
+Hold Shift to bypass the capture in most terminals (Ghostty, iTerm2, kitty). Turn it off entirely with
+`--no-mouse` or `BBAPPROVE_MOUSE=0`.
 
 Ignore list: `~/.config/bbapprove/ignore` (or `$XDG_CONFIG_HOME/bbapprove/ignore` when `XDG_CONFIG_HOME` is set).
 One dependency per line, `#` comments allowed. It is personal and separate from `disallow.txt`:
@@ -77,6 +106,7 @@ Fixed-width columns: `STATUS`, then the check glyphs, then the PR ref and title.
 | `BBAPPROVE_DISALLOW_FILE` | disallow file instead of `disallow.txt` |
 | `BBAPPROVE_JOBS` | parallel PR fetches and merges (default: CPU count) |
 | `BBAPPROVE_ADAPTER` | forge adapter executable (default `adapters/bitbucket`) |
+| `BBAPPROVE_MOUSE` | `0` turns TUI mouse capture off (same as `--no-mouse`) |
 | `NO_COLOR`, `FORCE_COLOR` | colour control (colour only on a TTY by default) |
 
 Adapter-only (read by `adapters/bitbucket`): `BBAPPROVE_BASE_URL` (default `https://bitbucket.example.com`),

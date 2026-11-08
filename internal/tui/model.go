@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"runtime"
-	"sort"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -24,7 +24,9 @@ type Config struct {
 	Check       func(adapter.PR) (reason string, eligible bool) // eligibility (internal/rules)
 	Concurrency int                                             // parallel approve+merge; default runtime.NumCPU()
 	Ctx         context.Context
-	Version     string // shown dim at the end of the footer when non-empty
+	Version     string // shown dim at the right of the footer's first line when non-empty
+	NoColor     bool   // strip every colour/style escape and skip the cursor background
+	NoMouse     bool   // ignore mouse events (Run also leaves mouse capture off)
 }
 
 const (
@@ -34,7 +36,23 @@ const (
 	cGreen  = "\033[32m"
 	cYellow = "\033[33m"
 	cBold   = "\033[1m"
+
+	bgCursor = "\033[48;5;237m" // subtle full-width cursor-row background
+	bgHover  = "\033[48;5;235m" // fainter background for the mouse-hovered row
 )
+
+// withBG paints bg behind a whole line. Every inner reset would cancel the background, so it is
+// re-emitted after each one; the line is closed with a final reset.
+func withBG(s, bg string) string {
+	s = strings.ReplaceAll(s, cReset, cReset+bg)
+	s = strings.ReplaceAll(s, "\033[m", cReset+bg)
+	return bg + s + cReset
+}
+
+var sgrRe = regexp.MustCompile("\x1b\\[[0-9;]*m")
+
+// stripSGR removes colour/style escapes (OSC 8 hyperlinks are left alone).
+func stripSGR(s string) string { return sgrRe.ReplaceAllString(s, "") }
 
 type row struct {
 	pr      adapter.PR
@@ -65,19 +83,25 @@ type loadedMsg struct {
 	err error
 }
 
+type reloadedMsg struct {
+	prs []adapter.PR
+	err error
+}
+
+// The done messages carry the PR URL (not a row index) so a reload in between cannot misdirect them.
 type doneMsg struct {
-	idx int
+	url string
 	err error
 }
 
 type declineDoneMsg struct {
-	idx int
+	url string
 	err error
 }
 
 type commentDoneMsg struct {
-	idx int
-	err error
+	url, ref string
+	err      error
 }
 
 // Model is the Bubble Tea model. It is a plain tea.Model: no TTY is needed to drive it.
@@ -94,8 +118,14 @@ type Model struct {
 	showHelp    bool
 	mode        mode
 	pending     []int
-	input       []rune
-	inputKind   inputKind
+	// pendingBatch is true when pending came from the marked set (uppercase keys): only then are the
+	// acted rows un-marked. pendingSkipped counts marked rows an A skipped as not eligible.
+	pendingBatch   bool
+	pendingSkipped int
+	reloading      bool
+	hover          int // visible index under the mouse, -1 for none
+	input          []rune
+	inputKind      inputKind
 	// Comment-only results are not stored on the rows (a comment must not change a PR's status word);
 	// they are summarised in the status bar once every outstanding comment finished.
 	cmtOutstanding, cmtOK int
@@ -118,7 +148,7 @@ func New(cfg Config) *Model {
 	if cfg.Check == nil {
 		cfg.Check = func(adapter.PR) (string, bool) { return "", true }
 	}
-	m := &Model{cfg: cfg, sem: make(chan struct{}, cfg.Concurrency), marks: map[int]bool{}, loading: true, height: 24}
+	m := &Model{cfg: cfg, sem: make(chan struct{}, cfg.Concurrency), marks: map[int]bool{}, loading: true, height: 24, hover: -1}
 	m.reloadIgnored()
 	return m
 }
@@ -204,30 +234,25 @@ func (m *Model) clamp() {
 	}
 }
 
-func (m *Model) helpLines() []string {
-	if m.showHelp {
-		return []string{
-			"↑/↓ j/k move   x/space mark   X mark all eligible   u/ctrl+d clear marks",
-			"a approve+merge (marked, else current)   i ignore/un-ignore dependency",
-			"d decline (confirm, then optional comment)   c comment (marked, else current)",
-			". show/hide ignored   o open in browser   ? less help   q quit" + m.versionSuffix(),
-		}
+// helpArea is the extended help shown above the two status lines while `?` is on.
+func (m *Model) helpArea() []string {
+	if !m.showHelp {
+		return nil
 	}
 	return []string{
-		"↑↓ move  x mark  X all  u clear  a approve+merge  d decline  c comment",
-		"i ignore  . ignored  o open  ? help  q quit" + m.versionSuffix(),
+		"↑/↓ j/k move   x/space mark   ctrl+a mark all eligible   u clear marks   r reload   . ignored",
+		"a approve+merge  d decline  c comment  i ignore  o open: instant, on the cursor row only",
+		"A D C: approve (eligible only) / decline / comment ALL MARKED rows; no marks = nothing; marks",
+		"are cleared afterwards. Mouse: click row = cursor, left edge = mark, wheel = scroll, hover.",
+		"Mouse capture disables native text selection and cmd-click on links; hold Shift to bypass it",
+		"(Ghostty, iTerm2, kitty). Off with --no-mouse or BBAPPROVE_MOUSE=0.",
 	}
 }
 
-func (m *Model) versionSuffix() string {
-	if m.cfg.Version == "" {
-		return ""
-	}
-	return "   bbapprove " + m.cfg.Version
-}
+func (m *Model) footerHeight() int { return 2 + len(m.helpArea()) }
 
 func (m *Model) bodyHeight() int {
-	h := m.height - 2 - len(m.helpLines())
+	h := m.height - 1 - m.footerHeight()
 	if h < 1 {
 		h = 1
 	}
@@ -247,8 +272,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.rows = append(m.rows, row{pr: pr})
 		}
 		m.clamp()
+	case reloadedMsg:
+		m.applyReload(msg)
+	case tea.MouseMsg:
+		m.mouse(msg)
 	case doneMsg:
-		r := &m.rows[msg.idx]
+		r := m.rowByURL(msg.url)
+		if r == nil {
+			break
+		}
 		var pe *PartialError
 		switch {
 		case msg.err == nil:
@@ -258,20 +290,25 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		default:
 			r.result, r.resCode, r.resMsg = "FAIL", cRed, oneLine(msg.err.Error())
 		}
+		m.msg = r.pr.Project + "/" + r.pr.Repo + "#" + fmt.Sprint(r.pr.Number) + " " + r.result
 		m.clamp()
 	case declineDoneMsg:
-		r := &m.rows[msg.idx]
+		r := m.rowByURL(msg.url)
+		if r == nil {
+			break
+		}
 		if msg.err == nil {
 			r.result, r.resCode, r.resMsg = "DECLINED", cRed, ""
 		} else {
 			r.result, r.resCode, r.resMsg = "FAIL", cRed, oneLine(msg.err.Error())
 		}
+		m.msg = r.pr.Project + "/" + r.pr.Repo + "#" + fmt.Sprint(r.pr.Number) + " " + r.result
 		m.clamp()
 	case commentDoneMsg:
 		if msg.err == nil {
 			m.cmtOK++
 		} else {
-			m.cmtFails = append(m.cmtFails, m.ref(msg.idx)+": "+oneLine(msg.err.Error()))
+			m.cmtFails = append(m.cmtFails, msg.ref+": "+oneLine(msg.err.Error()))
 		}
 		if m.cmtOutstanding--; m.cmtOutstanding <= 0 {
 			m.msg = fmt.Sprintf("COMMENTED on %d PR(s)", m.cmtOK)
@@ -287,6 +324,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
+
+func (m *Model) rowByURL(url string) *row {
+	for i := range m.rows {
+		if m.rows[i].pr.URL == url {
+			return &m.rows[i]
+		}
+	}
+	return nil
+}
 
 func (m *Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	s := k.String()
@@ -311,6 +357,7 @@ func (m *Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.msg = ""
+	var cmd tea.Cmd
 	n := len(m.visible())
 	switch s {
 	case "q":
@@ -325,13 +372,9 @@ func (m *Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "x", " ":
 		if i, ok := m.current(); ok {
-			if m.marks[i] {
-				delete(m.marks, i)
-			} else {
-				m.marks[i] = true
-			}
+			m.toggleMark(i)
 		}
-	case "X":
+	case "ctrl+a":
 		for i := range m.rows {
 			// eligible() is false for IGNORED rows, so hidden/ignored rows are never marked.
 			if m.eligible(i) {
@@ -342,11 +385,19 @@ func (m *Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+d", "u":
 		m.marks = map[int]bool{}
 	case "a":
-		m.askApprove()
+		cmd = m.approveCursor()
+	case "A":
+		m.askApproveMarked()
 	case "d":
-		m.askDecline()
+		m.askDecline(false)
+	case "D":
+		m.askDecline(true)
 	case "c":
-		m.askComment()
+		m.askComment(false)
+	case "C":
+		m.askComment(true)
+	case "r":
+		cmd = m.reload()
 	case "i":
 		m.toggleIgnore()
 	case ".":
@@ -364,7 +415,108 @@ func (m *Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	m.pruneMarks()
 	m.clamp()
-	return m, nil
+	return m, cmd
+}
+
+func (m *Model) toggleMark(i int) {
+	if m.marks[i] {
+		delete(m.marks, i)
+	} else {
+		m.marks[i] = true
+	}
+}
+
+// reload asks the Backend for the list again; applyReload keeps cursor and marks by URL.
+func (m *Model) reload() tea.Cmd {
+	if m.reloading {
+		m.msg = "already reloading…"
+		return nil
+	}
+	m.reloading = true
+	m.msg = "reloading…"
+	return func() tea.Msg {
+		prs, err := m.cfg.Backend.List(m.cfg.Ctx)
+		return reloadedMsg{prs, err}
+	}
+}
+
+func (m *Model) applyReload(msg reloadedMsg) {
+	m.reloading = false
+	if msg.err != nil {
+		m.msg = "reload failed: " + oneLine(msg.err.Error())
+		return
+	}
+	curURL := ""
+	if i, ok := m.current(); ok {
+		curURL = m.rows[i].pr.URL
+	}
+	marked := map[string]bool{}
+	for i := range m.marks {
+		marked[m.rows[i].pr.URL] = true
+	}
+	m.rows = nil
+	m.marks = map[int]bool{}
+	for i, pr := range msg.prs {
+		m.rows = append(m.rows, row{pr: pr})
+		if marked[pr.URL] {
+			m.marks[i] = true
+		}
+	}
+	m.reloadIgnored()
+	for n, i := range m.visible() {
+		if m.rows[i].pr.URL == curURL {
+			m.cursor = n
+			break
+		}
+	}
+	m.hover = -1
+	if m.mode != modeList { // indexes held by a prompt are stale now
+		m.mode, m.pending, m.input = modeList, nil, nil
+	}
+	m.pruneMarks()
+	m.clamp()
+	m.msg = fmt.Sprintf("reloaded %d PRs", len(msg.prs))
+}
+
+// rowAt maps a screen line to a visible index (-1 when it is not a list row).
+func (m *Model) rowAt(y int) int {
+	n := y - 1 // line 0 is the header
+	if m.loading || m.loadErr != nil || n < 0 || n >= m.bodyHeight() {
+		return -1
+	}
+	if idx := m.top + n; idx < len(m.visible()) {
+		return idx
+	}
+	return -1
+}
+
+func (m *Model) mouse(e tea.MouseMsg) {
+	if m.cfg.NoMouse || m.loading || m.loadErr != nil || m.mode != modeList {
+		return
+	}
+	v := m.visible()
+	switch {
+	case e.Action == tea.MouseActionMotion:
+		m.hover = m.rowAt(e.Y)
+	case e.Action != tea.MouseActionPress:
+	case e.Button == tea.MouseButtonWheelUp:
+		m.cursor -= 3
+		m.clamp()
+	case e.Button == tea.MouseButtonWheelDown:
+		m.cursor += 3
+		m.clamp()
+	case e.Button == tea.MouseButtonLeft:
+		n := m.rowAt(e.Y)
+		if n < 0 {
+			return
+		}
+		if e.X < 3 {
+			m.toggleMark(v[n])
+		} else {
+			m.cursor = n
+		}
+		m.clamp()
+	}
 }
 
 // pruneMarks drops marks on rows that are not visible (rows that just became hidden IGNORED rows).
@@ -396,43 +548,76 @@ func (m *Model) ref(i int) string {
 	return fmt.Sprintf("%s/%s#%d", pr.Project, pr.Repo, pr.Number)
 }
 
-// anyStatusTargets returns the marked visible rows (any status), else the current row. Rows with an
-// action in flight are skipped.
-func (m *Model) anyStatusTargets() []int {
+// markedTargets returns the marked visible rows (any status) that have no action in flight.
+func (m *Model) markedTargets() []int {
 	var t []int
 	for _, i := range m.visible() {
 		if m.marks[i] && m.rows[i].result != "WORKING" {
 			t = append(t, i)
 		}
 	}
-	if len(t) > 0 {
-		return t
-	}
-	if m.markedVisible() > 0 {
-		return nil
-	}
-	if i, ok := m.current(); ok && m.rows[i].result != "WORKING" {
-		return []int{i}
-	}
-	return nil
+	return t
 }
 
-func (m *Model) askDecline() {
-	t := m.anyStatusTargets()
-	if len(t) == 0 {
-		m.msg = "nothing to decline"
-		return
+// cursorTarget is the cursor row for an instant action; ok is false (with a message) when it is busy.
+func (m *Model) cursorTarget() (int, bool) {
+	i, ok := m.current()
+	if !ok {
+		return 0, false
 	}
-	m.pending, m.mode = t, modeConfirmDecline
+	if m.rows[i].result == "WORKING" {
+		m.msg = "row busy"
+		return 0, false
+	}
+	return i, true
 }
 
-func (m *Model) askComment() {
-	t := m.anyStatusTargets()
-	if len(t) == 0 {
-		m.msg = "nothing to comment on"
-		return
+// batchTargets returns the marked rows for an uppercase action, or sets the reason message.
+func (m *Model) batchTargets() ([]int, bool) {
+	if m.markedVisible() == 0 {
+		m.msg = "no marked rows"
+		return nil, false
 	}
-	m.pending = t
+	t := m.markedTargets()
+	if len(t) == 0 {
+		m.msg = "row busy"
+		return nil, false
+	}
+	return t, true
+}
+
+func (m *Model) askDecline(batch bool) {
+	var t []int
+	if batch {
+		var ok bool
+		if t, ok = m.batchTargets(); !ok {
+			return
+		}
+	} else {
+		i, ok := m.cursorTarget()
+		if !ok {
+			return
+		}
+		t = []int{i}
+	}
+	m.pending, m.pendingBatch, m.pendingSkipped, m.mode = t, batch, 0, modeConfirmDecline
+}
+
+func (m *Model) askComment(batch bool) {
+	var t []int
+	if batch {
+		var ok bool
+		if t, ok = m.batchTargets(); !ok {
+			return
+		}
+	} else {
+		i, ok := m.cursorTarget()
+		if !ok {
+			return
+		}
+		t = []int{i}
+	}
+	m.pending, m.pendingBatch, m.pendingSkipped = t, batch, 0
 	m.startInput(inputComment)
 }
 
@@ -489,11 +674,11 @@ func (m *Model) runDecline(comment string) tea.Cmd {
 	for _, i := range m.pending {
 		i, pr := i, m.rows[i].pr
 		m.rows[i].result, m.rows[i].resCode, m.rows[i].resMsg = "WORKING", cYellow, ""
-		delete(m.marks, i)
+		m.unmark(i)
 		cmds = append(cmds, func() tea.Msg {
 			m.sem <- struct{}{}
 			defer func() { <-m.sem }()
-			return declineDoneMsg{i, m.cfg.Backend.Decline(m.cfg.Ctx, pr, comment)}
+			return declineDoneMsg{pr.URL, m.cfg.Backend.Decline(m.cfg.Ctx, pr, comment)}
 		})
 	}
 	m.msg = fmt.Sprintf("declining %d PR(s)…", len(m.pending))
@@ -505,12 +690,13 @@ func (m *Model) runComment(body string) tea.Cmd {
 	cmds := make([]tea.Cmd, 0, len(m.pending))
 	for _, i := range m.pending {
 		i, pr := i, m.rows[i].pr
-		delete(m.marks, i) // avoid double-sending; the row's status word is left untouched
+		m.unmark(i) // the row's status word is left untouched
+		ref := m.ref(i)
 		m.cmtOutstanding++
 		cmds = append(cmds, func() tea.Msg {
 			m.sem <- struct{}{}
 			defer func() { <-m.sem }()
-			return commentDoneMsg{i, m.cfg.Backend.Comment(m.cfg.Ctx, pr, body)}
+			return commentDoneMsg{pr.URL, ref, m.cfg.Backend.Comment(m.cfg.Ctx, pr, body)}
 		})
 	}
 	m.msg = fmt.Sprintf("commenting on %d PR(s)…", len(m.pending))
@@ -518,34 +704,47 @@ func (m *Model) runComment(body string) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-func (m *Model) askApprove() {
-	var targets []int
-	if len(m.marks) > 0 {
-		for i := range m.marks {
-			if m.eligible(i) {
-				targets = append(targets, i)
-			}
-		}
-		sort.Ints(targets)
-		if len(targets) == 0 {
-			m.msg = "no marked PR is eligible"
-			return
-		}
-	} else {
-		i, ok := m.current()
-		if !ok {
-			return
-		}
-		if w, _, why := m.status(m.rows[i]); w != "ELIGIBLE" {
-			if why == "" {
-				why = strings.ToLower(w)
-			}
-			m.msg = "refused: not eligible (" + why + ")"
-			return
-		}
-		targets = []int{i}
+// unmark drops the mark of a row a batch action just acted on; instant actions never touch marks.
+func (m *Model) unmark(i int) {
+	if m.pendingBatch {
+		delete(m.marks, i)
 	}
-	m.pending = targets
+}
+
+// approveCursor approves+merges the cursor row immediately (lowercase a): no prompt, marks untouched.
+func (m *Model) approveCursor() tea.Cmd {
+	i, ok := m.cursorTarget()
+	if !ok {
+		return nil
+	}
+	if w, _, why := m.status(m.rows[i]); w != "ELIGIBLE" {
+		if why == "" {
+			why = strings.ToLower(w)
+		}
+		m.msg = "refused: not eligible (" + why + ")"
+		return nil
+	}
+	m.pending, m.pendingBatch, m.pendingSkipped = []int{i}, false, 0
+	return m.runPending()
+}
+
+// askApproveMarked starts the A confirm for the eligible marked rows.
+func (m *Model) askApproveMarked() {
+	t, ok := m.batchTargets()
+	if !ok {
+		return
+	}
+	var targets []int
+	for _, i := range t {
+		if m.eligible(i) {
+			targets = append(targets, i)
+		}
+	}
+	if len(targets) == 0 {
+		m.msg = "no marked PR is eligible"
+		return
+	}
+	m.pending, m.pendingBatch, m.pendingSkipped = targets, true, m.markedVisible()-len(targets)
 	m.mode = modeConfirm
 }
 
@@ -554,15 +753,18 @@ func (m *Model) runPending() tea.Cmd {
 	for _, i := range m.pending {
 		i, pr := i, m.rows[i].pr
 		m.rows[i].result, m.rows[i].resCode, m.rows[i].resMsg = "WORKING", cYellow, ""
-		delete(m.marks, i)
+		m.unmark(i)
 		cmds = append(cmds, func() tea.Msg {
 			m.sem <- struct{}{}
 			defer func() { <-m.sem }()
-			return doneMsg{i, m.cfg.Backend.ApproveAndMerge(m.cfg.Ctx, pr)}
+			return doneMsg{pr.URL, m.cfg.Backend.ApproveAndMerge(m.cfg.Ctx, pr)}
 		})
 	}
 	m.msg = fmt.Sprintf("working on %d PR(s)…", len(m.pending))
-	m.pending = nil
+	if m.pendingSkipped > 0 {
+		m.msg += fmt.Sprintf(" (skipped %d not eligible)", m.pendingSkipped)
+	}
+	m.pending, m.pendingSkipped = nil, 0
 	return tea.Batch(cmds...)
 }
 
@@ -602,7 +804,7 @@ func (m *Model) fit(s string) string {
 	return ansi.Truncate(s, m.width, "…") + cReset + osc8Close
 }
 
-func (m *Model) renderRow(idx int, selected bool) string {
+func (m *Model) renderRow(idx int, selected, hovered bool) string {
 	r := m.rows[idx]
 	word, code, reason := m.status(r)
 	st := app.Style{Color: true}
@@ -616,30 +818,136 @@ func (m *Model) renderRow(idx int, selected bool) string {
 		cur = "›"
 	}
 	if m.marks[idx] {
-		mark = "▌"
+		mark = cBold + cYellow + "▌" + cReset
 	}
-	return m.fit(cur + mark + line)
+	out := m.fit(cur + mark + line)
+	bg := ""
+	switch {
+	case m.cfg.NoColor:
+	case selected:
+		bg = bgCursor
+	case hovered:
+		bg = bgHover
+	}
+	if bg == "" {
+		return out
+	}
+	if pad := m.width - ansi.StringWidth(out); m.width > 0 && pad > 0 {
+		out += strings.Repeat(" ", pad)
+	}
+	return withBG(out, bg)
 }
 
-// visibleInput returns the tail of the input that fits next to the prompt so the cursor stays visible.
-func (m *Model) visibleInput(prompt string) string {
-	in := string(m.input)
-	if m.width <= 0 {
-		return in
-	}
-	room := m.width - ansi.StringWidth(prompt) - 1
+// visibleInput returns the tail of the input that fits in room columns so the cursor stays visible.
+func (m *Model) visibleInput(room int) string {
+	r := m.input
 	if room < 1 {
 		room = 1
 	}
-	r := []rune(in)
 	for len(r) > 0 && ansi.StringWidth(string(r)) > room {
 		r = r[1:]
 	}
 	return string(r)
 }
 
+// statusLine is footer line 1: message / prompt / cursor URL on the left, dim version on the right.
+// The left side is truncated so the version always stays visible.
+func (m *Model) statusLine() string {
+	right := ""
+	if m.cfg.Version != "" {
+		right = "bbapprove " + m.cfg.Version
+	}
+	rw := ansi.StringWidth(right)
+	avail := m.width
+	if m.width > 0 {
+		if m.width-rw-1 >= 8 {
+			avail = m.width - rw - 1
+		} else {
+			right, rw = "", 0
+		}
+	}
+	var left string
+	switch {
+	case m.mode == modeConfirm:
+		left = cBold + fmt.Sprintf("approve+merge %d PR(s)? y/N", len(m.pending)) + cReset
+	case m.mode == modeConfirmDecline:
+		left = cBold + fmt.Sprintf("decline %d PR(s)? y/N", len(m.pending)) + cReset
+	case m.mode == modeInput:
+		p := m.inputPrompt()
+		room := 1 << 20
+		if avail > 0 {
+			room = avail - ansi.StringWidth(p) - 1
+		}
+		left = cBold + p + m.visibleInput(room) + "█" + cReset
+	case m.msg != "":
+		left = cBold + m.msg + cReset
+	default:
+		if i, ok := m.current(); ok && m.rows[i].pr.URL != "" {
+			left = cDim + m.rows[i].pr.URL + cReset
+		}
+	}
+	if avail <= 0 {
+		return left + "  " + cDim + right + cReset
+	}
+	if ansi.StringWidth(left) > avail {
+		left = ansi.Truncate(left, avail, "…") + cReset
+	}
+	pad := avail - ansi.StringWidth(left)
+	out := left + strings.Repeat(" ", pad)
+	if right != "" {
+		out += " " + cDim + right + cReset
+	}
+	return out
+}
+
+var hintItems = [][2]string{
+	{"a", "approve"}, {"d", "decline"}, {"c", "comment"}, {"i", "ignore"},
+	{"x", "mark"}, {"o", "open"}, {"?", "help"}, {"q", "quit"},
+}
+
+// hintLine is footer line 2: counts first when they fit, then as many key hints as fit; hints are
+// dropped from the end, never wrapped.
+func (m *Model) hintLine(nVisible int) string {
+	var b strings.Builder
+	w := 0
+	add := func(plain, styled string) bool {
+		need := ansi.StringWidth(plain)
+		if w > 0 {
+			need += 2
+		}
+		if m.width > 0 && w+need > m.width {
+			return false
+		}
+		if w > 0 {
+			b.WriteString("  ")
+		}
+		b.WriteString(styled)
+		w += need
+		return true
+	}
+	counts := fmt.Sprintf("%d PRs, %d marked", nVisible, m.markedVisible())
+	first := hintItems[0][0] + " " + hintItems[0][1]
+	if m.width <= 0 || ansi.StringWidth(counts)+2+ansi.StringWidth(first) <= m.width {
+		add(counts, cDim+counts+cReset)
+	}
+	for _, h := range hintItems {
+		if !add(h[0]+" "+h[1], cBold+h[0]+cReset+cDim+" "+h[1]+cReset) {
+			break
+		}
+	}
+	return b.String()
+}
+
 // View renders the whole screen.
 func (m *Model) View() string {
+	v := m.view()
+	if m.cfg.NoColor {
+		return stripSGR(v)
+	}
+	return v
+}
+
+func (m *Model) view() string {
 	var b strings.Builder
 	if m.loading {
 		b.WriteString("Loading pull requests…\n")
@@ -655,32 +963,18 @@ func (m *Model) View() string {
 	h := m.bodyHeight()
 	for n := 0; n < h; n++ {
 		if m.top+n < len(v) {
-			b.WriteString(m.renderRow(v[m.top+n], m.top+n == m.cursor))
+			b.WriteString(m.renderRow(v[m.top+n], m.top+n == m.cursor, m.top+n == m.hover))
 		} else if len(v) == 0 && n == 0 {
 			b.WriteString(cDim + "no pull requests" + cReset)
 		}
 		b.WriteString("\n")
 	}
-	status := m.msg
-	switch m.mode {
-	case modeConfirm:
-		status = fmt.Sprintf("approve+merge %d PR(s)? y/N", len(m.pending))
-	case modeConfirmDecline:
-		status = fmt.Sprintf("decline %d PR(s)? y/N", len(m.pending))
-	case modeInput:
-		status = m.inputPrompt() + m.visibleInput(m.inputPrompt()) + "█"
+	for _, l := range m.helpArea() {
+		b.WriteString(m.fit(cDim+l+cReset) + "\n")
 	}
-	if status == "" {
-		status = fmt.Sprintf("%d PRs, %d marked", len(v), m.markedVisible())
-	}
-	b.WriteString(m.fit(cBold+status+cReset) + "\n")
+	b.WriteString(m.statusLine() + "\n")
 	// No trailing newline: a View of exactly m.height lines plus "\n" would make Bubble Tea
 	// drop the first line (the header) in the alt screen.
-	for n, l := range m.helpLines() {
-		if n > 0 {
-			b.WriteString("\n")
-		}
-		b.WriteString(m.fit(cDim + l + cReset))
-	}
+	b.WriteString(m.hintLine(len(v)))
 	return b.String()
 }

@@ -84,14 +84,33 @@ func Run(ctx context.Context, o RunOptions) int {
 		}
 		client.Token = t
 	}
+	mouse := MouseEnabled(env("BBAPPROVE_MOUSE"), o.Args)
 	m := New(Config{
 		Backend: ClientBackend{Client: client}, IgnorePath: ignore.DefaultPath(),
 		Check: rc.Check, Concurrency: jobs, Ctx: ctx, Version: o.Version,
+		NoColor: env("NO_COLOR") != "", NoMouse: !mouse,
 	})
-	p := tea.NewProgram(m, tea.WithInput(o.Stdin), tea.WithOutput(o.Stdout), tea.WithAltScreen(), tea.WithContext(ctx))
+	opts := []tea.ProgramOption{tea.WithInput(o.Stdin), tea.WithOutput(o.Stdout), tea.WithAltScreen(), tea.WithContext(ctx)}
+	if mouse {
+		opts = append(opts, tea.WithMouseAllMotion())
+	}
+	p := tea.NewProgram(m, opts...)
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintln(o.Stderr, err)
 		return 1
 	}
 	return 0
+}
+
+// MouseEnabled reports whether mouse capture is on: it is unless BBAPPROVE_MOUSE=0 or --no-mouse.
+func MouseEnabled(envValue string, args []string) bool {
+	if envValue == "0" {
+		return false
+	}
+	for _, a := range args {
+		if a == "--no-mouse" {
+			return false
+		}
+	}
+	return true
 }

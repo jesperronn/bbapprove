@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# runtests — run the bbapprove test suites: Go packages and the bash suites under test/.
+#
+# Usage: bin/runtests [--verbose] [--no-go] [--no-shell] [TARGET...]
+#   no TARGET    go test ./... -count=1 -race, then every test/*.test.sh via bash
+#   TARGET       a *.test.sh file runs that suite; anything else is a Go package pattern
+#                relative to the project root, e.g. ./internal/tui
+#   --verbose    pass --verbose to the shell suites and -v to go test
+#   --no-go      skip the Go tests
+#   --no-shell   skip the shell suites
+#
+# Every suite runs even when an earlier one fails.
+# Exit: 0 all passed, 1 a suite failed, 2 usage error.
+
+set -euo pipefail
+shopt -s nullglob
+
+usage() {
+  cat <<'EOF'
+Usage: bin/runtests [--verbose] [--no-go] [--no-shell] [TARGET...]
+
+  (no TARGET)  go test ./... -count=1 -race, then every test/*.test.sh
+  TARGET       a *.test.sh file (runs that suite) or a Go package pattern such as ./internal/tui
+  --verbose    pass --verbose to shell suites and -v to go test
+  --no-go      skip the Go tests
+  --no-shell   skip the shell suites
+  -h, --help   show this help
+
+Exit: 0 all passed, 1 a suite failed, 2 usage error.
+EOF
+}
+
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+
+verbose=0
+run_go=1
+run_shell=1
+targets=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help) usage; exit 0 ;;
+    --verbose|-v) verbose=1 ;;
+    --no-go) run_go=0 ;;
+    --no-shell) run_shell=0 ;;
+    -*) echo "runtests: unknown option: $1" >&2; usage >&2; exit 2 ;;
+    *) targets+=("$1") ;;
+  esac
+  shift
+done
+
+# Absolute, symlink-resolved form of a path relative to the current directory.
+resolve_path() {
+  local p="$1" dir
+  if [[ -d "$p" ]]; then
+    (cd "$p" && pwd -P)
+  elif [[ -e "$p" ]]; then
+    dir="$(cd "$(dirname "$p")" && pwd -P)" || return 1
+    printf '%s/%s\n' "$dir" "$(basename "$p")"
+  else
+    return 1
+  fi
+}
+
+go_suites=()
+shell_suites=()
+for target in ${targets[@]+"${targets[@]}"}; do
+  if [[ "$target" == *.test.sh ]]; then
+    abs="$(resolve_path "$target")" || abs=""
+    if [[ -z "$abs" || ! -f "$abs" ]]; then
+      echo "runtests: no such suite: $target" >&2
+      exit 2
+    fi
+    case "$abs" in
+      "$PROJECT_ROOT"/*) shell_suites+=("${abs#"$PROJECT_ROOT"/}") ;;
+      *) echo "runtests: outside the project: $target" >&2; exit 2 ;;
+    esac
+  else
+    go_suites+=("$target")
+  fi
+done
+
+if [[ ${#targets[@]} -eq 0 ]]; then
+  go_suites=("./...")
+  shell_suites=(test/*.test.sh)
+fi
+if [[ $run_go -eq 0 ]]; then go_suites=(); fi
+if [[ $run_shell -eq 0 ]]; then shell_suites=(); fi
+
+if [[ ${#go_suites[@]} -eq 0 && ${#shell_suites[@]} -eq 0 ]]; then
+  echo "runtests: nothing to run" >&2
+  exit 2
+fi
+
+cd "$PROJECT_ROOT"
+
+failed=()
+
+# run_suite NAME COMMAND...: print a header, run the command, record NAME on failure.
+run_suite() {
+  local name="$1"
+  shift
+  echo "==> $name"
+  if "$@"; then
+    return 0
+  fi
+  failed+=("$name")
+  return 0
+}
+
+go_args=(-count=1 -race)
+if [[ $verbose -eq 1 ]]; then go_args+=(-v); fi
+for pkg in ${go_suites[@]+"${go_suites[@]}"}; do
+  run_suite "go:$pkg" go test "$pkg" "${go_args[@]}"
+done
+
+shell_args=()
+if [[ $verbose -eq 1 ]]; then shell_args+=(--verbose); fi
+for suite in ${shell_suites[@]+"${shell_suites[@]}"}; do
+  run_suite "$(basename "$suite")" bash "$suite" ${shell_args[@]+"${shell_args[@]}"}
+done
+
+if [[ ${#failed[@]} -eq 0 ]]; then
+  echo "TEST SUMMARY: all passed"
+  exit 0
+fi
+echo "TEST SUMMARY: ${#failed[@]} failed: $(IFS=', '; echo "${failed[*]}")"
+exit 1

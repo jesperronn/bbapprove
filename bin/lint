@@ -1,0 +1,234 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# lint — lint the bbapprove project: shellcheck for shell scripts, gofmt and go vet for Go.
+#
+# Usage: bin/lint [--autofix] [PATH...]
+#   no PATH     lint the whole project: shellcheck on bin/*, adapters/*, test/*.sh and
+#               test/lib/*.sh (bash scripts only), gofmt -l . and go vet ./...
+#   PATH...     lint only those files or directories. Go files (and the packages they
+#               belong to) go to gofmt and go vet; shell files go to shellcheck; other
+#               files are skipped with a note. Directories are searched recursively.
+#   --autofix   rewrite the Go targets with gofmt -w (shellcheck only reports)
+#   -h, --help  show this help
+#
+# Exit: 0 clean, 1 a tool reported problems (every tool still runs), 2 usage error,
+#       127 a required tool (shellcheck, go, gofmt) is not installed.
+
+set -euo pipefail
+shopt -s nullglob
+
+usage() {
+  cat <<'EOF'
+Usage: bin/lint [--autofix] [PATH...]
+
+Lints the bbapprove project. With no PATH, lints everything; otherwise lints only
+the given files and directories.
+
+  --autofix   run gofmt -w on the Go targets (shellcheck only reports)
+  -h, --help  show this help
+
+Exit: 0 clean, 1 problems found, 2 usage error, 127 missing tool.
+EOF
+}
+
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+
+autofix=0
+path_args=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help) usage; exit 0 ;;
+    --autofix) autofix=1 ;;
+    --)
+      shift
+      for arg in "$@"; do path_args+=("$arg"); done
+      break
+      ;;
+    -*) echo "lint: unknown option: $1" >&2; usage >&2; exit 2 ;;
+    *) path_args+=("$1") ;;
+  esac
+  shift
+done
+
+# Absolute, symlink-resolved form of a path relative to the current directory.
+resolve_path() {
+  local p="$1" dir
+  if [[ -d "$p" ]]; then
+    (cd "$p" && pwd -P)
+  elif [[ -e "$p" ]]; then
+    dir="$(cd "$(dirname "$p")" && pwd -P)" || return 1
+    printf '%s/%s\n' "$dir" "$(basename "$p")"
+  else
+    return 1
+  fi
+}
+
+is_go_file() { [[ "$1" == *.go ]]; }
+
+# A shell file has a .sh extension or a bash shebang on its first line.
+is_shell_file() {
+  local f="$1" first=""
+  if [[ "$f" == *.sh ]]; then
+    return 0
+  fi
+  [[ -f "$f" ]] || return 1
+  first="$(head -c 256 "$f" | tr -d '\000' | head -n 1)" || true
+  [[ "$first" =~ ^#!.*bash ]]
+}
+
+# classify PROJECT_RELATIVE_FILE EXPLICIT(1|0): sort a file into go_files or shell_files.
+go_files=()
+shell_files=()
+classify() {
+  if is_go_file "$1"; then
+    go_files+=("$1")
+  elif is_shell_file "$1"; then
+    shell_files+=("$1")
+  elif [[ "$2" == 1 ]]; then
+    echo "lint: skipping $1 (not Go or shell)" >&2
+  fi
+}
+
+# Resolve the path arguments (relative to the caller's directory) before changing directory.
+file_abs=()
+dir_abs=()
+for arg in ${path_args[@]+"${path_args[@]}"}; do
+  if ! abs="$(resolve_path "$arg")"; then
+    echo "lint: no such file or directory: $arg" >&2
+    exit 2
+  fi
+  case "$abs" in
+    "$PROJECT_ROOT"|"$PROJECT_ROOT"/*) ;;
+    *) echo "lint: outside the project: $arg" >&2; exit 2 ;;
+  esac
+  if [[ -d "$abs" ]]; then
+    dir_abs+=("$abs")
+  else
+    file_abs+=("$abs")
+  fi
+done
+
+cd "$PROJECT_ROOT"
+full=0
+
+if [[ ${#path_args[@]} -eq 0 ]]; then
+  full=1
+  for f in bin/* adapters/* test/*.sh test/lib/*.sh; do
+    if [[ -f "$f" ]] && is_shell_file "$f"; then
+      shell_files+=("$f")
+    fi
+  done
+else
+  for abs in ${file_abs[@]+"${file_abs[@]}"}; do
+    classify "${abs#"$PROJECT_ROOT"/}" 1
+  done
+  for dir in ${dir_abs[@]+"${dir_abs[@]}"}; do
+    while IFS= read -r abs; do
+      classify "${abs#"$PROJECT_ROOT"/}" 0
+    done < <(find "$dir" -name .git -prune -o -type f -print | sort)
+  done
+fi
+
+go_wanted=0
+if [[ $full -eq 1 || ${#go_files[@]} -gt 0 ]]; then
+  go_wanted=1
+fi
+
+if [[ ${#shell_files[@]} -eq 0 && $go_wanted -eq 0 ]]; then
+  echo "lint: nothing to lint"
+  exit 0
+fi
+
+if [[ ${#shell_files[@]} -gt 0 ]] && ! command -v shellcheck >/dev/null 2>&1; then
+  echo "lint: shellcheck is not installed (needed for shell files)" >&2
+  exit 127
+fi
+if [[ $go_wanted -eq 1 ]]; then
+  for tool in go gofmt; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+      echo "lint: $tool is not installed (needed for Go files)" >&2
+      exit 127
+    fi
+  done
+fi
+
+# Go package directories ("." or "./sub/dir") of the selected Go files, unique.
+pkg_dirs=()
+if [[ ${#go_files[@]} -gt 0 ]]; then
+  while IFS= read -r pkg; do
+    pkg_dirs+=("$pkg")
+  done < <(
+    for f in "${go_files[@]}"; do
+      d=.
+      if [[ "$f" == */* ]]; then d="${f%/*}"; fi
+      if [[ "$d" == . ]]; then echo .; else echo "./$d"; fi
+    done | sort -u
+  )
+fi
+
+failures=()
+
+if [[ ${#shell_files[@]} -gt 0 ]]; then
+  if [[ $autofix -eq 1 ]]; then
+    echo "shellcheck: no autofix available, reporting only"
+  fi
+  status=0
+  out="$(shellcheck ${shell_files[@]+"${shell_files[@]}"} 2>&1)" || status=$?
+  if [[ $status -eq 0 ]]; then
+    echo "shellcheck: ${#shell_files[@]} file(s) ok"
+  else
+    if [[ -n "$out" ]]; then printf '%s\n' "$out"; fi
+    echo "shellcheck: ${#shell_files[@]} file(s) FAILED"
+    failures+=(shellcheck)
+  fi
+fi
+
+if [[ $go_wanted -eq 1 ]]; then
+  if [[ $full -eq 1 ]]; then
+    gofmt_targets=(.)
+    vet_targets=(./...)
+  else
+    gofmt_targets=("${go_files[@]}")
+    vet_targets=("${pkg_dirs[@]}")
+  fi
+
+  status=0
+  if [[ $autofix -eq 1 ]]; then
+    out="$(gofmt -w "${gofmt_targets[@]}" 2>&1)" || status=$?
+    if [[ $status -eq 0 ]]; then
+      echo "gofmt ok (autofix applied)"
+    else
+      if [[ -n "$out" ]]; then printf '%s\n' "$out"; fi
+      echo "gofmt: FAILED (autofix error)"
+      failures+=(gofmt)
+    fi
+  else
+    out="$(gofmt -l "${gofmt_targets[@]}" 2>&1)" || status=$?
+    if [[ $status -eq 0 && -z "$out" ]]; then
+      echo "gofmt ok"
+    else
+      if [[ -n "$out" ]]; then
+        echo "gofmt: needs formatting (bin/lint --autofix fixes these):"
+        printf '%s\n' "$out"
+      fi
+      echo "gofmt: FAILED"
+      failures+=(gofmt)
+    fi
+  fi
+
+  status=0
+  out="$(go vet "${vet_targets[@]}" 2>&1)" || status=$?
+  if [[ $status -eq 0 ]]; then
+    echo "go vet ok"
+  else
+    if [[ -n "$out" ]]; then printf '%s\n' "$out"; fi
+    echo "go vet: FAILED"
+    failures+=("go vet")
+  fi
+fi
+
+if [[ ${#failures[@]} -gt 0 ]]; then
+  echo "lint: FAILED: $(IFS=', '; echo "${failures[*]}")"
+  exit 1
+fi
+exit 0

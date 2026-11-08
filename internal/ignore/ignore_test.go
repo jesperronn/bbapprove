@@ -56,7 +56,7 @@ func TestDependencyFromTitle(t *testing.T) {
 	}{
 		{"scoped npm package", "chore(deps): update dependency @biomejs/biome to v2.6.5 (master)", "@biomejs/biome", true},
 		{"maven coordinates", "fix(deps): update dependency org.jsoup:jsoup to v1.24.1", "org.jsoup:jsoup", true},
-		{"property with branch", "chore(deps): update another-library.version to v26.6.7.redhat-00003 (master)", "another-library.version", true},
+		{"property with branch", "chore(deps): update some-library.version to v26.6.7.redhat-00003 (master)", "some-library.version", true},
 		{"docker digest", "chore(deps): update postgres docker digest to 123b179 (master)", "postgres", true},
 		{"plain npm", "chore(deps): update dependency npm to v12.2.2", "npm", true},
 		{"github action", "chore(deps): update actions/checkout action to v4", "actions/checkout", true},
@@ -345,7 +345,7 @@ func TestMatches(t *testing.T) {
 	}{
 		{"substring match", []string{"lodash"}, "chore(deps): bump lodash from 4 to 5", "lodash", true},
 		{"case insensitive title", []string{"biome"}, "chore(deps): update dependency @biomejs/Biome to v2", "biome", true},
-		{"case insensitive entry", []string{"Another-Library"}, "chore(deps): update another-library.version to v26", "Another-Library", true},
+		{"case insensitive entry", []string{"Some-Library"}, "chore(deps): update some-library.version to v26", "Some-Library", true},
 		{"first match wins", []string{"npm", "lodash"}, "bump lodash and npm", "npm", true},
 		{"no match", []string{"lodash"}, "feat: something", "", false},
 		{"empty list", nil, "anything", "", false},

@@ -13,7 +13,6 @@
   - Today: title ending `to vN` or branch `renovate/major-*` counts as major (`internal/rules`). Drop the branch check, and treat "can't tell" as NOT eligible (fail closed).
   - Compare the real old vs new version instead (e.g. from the PR diff or the Renovate PR description table), and only approve minor/patch/digest.
   - Check the vitest and spotless bumps that were reported eligible in the first dry run.
-- [ ] **CI, release and dependency updates** (decide the host first: `origin` has no URL yet).
-  - CI on every push/PR: `bin/lint`, then `bin/runtests` (Go tests with `-race` plus the shell suites), pinned Go version from `go.mod`.
-  - Release on tag `v*`: `bin/build` with the git-derived version, cross-compiled binaries (darwin arm64/amd64, linux amd64), checksums, notes from the matching `CHANGELOG.md` section. Pre-release for `-rc` tags.
-  - Dependency updates for `go.mod` and the CI config: Dependabot only exists on GitHub; on Bitbucket/Jenkins use Renovate (what the team already uses) with `gomodTidy` enabled. Start from the repo's own `bbapprove` rules: minor/patch/digest auto-merge, majors reviewed by a human.
+- [x] **CI, release and dependency updates**: GitHub Actions CI, tag-driven release and Dependabot (`.github/`).
+  - [ ] Build provenance attestations (`actions/attest-build-provenance`): needs a plan that supports attestations for private repos.
+  - [ ] Verify the first release run end to end (`v*` tag on GitHub) and add a Windows build only if someone needs it.

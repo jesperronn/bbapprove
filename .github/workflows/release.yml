@@ -1,0 +1,76 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: checks
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    name: build and publish
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Each archive is a self-contained tree: the binary finds adapters/ and disallow.txt in the parent
+      # of its own directory, and the launcher bin/bbapprove execs bin/bbapprove-go without rebuilding
+      # (no Go sources in the archive).
+      - name: Build archives
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64; do
+            os="${target%/*}" arch="${target#*/}"
+            name="bbapprove-${TAG}-${os}-${arch}"
+            stage="$RUNNER_TEMP/stage/$name"
+            mkdir -p "$stage/bin" "$stage/adapters"
+            GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 BBAPPROVE_VERSION="$TAG" \
+              bin/build -o "$stage/bin/bbapprove-go"
+            cp bin/bbapprove "$stage/bin/bbapprove"
+            cp adapters/bitbucket "$stage/adapters/bitbucket"
+            cp disallow.txt README.md CHANGELOG.md "$stage/"
+            [[ -f LICENSE ]] && cp LICENSE "$stage/"
+            tar -C "$RUNNER_TEMP/stage" -czf "dist/$name.tar.gz" "$name"
+          done
+          (cd dist && sha256sum -- *.tar.gz > SHA256SUMS && cat SHA256SUMS)
+
+      - name: Release notes
+        env:
+          TAG: ${{ github.ref_name }}
+        run: bin/release-notes "$TAG" > notes.md
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          flags=()
+          if [[ "$TAG" == *-* ]]; then flags+=(--prerelease); fi
+          gh release create "$TAG" dist/* \
+            --title "bbapprove $TAG" \
+            --notes-file notes.md \
+            --verify-tag \
+            "${flags[@]}"

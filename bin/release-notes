@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# release-notes — print the CHANGELOG.md section of a release tag (used by the release workflow).
+#
+# Usage: bin/release-notes [--changelog FILE] TAG
+#   TAG  v1.0.0-rc.2 or 1.0.0-rc.2; matches the heading "## [1.0.0-rc.2]" and prints its body
+#        (up to the next "## [" heading, surrounding blank lines trimmed).
+#
+# Exit: 0 printed, 1 section missing or empty, 2 usage error.
+
+set -euo pipefail
+
+usage() {
+  cat <<'EOF2'
+Usage: bin/release-notes [--changelog FILE] TAG
+
+Prints the body of the "## [VERSION]" section of CHANGELOG.md for TAG (a leading "v" is stripped).
+Exit: 0 printed, 1 section missing or empty, 2 usage error.
+EOF2
+}
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+changelog="$ROOT/CHANGELOG.md"
+tag=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h | --help) usage; exit 0 ;;
+    --changelog)
+      [[ $# -ge 2 ]] || { echo "release-notes: --changelog needs a file" >&2; exit 2; }
+      changelog="$2"; shift ;;
+    -*) echo "release-notes: unknown option: $1" >&2; usage >&2; exit 2 ;;
+    *)
+      [[ -z "$tag" ]] || { echo "release-notes: only one TAG allowed" >&2; exit 2; }
+      tag="$1" ;;
+  esac
+  shift
+done
+[[ -n "$tag" ]] || { usage >&2; exit 2; }
+[[ -f "$changelog" ]] || { echo "release-notes: no such file: $changelog" >&2; exit 1; }
+
+version="${tag#v}"
+
+notes="$(awk -v ver="$version" '
+  /^## \[/ {
+    if (in_section) exit
+    if (index($0, "## [" ver "]") == 1) { in_section = 1; next }
+  }
+  in_section { print }
+' "$changelog")"
+
+# Trim leading and trailing blank lines.
+notes="$(printf '%s\n' "$notes" | awk 'NF { started = 1 } started { print }' | awk '{ lines[NR] = $0 } END { n = NR; while (n > 0 && lines[n] ~ /^[[:space:]]*$/) n--; for (i = 1; i <= n; i++) print lines[i] }')"
+
+if [[ -z "$notes" ]]; then
+  echo "release-notes: no CHANGELOG section for $version in $changelog" >&2
+  exit 1
+fi
+printf '%s\n' "$notes"

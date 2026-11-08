@@ -205,12 +205,47 @@ Versioning comes from git: `git describe --tags --always --dirty` (for example `
 exactly as git prints it. Without git a build reports `dev`; `BBAPPROVE_VERSION` overrides the value (tests,
 release builds). The version also appears on the first line of `--help` and dim in the TUI footer.
 
-Cut a release: update CHANGELOG.md, commit, then
+Cut a release locally: update CHANGELOG.md, commit, then
 
 ```
 git tag -a v1.0.0 -m "bbapprove 1.0.0"
 bin/build --test --install
 ```
+
+## CI and releases
+
+GitHub Actions (`.github/workflows/`):
+
+- **CI** (`ci.yml`) runs on pushes to `main`, pull requests and manually. On `ubuntu-latest` and `macos-latest` it
+  runs `bin/lint` and `bin/runtests` (Go tests with `-race` plus the shell suites), with Go taken from `go.mod`.
+  The shell suites need bash 4+ and ripgrep, so the macOS job installs Homebrew bash, ripgrep and shellcheck.
+- **Release** (`release.yml`) runs when a `v*` tag is pushed: it reruns CI, cross-builds with `bin/build`
+  (darwin arm64/amd64, linux amd64/arm64), uploads one `.tar.gz` per platform plus `SHA256SUMS`, and publishes the
+  GitHub Release with the matching CHANGELOG.md section as notes (`bin/release-notes <tag>`). Tags containing
+  `-` (for example `v1.0.0-rc.3`) are marked pre-release.
+- **Dependabot** (`dependabot.yml`) opens a weekly (Monday) PR per ecosystem (`gomod`, `github-actions`) that groups
+  minor and patch updates, titled `chore(deps): ...` and labelled `dependencies`, so bbapprove's own eligibility
+  rule recognises them. Majors arrive as separate PRs for a human. Actions are pinned by commit SHA; Dependabot
+  keeps them current.
+
+To cut a release: rename `## [Unreleased]` in CHANGELOG.md to `## [x.y.z] - YYYY-MM-DD` (add a fresh empty
+`## [Unreleased]`), commit, then
+
+```
+git tag -a vX.Y.Z -m "bbapprove X.Y.Z"
+git push origin main vX.Y.Z
+```
+
+Install from a release archive: each `bbapprove-<tag>-<os>-<arch>.tar.gz` is a self-contained tree
+(`bin/bbapprove` launcher, `bin/bbapprove-go` binary, `adapters/bitbucket`, `disallow.txt`, docs). Verify it
+against `SHA256SUMS`, extract it somewhere permanent and link the launcher onto PATH:
+
+```
+tar -xzf bbapprove-v1.0.0-darwin-arm64.tar.gz -C ~/.local/share
+ln -s ~/.local/share/bbapprove-v1.0.0-darwin-arm64/bin/bbapprove ~/.local/bin/bbapprove
+```
+
+The binary finds `adapters/` and `disallow.txt` relative to its own directory's parent, so keep the tree intact.
 
 ## Test and lint
 
@@ -219,6 +254,7 @@ go vet ./... && go test ./... -race          # Go unit tests
 bash test/bitbucket-adapter.test.sh          # adapter against a stubbed curl
 bash test/bbapprove-launcher.test.sh         # launcher: rebuild rules, arg passing, symlinks, missing go
 bash test/build.test.sh                      # bin/build: version embedding, --install, --test, missing go
+bash test/release-notes.test.sh              # bin/release-notes: CHANGELOG section extraction
 shellcheck bin/bbapprove bin/build adapters/bitbucket test/*.sh
 gofmt -l .                                   # should print nothing
 ```

@@ -5,6 +5,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- GitHub Actions CI (`bin/lint` and `bin/runtests` on Linux and macOS), a tag-driven release workflow
+  (cross-built `.tar.gz` archives for darwin and linux on arm64/amd64, `SHA256SUMS`, notes from this changelog,
+  pre-release for `-rc` tags) and Dependabot for `gomod` and `github-actions` with `chore(deps):` titles.
+- `bin/release-notes <tag>` prints the matching CHANGELOG.md section.
+
 ## [1.0.0-rc.2] - 2026-11-09
 
 ### Fixed

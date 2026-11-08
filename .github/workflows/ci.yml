@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    name: lint and test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # The shell suites need bash >= 4 (mapfile) and ripgrep (test/lib/bash_test.sh); bin/lint needs shellcheck.
+      - name: Install tools (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ripgrep shellcheck jq
+
+      - name: Install tools (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install bash ripgrep shellcheck jq
+          # Homebrew's bin first on PATH, so `#!/usr/bin/env bash` finds bash 5 instead of macOS's 3.2.
+          echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
+
+      - name: Show tool versions
+        run: |
+          for tool in bash go gofmt shellcheck rg jq git; do
+            command -v "$tool" || { echo "missing: $tool" >&2; exit 1; }
+          done
+          bash --version | head -n 1
+          go version
+          shellcheck --version | sed -n 2p
+          rg --version | head -n 1
+          jq --version
+
+      - name: Lint
+        run: bin/lint
+
+      - name: Test
+        run: bin/runtests

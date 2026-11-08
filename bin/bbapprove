@@ -4,22 +4,19 @@
 
 set -euo pipefail
 
-BBAPPROVE_BASE_URL="${BBAPPROVE_BASE_URL:-https://bitbucket.example.com}"
 BBAPPROVE_AUTHOR_EMAIL="${BBAPPROVE_AUTHOR_EMAIL:-renovate-bot@example.com}"
 SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
 # Disallow list: one dependency per line in this file ('#' comments and blank lines ignored);
 # --disallow / BBAPPROVE_DISALLOW (comma-separated) add to it. Case-insensitive substrings.
 BBAPPROVE_DISALLOW_FILE="${BBAPPROVE_DISALLOW_FILE:-$(dirname "$SCRIPT_PATH")/../disallow.txt}"
 BBAPPROVE_DISALLOW="${BBAPPROVE_DISALLOW:-}"
-CURL_CONNECT_TIMEOUT=2.7   # seconds
-CURL_MAX_TIME=3.5          # seconds, per curl call
 BBAPPROVE_JOBS="${BBAPPROVE_JOBS:-$( (nproc || sysctl -n hw.ncpu || echo 4) 2>/dev/null | head -n1)}"
-export BBAPPROVE_BASE_URL BBAPPROVE_AUTHOR_EMAIL BBAPPROVE_DISALLOW_FILE BBAPPROVE_JOBS
+# Provider adapter: gh-style CLI (auth token | pr list|view|review|merge). Only it talks to the forge.
+BBAPPROVE_ADAPTER="${BBAPPROVE_ADAPTER:-$(dirname "$SCRIPT_PATH")/../adapters/bitbucket}"
+export BBAPPROVE_AUTHOR_EMAIL BBAPPROVE_DISALLOW_FILE BBAPPROVE_JOBS BBAPPROVE_ADAPTER
 BBAPPROVE_TOKEN="${BBAPPROVE_TOKEN:-}"
 BBAPPROVE_APPLY="${BBAPPROVE_APPLY:-0}"
 BBAPPROVE_INTERACTIVE=0
-BBAPPROVE_MERGE_RETRIES="${BBAPPROVE_MERGE_RETRIES:-4}"
-BBAPPROVE_RETRY_SLEEP="${BBAPPROVE_RETRY_SLEEP:-2}"
 BBAPPROVE_TARGETS=()
 
 # Colors: only on a TTY, never with NO_COLOR; FORCE_COLOR=1 forces them on.
@@ -61,10 +58,11 @@ A PR is eligible when ALL hold:
   - update is minor/patch/digest (title "to vN" only, or branch renovate/major-*, is major)
 
 Disallow list: disallow.txt next to bin/ (one dependency per line, # comments); --disallow adds more.
-Requests time out (connect 2.7s, total 3.5s) and run in parallel (one job per CPU core).
+Forge access goes through the adapter (adapters/bitbucket); its requests time out (connect 2.7s, total 3.5s)
+and PR fetches/approvals run in parallel (one job per CPU core).
 
-Env: BBAPPROVE_MERGE_RETRIES, BBAPPROVE_RETRY_SLEEP, BBAPPROVE_BASE_URL, BBAPPROVE_AUTHOR_EMAIL, BBAPPROVE_DISALLOW,
-     BBAPPROVE_DISALLOW_FILE, BBAPPROVE_JOBS, BBAPPROVE_TOKEN.
+Env: BBAPPROVE_AUTHOR_EMAIL, BBAPPROVE_DISALLOW, BBAPPROVE_DISALLOW_FILE, BBAPPROVE_JOBS, BBAPPROVE_ADAPTER, BBAPPROVE_TOKEN;
+     adapter: BBAPPROVE_BASE_URL, BBAPPROVE_MERGE_RETRIES, BBAPPROVE_RETRY_SLEEP.
 Token falls back to 1Password item BITBUCKET_TOKEN (same as bbpr).
 USAGE
 }
@@ -87,23 +85,7 @@ log() { printf '%s\n' "$*"; }
 err() { printf '%s\n' "$*" >&2; }
 
 fetch_token() {
-  if [[ -z "$BBAPPROVE_TOKEN" ]] && command -v op >/dev/null 2>&1; then
-    err "${C_DIM}Waiting for 1Password: op item get BITBUCKET_TOKEN${C_RESET}"
-    BBAPPROVE_TOKEN="$(op item get BITBUCKET_TOKEN --fields label=token --reveal)" || BBAPPROVE_TOKEN=""
-  fi
-  [[ -n "$BBAPPROVE_TOKEN" ]] || { err "No token: use --token, BBAPPROVE_TOKEN or 1Password (op)."; return 1; }
-}
-
-LAST_CODE=""
-api() { # method endpoint [data] -> body on stdout, http code in LAST_CODE (call without subshell via api_to)
-  local method="$1" endpoint="$2" data="${3:-}" out
-  local args=(--connect-timeout "$CURL_CONNECT_TIMEOUT" --max-time "$CURL_MAX_TIME" -sS -w $'\n%{http_code}' -X "$method" -H "Authorization: Bearer $BBAPPROVE_TOKEN" -H "Accept: application/json")
-  [[ -n "$data" ]] && args+=(-H "Content-Type: application/json" -d "$data")
-  if ! out="$(curl "${args[@]}" "$BBAPPROVE_BASE_URL$endpoint")"; then
-    LAST_CODE="000"; API_BODY=""; return 1   # curl already printed why (timeout, connect failure)
-  fi
-  LAST_CODE="$(printf '%s' "$out" | tail -n1)"
-  API_BODY="$(printf '%s' "$out" | sed '$d')"
+  [[ -n "$BBAPPROVE_TOKEN" ]] || BBAPPROVE_TOKEN="$("$BBAPPROVE_ADAPTER" auth token)" || return 1
 }
 
 # disallow_items -> one lowercase item per line: file entries (no '#' lines/blanks) then comma-separated BBAPPROVE_DISALLOW
@@ -118,9 +100,9 @@ disallow_items() {
 # eligibility: prints reason and returns 1 when not eligible
 check_eligible() {
   local pr="$1" email title branch lower_title item
-  email="$(jq -r '.author.user.emailAddress // ""' <<<"$pr")"
+  email="$(jq -r '.author.email' <<<"$pr")"
   title="$(jq -r '.title' <<<"$pr")"
-  branch="$(jq -r '.fromRef.displayId // ""' <<<"$pr")"
+  branch="$(jq -r '.headBranch' <<<"$pr")"
   if [[ "$email" != "$BBAPPROVE_AUTHOR_EMAIL" ]]; then echo "author '$email' is not the renovate bot"; return 1; fi
   if [[ ! "$title" =~ ^(chore|fix)\(deps\):\  ]]; then echo "subject does not start with chore(deps): or fix(deps):"; return 1; fi
   lower_title="$(tr '[:upper:]' '[:lower:]' <<<"$title")"
@@ -129,50 +111,29 @@ check_eligible() {
     [[ -n "$item" && "$lower_title" == *"$item"* ]] && { echo "disallowed dependency '$item'"; return 1; }
   done < <(disallow_items)
   if [[ "$branch" == renovate/major-* || "$title" =~ \ to\ v?[0-9]+\ *(\(.*\))?$ ]]; then echo "major update"; return 1; fi
-  if [[ -n "${ME:-}" && "$(jq -r --arg me "$ME" '[.participants[]? | select(.user.slug==$me and .status=="APPROVED")] | length' <<<"$pr")" -gt 0 ]]; then
-    echo "already approved by me"; return 1
-  fi
+  if [[ "$(jq -r '.approvedByMe' <<<"$pr")" == "true" ]]; then echo "already approved by me"; return 1; fi
   return 0
 }
 
-process_pr() { # PR json
-  local pr="$1" key repo id version label reason
-  key="$(jq -r '.toRef.repository.project.key' <<<"$pr")"
-  repo="$(jq -r '.toRef.repository.slug' <<<"$pr")"
-  id="$(jq -r '.id' <<<"$pr")"
-  version="$(jq -r '.version' <<<"$pr")"
-  label="$(pr_label "$key" "$repo" "$id" "$(jq -r '.title' <<<"$pr")")"
+pr_label_of() { # normalized PR json -> label
+  pr_label "$(jq -r '.project' <<<"$1")" "$(jq -r '.repo' <<<"$1")" "$(jq -r '.number' <<<"$1")" "$(jq -r '.title' <<<"$1")"
+}
+
+process_pr() { # normalized PR json
+  local pr="$1" label reason
+  label="$(pr_label_of "$pr")"
   if ! reason="$(check_eligible "$pr")"; then log "$(status SKIP "$C_YELLOW") $label ${C_DIM}— $reason${C_RESET}"; return 0; fi
   if (( ! BBAPPROVE_APPLY )); then log "$(status ELIGIBLE "$C_GREEN") $label ${C_DIM}(dry-run)${C_RESET}"; return 0; fi
   act_on_pr "$pr"
 }
 
-act_on_pr() { # PR json: approve, then merge with retries
-  local pr="$1" key repo id version label
-  key="$(jq -r '.toRef.repository.project.key' <<<"$pr")"
-  repo="$(jq -r '.toRef.repository.slug' <<<"$pr")"
-  id="$(jq -r '.id' <<<"$pr")"
-  version="$(jq -r '.version' <<<"$pr")"
-  label="$(pr_label "$key" "$repo" "$id" "$(jq -r '.title' <<<"$pr")")"
-  local base="/rest/api/1.0/projects/$key/repos/$repo/pull-requests/$id"
-  api POST "$base/approve"
-  if [[ "$LAST_CODE" != 2* ]]; then log "$(status FAIL "$C_RED") $label — approve HTTP $LAST_CODE"; return 0; fi
-  # Re-fetch the PR right before merging: earlier merges in the same repo move the
-  # target branch and bump the PR version, so the one read at startup goes stale.
-  local attempt=0 fresh
-  while :; do
-    attempt=$((attempt + 1))
-    api GET "$base"
-    fresh="$(jq -r '.version // empty' <<<"$API_BODY" 2>/dev/null || true)"
-    [[ -n "$fresh" ]] || fresh="$version"
-    api POST "$base/merge?version=$fresh" "{\"version\":$fresh}"
-    if [[ "$LAST_CODE" == 2* ]]; then log "$(status MERGED "${C_GREEN}${C_BOLD}") $label"; return 0; fi
-    if [[ "$LAST_CODE" == 409 && "$API_BODY" == *"out-of-date"* ]] && (( attempt < BBAPPROVE_MERGE_RETRIES )); then
-      sleep "$BBAPPROVE_RETRY_SLEEP"; continue
-    fi
-    break
-  done
-  log "${C_RED}APPROVED, NOT MERGED${C_RESET} $label — merge HTTP $LAST_CODE: $(jq -r '[.errors[]?.message] | join("; ")' <<<"$API_BODY" 2>/dev/null || true)"
+act_on_pr() { # normalized PR json: approve, then merge (the adapter handles stale-version retries)
+  local pr="$1" url label msg
+  url="$(jq -r '.url' <<<"$pr")"
+  label="$(pr_label_of "$pr")"
+  if ! msg="$("$BBAPPROVE_ADAPTER" pr review "$url" --approve 2>&1)"; then log "$(status FAIL "$C_RED") $label — $msg"; return 0; fi
+  if msg="$("$BBAPPROVE_ADAPTER" pr merge "$url" 2>&1)"; then log "$(status MERGED "${C_GREEN}${C_BOLD}") $label"; return 0; fi
+  log "${C_RED}APPROVED, NOT MERGED${C_RESET} $label — $msg"
 }
 
 # fzf multi-select over eligible PRs (sorted by repo, all preselected); approves+merges the picks.
@@ -182,7 +143,7 @@ interactive_run() { # PR json...
   for pr in "$@"; do
     if reason="$(check_eligible "$pr")"; then
       elig+=("$pr")
-      lines+="$i"$'\t'"$(jq -r '"\(.toRef.repository.project.key)/\(.toRef.repository.slug)#\(.id)\t\(.title)"' <<<"$pr")"$'\n'
+      lines+="$i"$'\t'"$(jq -r '"\(.project)/\(.repo)#\(.number)\t\(.title)"' <<<"$pr")"$'\n'
       i=$((i + 1))
     fi
   done
@@ -207,27 +168,10 @@ par_each() {
   printf '%s\0' "$@" | xargs -0 -n1 -P "$BBAPPROVE_JOBS" "$SCRIPT_PATH" "$sub"
 }
 
-fetch_pr_cmd() { # URL -> compact PR json on stdout
-  local parts key repo id
-  parts="$(parse_pr_url "$1")" || { err "Not a PR URL: $1"; return 2; }
-  read -r key repo id <<<"$parts"
-  api GET "/rest/api/1.0/projects/$key/repos/$repo/pull-requests/$id" || true
-  [[ "$LAST_CODE" == 200 ]] || { err "Fetch failed ($LAST_CODE): $1"; return 1; }
-  jq -c . <<<"$API_BODY"
-}
-
-parse_pr_url() { # url -> "KEY REPO ID"
-  if [[ "$1" =~ /projects/([^/]+)/repos/([^/]+)/pull-requests/([0-9]+) ]]; then
-    printf '%s %s %s' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}"
-  else
-    return 1
-  fi
-}
-
 main() {
   # Internal subcommands, run by par_each in child processes (token and settings come via env).
   case "${1:-}" in
-    __fetch) fetch_pr_cmd "$2"; return ;;
+    __fetch) "$BBAPPROVE_ADAPTER" pr view "$2"; return ;;
     __process) process_pr "$2"; return ;;
     __act) act_on_pr "$2"; return ;;
   esac
@@ -244,28 +188,15 @@ main() {
   done
   command -v jq >/dev/null || { err "jq is required"; return 1; }
   fetch_token
-  export BBAPPROVE_TOKEN BBAPPROVE_APPLY BBAPPROVE_DISALLOW BBAPPROVE_MERGE_RETRIES BBAPPROVE_RETRY_SLEEP
+  export BBAPPROVE_TOKEN BBAPPROVE_APPLY BBAPPROVE_DISALLOW
 
-  api GET "/plugins/servlet/applinks/whoami" || true
-  export ME=""
-  [[ "$LAST_CODE" == 200 ]] && ME="$(tr -d '[:space:]' <<<"$API_BODY")"
-
-  local prs=() t parts key repo id start=0 last page
+  local prs=() page
   if (( ${#BBAPPROVE_TARGETS[@]} )); then
-    for t in "${BBAPPROVE_TARGETS[@]}"; do
-      parse_pr_url "$t" >/dev/null || { err "Not a PR URL: $t"; return 2; }
-    done
     while IFS= read -r page; do prs+=("$page"); done < <(par_each __fetch "${BBAPPROVE_TARGETS[@]}")
     (( ${#prs[@]} == ${#BBAPPROVE_TARGETS[@]} )) || return 1
   else
-    while :; do
-      api GET "/rest/api/1.0/dashboard/pull-requests?role=REVIEWER&state=OPEN&limit=100&start=$start" || true
-      [[ "$LAST_CODE" == 200 ]] || { err "Dashboard fetch failed ($LAST_CODE)"; return 1; }
-      while IFS= read -r page; do prs+=("$page"); done < <(jq -c '.values[]' <<<"$API_BODY")
-      last="$(jq -r '.isLastPage' <<<"$API_BODY")"
-      [[ "$last" == "true" ]] && break
-      start="$(jq -r '.nextPageStart' <<<"$API_BODY")"
-    done
+    page="$("$BBAPPROVE_ADAPTER" pr list --reviewer @me --state open)" || return 1
+    while IFS= read -r page; do prs+=("$page"); done < <(jq -c '.[]' <<<"$page")
   fi
 
   local pr

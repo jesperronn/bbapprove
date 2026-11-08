@@ -135,13 +135,6 @@ test_disallow_file_ignores_comments_and_matches_another-library() {
   cleanup_test_tmp; TEST_TMP=""
 }
 
-test_curl_has_timeouts() {
-  setup_stub
-  run_script >/dev/null
-  assert_contains "$(head -n1 "$STUB_LOG")" "--connect-timeout 2.7 --max-time 3.5" "default timeouts passed to curl"
-  cleanup_test_tmp; TEST_TMP=""
-}
-
 test_curl_failure_reported_not_fatal_crash() {
   setup_stub
   printf '#!/usr/bin/env bash\necho "curl: (28) timed out" >&2; exit 28\n' >"$TEST_TMP/bin/curl"
@@ -159,6 +152,25 @@ test_pr_url_targets_fetched_via_xargs() {
   out="$(STUB_BY_ID=1 BBAPPROVE_JOBS=4 run_script --apply "https://x/projects/PROJ/repos/repo/pull-requests/1" "https://x/projects/PROJ/repos/repo/pull-requests/6")"
   assert_contains "$out" "MERGED   PROJ/repo#1" "parallel apply merges #1"
   assert_contains "$out" "MERGED   PROJ/repo#6" "parallel apply merges #6"
+  cleanup_test_tmp; TEST_TMP=""
+}
+
+test_core_works_with_any_adapter() {
+  setup_stub
+  cat >"$TEST_TMP/fake-adapter" <<'FAKE'
+#!/usr/bin/env bash
+echo "$*" >>"$STUB_LOG"
+case "$1 $2" in
+  "auth token") echo tok ;;
+  "pr list") printf '[{"url":"https://gh/o/r/pull/9","number":9,"project":"o","repo":"r","title":"chore(deps): bump lodash from 4.17.20 to 4.17.21","author":{"email":"renovate-bot@example.com","login":"bot"},"headBranch":"renovate/lodash","approvedByMe":false}]' ;;
+esac
+FAKE
+  chmod +x "$TEST_TMP/fake-adapter"
+  local out; out="$(BBAPPROVE_ADAPTER="$TEST_TMP/fake-adapter" BBAPPROVE_TOKEN="" run_script --apply)"
+  assert_contains "$out" "MERGED   o/r#9" "core merged via the fake adapter"
+  assert_contains "$(cat "$STUB_LOG")" "pr review https://gh/o/r/pull/9 --approve" "core called adapter review"
+  assert_contains "$(cat "$STUB_LOG")" "pr merge https://gh/o/r/pull/9" "core called adapter merge"
+  assert_not_contains "$(cat "$STUB_LOG")" "--connect-timeout" "core never calls curl itself"
   cleanup_test_tmp; TEST_TMP=""
 }
 

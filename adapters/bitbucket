@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# bitbucket adapter — gh-style CLI over the Bitbucket Server REST API. The only place that knows about curl/Bitbucket.
+#
+#   bitbucket auth token                        print the API token (BBAPPROVE_TOKEN or 1Password)
+#   bitbucket pr list --reviewer @me --state open   JSON array of normalized PRs
+#   bitbucket pr view URL                       one normalized PR as compact JSON
+#   bitbucket pr review URL --approve           approve
+#   bitbucket pr merge URL                      merge (retries when the PR version went stale)
+#
+# Normalized PR: {url, number, project, repo, title, author:{email,login}, headBranch, approvedByMe}
+# Errors: message on stderr, non-zero exit. Env: BBAPPROVE_BASE_URL, BBAPPROVE_TOKEN, BBAPPROVE_MERGE_RETRIES, BBAPPROVE_RETRY_SLEEP.
+
+set -euo pipefail
+
+BASE_URL="${BBAPPROVE_BASE_URL:-https://bitbucket.example.com}"
+TOKEN="${BBAPPROVE_TOKEN:-}"
+MERGE_RETRIES="${BBAPPROVE_MERGE_RETRIES:-4}"
+RETRY_SLEEP="${BBAPPROVE_RETRY_SLEEP:-2}"
+CURL_CONNECT_TIMEOUT=2.7   # seconds
+CURL_MAX_TIME=3.5          # seconds, per curl call
+
+err() { printf '%s\n' "$*" >&2; }
+
+LAST_CODE="" API_BODY=""
+api() { # method endpoint [data] -> API_BODY, LAST_CODE; returns 1 when curl itself failed (code 000)
+  local method="$1" endpoint="$2" data="${3:-}" out
+  local args=(--connect-timeout "$CURL_CONNECT_TIMEOUT" --max-time "$CURL_MAX_TIME" -sS -w $'\n%{http_code}' -X "$method" -H "Authorization: Bearer $TOKEN" -H "Accept: application/json")
+  [[ -n "$data" ]] && args+=(-H "Content-Type: application/json" -d "$data")
+  if ! out="$(curl "${args[@]}" "$BASE_URL$endpoint")"; then LAST_CODE="000"; API_BODY=""; return 1; fi
+  LAST_CODE="$(printf '%s' "$out" | tail -n1)"
+  API_BODY="$(printf '%s' "$out" | sed '$d')"
+}
+
+parse_pr_url() { # url -> "KEY REPO ID"
+  [[ "$1" =~ /projects/([^/]+)/repos/([^/]+)/pull-requests/([0-9]+) ]] || { err "Not a PR URL: $1"; return 2; }
+  printf '%s %s %s' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}"
+}
+
+# normalize [ME]: raw Bitbucket PR object on stdin -> normalized compact JSON
+normalize() {
+  jq -c --arg base "$BASE_URL" --arg me "${ME:-}" '{
+    url: "\($base)/projects/\(.toRef.repository.project.key)/repos/\(.toRef.repository.slug)/pull-requests/\(.id)",
+    number: .id,
+    project: .toRef.repository.project.key,
+    repo: .toRef.repository.slug,
+    title: .title,
+    author: {email: (.author.user.emailAddress // ""), login: (.author.user.slug // "")},
+    headBranch: (.fromRef.displayId // ""),
+    approvedByMe: ($me != "" and ([.participants[]? | select(.user.slug==$me and .status=="APPROVED")] | length) > 0)
+  }'
+}
+
+load_me() {
+  ME=""
+  api GET "/plugins/servlet/applinks/whoami" || true
+  [[ "$LAST_CODE" == 200 ]] && ME="$(tr -d '[:space:]' <<<"$API_BODY")"
+  return 0
+}
+
+cmd_auth_token() {
+  if [[ -z "$TOKEN" ]] && command -v op >/dev/null 2>&1; then
+    local dim="" reset=""
+    if [[ -z "${NO_COLOR:-}" && ( -t 2 || -n "${FORCE_COLOR:-}" ) ]]; then dim=$'\033[2m' reset=$'\033[0m'; fi
+    err "${dim}Waiting for 1Password: op item get BITBUCKET_TOKEN${reset}"
+    TOKEN="$(op item get BITBUCKET_TOKEN --fields label=token --reveal)" || TOKEN=""
+  fi
+  [[ -n "$TOKEN" ]] || { err "No token: use --token, BBAPPROVE_TOKEN or 1Password (op)."; return 1; }
+  printf '%s\n' "$TOKEN"
+}
+
+cmd_pr_list() { # only --reviewer @me --state open is supported
+  local start=0 all='[]'
+  load_me
+  while :; do
+    api GET "/rest/api/1.0/dashboard/pull-requests?role=REVIEWER&state=OPEN&limit=100&start=$start" || true
+    [[ "$LAST_CODE" == 200 ]] || { err "Dashboard fetch failed ($LAST_CODE)"; return 1; }
+    all="$(jq -c --argjson more "$(jq -c '[.values[]]' <<<"$API_BODY")" '. + $more' <<<"$all")"
+    [[ "$(jq -r '.isLastPage' <<<"$API_BODY")" == "true" ]] && break
+    start="$(jq -r '.nextPageStart' <<<"$API_BODY")"
+  done
+  jq -c '.[]' <<<"$all" | normalize_lines | jq -sc '.'
+}
+
+normalize_lines() { while IFS= read -r l; do normalize <<<"$l"; done; }
+
+cmd_pr_view() {
+  local key repo id parts
+  parts="$(parse_pr_url "$1")" || return 2
+  read -r key repo id <<<"$parts"
+  load_me
+  api GET "/rest/api/1.0/projects/$key/repos/$repo/pull-requests/$id" || true
+  [[ "$LAST_CODE" == 200 ]] || { err "Fetch failed ($LAST_CODE): $1"; return 1; }
+  normalize <<<"$API_BODY"
+}
+
+cmd_pr_review() { # URL --approve
+  local url="$1" key repo id parts
+  [[ "${2:-}" == "--approve" ]] || { err "pr review: only --approve is supported"; return 2; }
+  parts="$(parse_pr_url "$url")" || return 2
+  read -r key repo id <<<"$parts"
+  api POST "/rest/api/1.0/projects/$key/repos/$repo/pull-requests/$id/approve" || true
+  [[ "$LAST_CODE" == 2* ]] || { err "approve HTTP $LAST_CODE"; return 1; }
+}
+
+cmd_pr_merge() { # URL
+  local key repo id parts base attempt=0 fresh
+  parts="$(parse_pr_url "$1")" || return 2
+  read -r key repo id <<<"$parts"
+  base="/rest/api/1.0/projects/$key/repos/$repo/pull-requests/$id"
+  # Re-fetch the version right before merging: earlier merges in the same repo move the
+  # target branch and bump the PR version, so a version read earlier goes stale.
+  while :; do
+    attempt=$((attempt + 1))
+    api GET "$base" || true
+    fresh="$(jq -r '.version // empty' <<<"$API_BODY" 2>/dev/null || true)"
+    [[ -n "$fresh" ]] || { err "merge: could not read PR version (HTTP $LAST_CODE)"; return 1; }
+    api POST "$base/merge?version=$fresh" "{\"version\":$fresh}" || true
+    [[ "$LAST_CODE" == 2* ]] && return 0
+    if [[ "$LAST_CODE" == 409 && "$API_BODY" == *"out-of-date"* ]] && (( attempt < MERGE_RETRIES )); then
+      sleep "$RETRY_SLEEP"; continue
+    fi
+    break
+  done
+  err "merge HTTP $LAST_CODE: $(jq -r '[.errors[]?.message] | join("; ")' <<<"$API_BODY" 2>/dev/null || true)"
+  return 1
+}
+
+main() {
+  local group="${1:-}" sub="${2:-}"
+  case "$group $sub" in
+    "auth token") cmd_auth_token ;;
+    "pr list") shift 2; cmd_pr_list "$@" ;;
+    "pr view") shift 2; cmd_pr_view "$@" ;;
+    "pr review") shift 2; cmd_pr_review "$@" ;;
+    "pr merge") shift 2; cmd_pr_merge "$@" ;;
+    *) err "usage: bitbucket auth token | pr list|view|review|merge ..."; return 2 ;;
+  esac
+}
+
+main "$@"

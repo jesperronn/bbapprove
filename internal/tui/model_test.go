@@ -626,3 +626,33 @@ func TestFooterShowsVersion(t *testing.T) {
 		t.Fatal("extended help missing version")
 	}
 }
+
+func TestIgnoreOnSkipRowWinsAndRestores(t *testing.T) {
+	m, _, _, ign := fixture(t)
+	send(m, "down", "down") // row 3: react to v19 (major, SKIP)
+	if w, _, why := m.status(m.rows[2]); w != "SKIP" || why != "major update" {
+		t.Fatalf("before: %q %q", w, why)
+	}
+	send(m, "i")
+	b, _ := os.ReadFile(ign)
+	if !strings.Contains(string(b), "react") {
+		t.Fatalf("ignore file: %q", b)
+	}
+	if w, _, _ := m.status(m.rows[2]); w != wIgnored {
+		t.Fatalf("SKIP row must become IGNORED, got %q", w)
+	}
+	if strings.Contains(plain(m.View()), "#3 ") {
+		t.Fatalf("ignored SKIP row must be hidden:\n%s", m.View())
+	}
+	send(m, "h")
+	if !strings.Contains(plain(m.View()), "IGNORED") {
+		t.Fatalf("h must show it:\n%s", m.View())
+	}
+	for m.rows[m.cursor].pr.Number != 3 {
+		send(m, "down")
+	}
+	send(m, "i")
+	if w, _, why := m.status(m.rows[2]); w != "SKIP" || why != "major update" {
+		t.Fatalf("un-ignore must restore the original reason: %q %q", w, why)
+	}
+}

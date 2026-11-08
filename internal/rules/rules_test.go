@@ -72,7 +72,7 @@ func TestLoadDisallow(t *testing.T) {
 }
 
 func TestClassify(t *testing.T) {
-	cfg := Config{AuthorEmail: bot, Disallow: []string{"another-library"}}
+	cfg := Config{AuthorEmail: bot, Disallow: []string{"another-library", "some-library"}}
 	ign := []string{"npm", "another-library"}
 	tests := []struct {
 		name   string
@@ -82,11 +82,13 @@ func TestClassify(t *testing.T) {
 	}{
 		{"eligible", pr(bot, "chore(deps): update lodash to v4.1", "r", false), Eligible, ""},
 		{"ignored", pr(bot, "chore(deps): update dependency NPM to v1.2", "r", false), Ignored, "on your ignore list: npm"},
-		{"disallow beats ignore", pr(bot, "chore(deps): update another-library to v1.2", "r", false), Skip, "disallowed dependency 'another-library'"},
-		{"major beats ignore", pr(bot, "chore(deps): update npm to v9", "r", false), Skip, "major update"},
-		{"approved beats ignore", pr(bot, "chore(deps): update npm to v1.1", "r", true), Skip, "already approved by me"},
-		{"author beats ignore", pr("x@y", "chore(deps): update npm", "r", false), Skip, "author 'x@y' is not the renovate bot"},
-		{"subject beats ignore", pr(bot, "feat: npm", "r", false), Skip, "subject does not start with chore(deps): or fix(deps):"},
+		{"ignore beats disallow", pr(bot, "chore(deps): update another-library to v1.2", "r", false), Ignored, "on your ignore list: another-library"},
+		{"disallow still skips when not ignored", pr(bot, "chore(deps): update some-library to v1.2", "r", false), Skip, "disallowed dependency 'some-library'"},
+		{"ignore beats major", pr(bot, "chore(deps): update npm to v9", "r", false), Ignored, "on your ignore list: npm"},
+		{"ignore beats approved", pr(bot, "chore(deps): update npm to v1.1", "r", true), Ignored, "on your ignore list: npm"},
+		{"ignore beats author", pr("x@y", "chore(deps): update npm", "r", false), Ignored, "on your ignore list: npm"},
+		{"ignore beats subject", pr(bot, "feat: npm", "r", false), Ignored, "on your ignore list: npm"},
+		{"subject skips when not ignored", pr(bot, "feat: lodash", "r", false), Skip, "subject does not start with chore(deps): or fix(deps):"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -98,5 +100,9 @@ func TestClassify(t *testing.T) {
 	}
 	if k, _ := cfg.Classify(nil, pr(bot, "chore(deps): update npm to v1.2", "r", false)); k != Eligible {
 		t.Fatal("empty ignore list must not ignore")
+	}
+	// Un-ignoring restores the original skip reason.
+	if k, why := cfg.Classify(nil, pr(bot, "chore(deps): update npm to v9", "r", false)); k != Skip || why != "major update" {
+		t.Fatalf("un-ignored major: (%v, %q)", k, why)
 	}
 }

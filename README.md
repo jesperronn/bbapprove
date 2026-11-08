@@ -39,9 +39,10 @@ is classified `IGNORED`: it is shown dim with the reason `on your ignore list: <
 never approved, merged, declined or commented, in dry run and with `--apply`. A missing file is an empty list;
 a file that exists but cannot be read stops the run (exit 1) rather than risk acting on an ignored PR.
 `--hide-ignored` leaves the ignored rows out of the table; the footer then says `N ignored (hidden)`.
-A PR that is also rejected by another rule (author, subject, disallow, major, already approved) keeps that
-rule's `SKIP` reason: the ignore check comes last. The CLI and the TUI share one classification function
-(`rules.Classify`).
+The ignore list wins over every other skip reason: a PR matching an entry is `IGNORED` even if it would
+otherwise be `SKIP` (author, subject, disallow, major, already approved), and an ignored PR is never acted
+on. Removing the entry restores the PR's own `SKIP` reason. The CLI and the TUI share one classification
+function (`rules.Classify`).
 
 ## Interactive TUI (`-i`)
 

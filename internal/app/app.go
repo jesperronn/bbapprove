@@ -64,7 +64,7 @@ A PR is eligible when ALL hold:
   - title does not mention a disallowed dependency (disallow.txt, --disallow)
   - update is minor/patch/digest (title "to vN" only, or branch renovate/major-*, is major)
   - not already approved by you
-  - not on your ignore list (otherwise IGNORED)
+  - not on your ignore list (a PR on it is IGNORED whatever else applies, and never acted on)
 
 Env: BBAPPROVE_AUTHOR_EMAIL, BBAPPROVE_DISALLOW, BBAPPROVE_DISALLOW_FILE, BBAPPROVE_JOBS,
      BBAPPROVE_ADAPTER, BBAPPROVE_TOKEN, BBAPPROVE_MOUSE; NO_COLOR, FORCE_COLOR.

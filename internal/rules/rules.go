@@ -80,7 +80,7 @@ const (
 	Eligible Kind = iota
 	// Skip means a rule (author, subject, disallow, major, already approved) rejects the PR.
 	Skip
-	// Ignored means the PR is otherwise eligible but matches the per-user ignore list.
+	// Ignored means the PR matches the per-user ignore list; this wins over every Skip reason.
 	Ignored
 )
 
@@ -89,14 +89,15 @@ const IgnoreReasonPrefix = "on your ignore list: "
 
 // Classify is the single classification shared by the CLI and the TUI so they can never disagree.
 // check is the eligibility rule (Config.Check); ignored is the per-user ignore list. The ignore list
-// is consulted last: a PR rejected by a rule keeps that rule's reason, and only an otherwise
-// eligible PR matching an ignore entry becomes Ignored (never eligible, never acted on).
+// is consulted FIRST: a PR matching an ignore entry is Ignored whatever else would skip it
+// (author, subject, disallow, major, already approved), and is never eligible nor acted on.
+// Removing the entry restores the PR's own classification, including its original Skip reason.
 func Classify(check func(adapter.PR) (string, bool), ignored []string, pr adapter.PR) (Kind, string) {
-	if reason, ok := check(pr); !ok {
-		return Skip, reason
-	}
 	if entry, ok := ignore.Matches(ignored, pr.Title); ok {
 		return Ignored, IgnoreReasonPrefix + entry
+	}
+	if reason, ok := check(pr); !ok {
+		return Skip, reason
 	}
 	return Eligible, ""
 }

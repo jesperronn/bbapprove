@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- The ignore list now wins over every other skip reason. A PR matching an ignore entry is `IGNORED` even when
+  it is a major bump, disallowed, already approved or not a Renovate PR (before, the ignore check came last,
+  so such a PR stayed `SKIP` and pressing `i` on it wrote the entry while the row visibly did nothing). Ignored
+  PRs are still never acted on; un-ignoring restores the original `SKIP` reason.
 - The non-interactive CLI (dry run and `--apply`) now honours the per-user ignore list. A PR matching an
   entry is `IGNORED` and is never approved, merged, declined or commented. An unreadable ignore file stops
   the run instead of being treated as empty. The CLI and TUI share one classification (`rules.Classify`).

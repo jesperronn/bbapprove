@@ -248,8 +248,9 @@ func ignoreList() string {
 	return "[" + strings.Join([]string{
 		prJSON(11, "chore(deps): update dependency npm to v1.2.3"),
 		prJSON(12, "chore(deps): update dependency lodash to v4.17.21"),
-		prJSON(13, "chore(deps): update another-library to v1.2.3"),   // disallowed AND ignored
-		prJSON(14, "chore(deps): update dependency npm to v9"), // major AND ignored
+		prJSON(13, "chore(deps): update another-library to v1.2.3"),      // disallowed AND ignored
+		prJSON(14, "chore(deps): update dependency npm to v9"),    // major AND ignored
+		prJSON(16, "chore(deps): update dependency react to v19"), // major, not ignored
 	}, ",") + "]"
 }
 
@@ -273,8 +274,9 @@ func TestIgnoreListHonouredInDryRun(t *testing.T) {
 	tests := []struct{ ref, prefix, suffix string }{
 		{"P/r11#11", "IGNORED     ", "— on your ignore list: npm"},
 		{"P/r12#12", strings.Repeat(" ", 13), "update dependency lodash to v4.17.21"}, // eligible: blank status
-		{"P/r13#13", "SKIP        ", "— disallowed dependency 'another-library'"},            // reasons unchanged
-		{"P/r14#14", "SKIP        ", "— major update"},
+		{"P/r13#13", "IGNORED     ", "— on your ignore list: another-library"},               // ignore beats disallow
+		{"P/r14#14", "IGNORED     ", "— on your ignore list: npm"},                    // ignore beats major
+		{"P/r16#16", "SKIP        ", "— major update"},                                // not ignored: reason unchanged
 	}
 	for _, tc := range tests {
 		l := lineFor(out, tc.ref)

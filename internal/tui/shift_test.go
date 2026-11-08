@@ -327,20 +327,43 @@ func TestShiftThroughRealProgram(t *testing.T) {
 	go func() {
 		done <- runModel(t.Context(), RunOptions{Stdin: pr, Stdout: out, Stderr: os.Stderr, Width: 120, Height: 12}, m, false)
 	}()
-	waitFor(t, "list rendered", func() bool { return strings.Contains(out.String(), "chore(deps)") })
-	feed := func(s string) { pw.Write([]byte(s)); time.Sleep(60 * time.Millisecond) }
+	// The renderer redraws only changed cells at a capped frame rate, so the output is a stream of
+	// deltas: under load "Hello!" arrives split over several frames ("H", "ello", "!") and is never a
+	// contiguous substring. Wait on stable render markers instead (each one only appears once the
+	// program has processed every earlier byte), bounded generously, and dump the stream on failure.
+	wait := func(what string, cond func() bool) {
+		t.Helper()
+		deadline := time.Now().Add(15 * time.Second)
+		for !cond() {
+			if time.Now().After(deadline) {
+				t.Fatalf("timeout waiting for %s; rendered so far (plain, last 3000 bytes):\n%s", what, tail(plain(out.String()), 3000))
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	has := func(sub string) func() bool { return func() bool { return strings.Contains(plain(out.String()), sub) } }
+	feed := func(s string) {
+		t.Helper()
+		if _, err := pw.Write([]byte(s)); err != nil {
+			t.Fatalf("write %q: %v", s, err)
+		}
+	}
+	wait("list rendered", has("chore(deps)"))
 	feed("\x1b[?31u")     // reply to the keyboard query: protocol supported
 	feed("\x1b[57441;2u") // Left Shift press
-	waitFor(t, "batch hints", func() bool { return strings.Contains(plain(out.String()), "decline marked") })
+	wait("batch hints", has("decline marked"))
 	feed("\x1b[57441;1:3u") // Left Shift release
-	waitFor(t, "instant hints again", func() bool {
+	wait("instant hints again", func() bool {
 		s := plain(out.String())
 		return strings.LastIndex(s, "o open") > strings.LastIndex(s, "decline marked")
 	})
 	feed("c") // comment prompt (kitty: plain key = CSI 99u)
+	wait("comment prompt", has("comment on 1 PR(s)"))
 	feed("\x1b[104:72;2;72u")
 	feed("\x1b[101u\x1b[108u\x1b[108u\x1b[111u\x1b[49:33;2;33u")
-	waitFor(t, "typed text echoed", func() bool { return strings.Contains(plain(out.String()), "ello!") })
+	// Keys are processed in order, so once the last character is echoed (the cursor block follows it)
+	// all of them were handled; the exact text is asserted on the model below.
+	wait("typed text echoed", has("!█"))
 	pw.Write([]byte("\x1b[99;5u")) // ctrl+c
 	select {
 	case rc := <-done:
@@ -353,4 +376,11 @@ func TestShiftThroughRealProgram(t *testing.T) {
 	if got := string(m.input); got != "Hello!" { // the program is done: reading the model is race free
 		t.Fatalf("typed text %q, want Hello!", got)
 	}
+}
+
+func tail(s string, n int) string {
+	if len(s) > n {
+		return s[len(s)-n:]
+	}
+	return s
 }

@@ -24,6 +24,7 @@ type Config struct {
 	Check       func(adapter.PR) (reason string, eligible bool) // eligibility (internal/rules)
 	Concurrency int                                             // parallel approve+merge; default runtime.NumCPU()
 	Ctx         context.Context
+	Version     string // shown dim at the end of the footer when non-empty
 }
 
 const (
@@ -209,13 +210,20 @@ func (m *Model) helpLines() []string {
 			"↑/↓ j/k move   x/space mark   X mark all eligible   u/ctrl+d clear marks",
 			"a approve+merge (marked, else current)   i ignore/un-ignore dependency",
 			"d decline (confirm, then optional comment)   c comment (marked, else current)",
-			". show/hide ignored   o open in browser   ? less help   q quit",
+			". show/hide ignored   o open in browser   ? less help   q quit" + m.versionSuffix(),
 		}
 	}
 	return []string{
 		"↑↓ move  x mark  X all  u clear  a approve+merge  d decline  c comment",
-		"i ignore  . ignored  o open  ? help  q quit",
+		"i ignore  . ignored  o open  ? help  q quit" + m.versionSuffix(),
 	}
+}
+
+func (m *Model) versionSuffix() string {
+	if m.cfg.Version == "" {
+		return ""
+	}
+	return "   bbapprove " + m.cfg.Version
 }
 
 func (m *Model) bodyHeight() int {

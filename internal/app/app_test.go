@@ -217,3 +217,12 @@ func TestDisallowFlag(t *testing.T) {
 		t.Errorf("flag not applied:\n%s", out)
 	}
 }
+
+func TestUsageFirstLineCarriesVersion(t *testing.T) {
+	if first := strings.SplitN(usage("v1.2.3"), "\n", 2)[0]; !strings.HasPrefix(first, "bbapprove v1.2.3 — ") {
+		t.Errorf("first line: %q", first)
+	}
+	if !strings.HasPrefix(usage(""), "bbapprove dev — ") {
+		t.Errorf("empty version should read dev")
+	}
+}

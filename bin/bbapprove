@@ -27,7 +27,7 @@ if needs_build; then
     echo "bbapprove: needs Go to build (https://go.dev/dl/)" >&2
     exit 127
   fi
-  (cd "$ROOT" && go build -o "$BIN" ./cmd/bbapprove)
+  "$ROOT/bin/build" -o "$BIN" >&2
 fi
 
 exec "$BIN" "$@"

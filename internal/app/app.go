@@ -22,8 +22,9 @@ type Options struct {
 	RepoDir string   // repo root, used for default adapter and disallow file locations
 	Stdout  io.Writer
 	Stderr  io.Writer
-	IsTTY   bool // stdout is a terminal
-	Width   int  // terminal width; only used when IsTTY
+	IsTTY   bool   // stdout is a terminal
+	Width   int    // terminal width; only used when IsTTY
+	Version string // build version shown in the help text
 }
 
 func (o Options) env(key string) string {
@@ -36,7 +37,7 @@ func (o Options) env(key string) string {
 	return v
 }
 
-const usageText = `bbapprove — approve and merge Renovate PRs on Bitbucket Server.
+const usageBody = `approve and merge Renovate PRs on Bitbucket Server.
 
 Usage: bbapprove [--apply] [--disallow a,b] [--token T] [PR_URL...]
 
@@ -55,6 +56,14 @@ A PR is eligible when ALL hold:
 Env: BBAPPROVE_AUTHOR_EMAIL, BBAPPROVE_DISALLOW, BBAPPROVE_DISALLOW_FILE, BBAPPROVE_JOBS,
      BBAPPROVE_ADAPTER, BBAPPROVE_TOKEN; NO_COLOR, FORCE_COLOR.
 `
+
+// usage returns the help text; the first line carries the version when known.
+func usage(version string) string {
+	if version == "" {
+		version = "dev"
+	}
+	return "bbapprove " + version + " — " + usageBody
+}
 
 type printer struct {
 	mu sync.Mutex
@@ -91,7 +100,7 @@ func Run(ctx context.Context, o Options) int {
 		}
 		switch {
 		case a == "-h" || a == "--help":
-			io.WriteString(o.Stdout, usageText)
+			io.WriteString(o.Stdout, usage(o.Version))
 			return 0
 		case a == "--apply":
 			apply = true
@@ -113,7 +122,7 @@ func Run(ctx context.Context, o Options) int {
 			}
 			token = v
 		case strings.HasPrefix(a, "-"):
-			fmt.Fprintf(o.Stderr, "Unknown option: %s\n%s", a, usageText)
+			fmt.Fprintf(o.Stderr, "Unknown option: %s\n%s", a, usage(o.Version))
 			return 2
 		default:
 			targets = append(targets, a)

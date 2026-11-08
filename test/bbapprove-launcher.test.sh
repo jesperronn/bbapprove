@@ -19,6 +19,9 @@ setup_repo() {
   REPO="$TEST_TMP/repo"; GO_LOG="$TEST_TMP/go.log"; : >"$GO_LOG"
   mkdir -p "$REPO/bin" "$REPO/cmd/bbapprove" "$REPO/internal/x" "$TEST_TMP/stubs" "$TEST_TMP/empty"
   cp "$LAUNCHER" "$REPO/bin/bbapprove"; chmod +x "$REPO/bin/bbapprove"
+  # Stub bin/build: the launcher delegates to it as `bin/build -o FILE`; it runs the (stubbed) go build.
+  printf '#!/usr/bin/env bash\ncd "$(dirname "$0")/.." && go build -o "$2" ./cmd/bbapprove\n' >"$REPO/bin/build"
+  chmod +x "$REPO/bin/build"
   printf 'module bbapprove\n\ngo 1.27\n' >"$REPO/go.mod"
   printf 'package main\n\nfunc main() {}\n' >"$REPO/cmd/bbapprove/main.go"
   printf 'package x\n' >"$REPO/internal/x/x.go"

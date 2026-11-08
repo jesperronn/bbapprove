@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# build — build the bbapprove Go binary with a version embedded from git, optionally run the
+# checks first and/or install the launcher. See --help.
+
+set -euo pipefail
+
+# Resolve symlinks without readlink -f (not available on macOS).
+SELF="$0"
+while [[ -L "$SELF" ]]; do
+  target="$(readlink "$SELF")"
+  if [[ "$target" == /* ]]; then SELF="$target"; else SELF="$(dirname "$SELF")/$target"; fi
+done
+REPO="$(cd "$(dirname "$SELF")/.." && pwd)"
+
+usage() {
+  cat <<'USAGE'
+Usage: bin/build [--test] [--install [--prefix DIR] [--force]] [--version] [-o FILE]
+
+Builds the bbapprove Go binary (default bin/bbapprove-go) with the version embedded.
+The version is `git describe --tags --always --dirty`, or "dev" without git;
+BBAPPROVE_VERSION overrides it.
+
+  --test         run gofmt -l, go vet and go test -race first; abort on failure
+  --install      after building, symlink bin/bbapprove (the launcher) to PREFIX/bbapprove
+  --prefix DIR   install directory (default $HOME/.local/bin; created if needed)
+  --force        with --install: replace an existing file that is not our symlink
+  --version      print the version that would be embedded and exit (no build)
+  -o FILE        output path of the Go binary (default bin/bbapprove-go)
+  -h, --help     this text
+USAGE
+}
+
+compute_version() {
+  if [[ -n "${BBAPPROVE_VERSION:-}" ]]; then
+    printf '%s\n' "$BBAPPROVE_VERSION"
+    return
+  fi
+  local v=""
+  v="$(git -C "$REPO" describe --tags --always --dirty 2>/dev/null)" || v=""
+  printf '%s\n' "${v:-dev}"
+}
+
+run_checks() {
+  local unformatted
+  unformatted="$(cd "$REPO" && gofmt -l .)"
+  if [[ -n "$unformatted" ]]; then
+    echo "bbapprove: gofmt would change:" >&2
+    echo "$unformatted" >&2
+    return 1
+  fi
+  (cd "$REPO" && go vet ./... && go test ./... -count=1 -race) >&2
+}
+
+install_link() {
+  local launcher="$REPO/bin/bbapprove" prefix="$1" force="$2"
+  local link="$prefix/bbapprove"
+  mkdir -p "$prefix"
+  if [[ -L "$link" && "$(readlink "$link")" == "$launcher" ]]; then
+    echo "already installed: $link -> $launcher" >&2
+  else
+    if [[ -e "$link" || -L "$link" ]] && [[ "$force" != 1 ]]; then
+      echo "bbapprove: $link already exists and is not a link to $launcher (use --force to replace)" >&2
+      return 1
+    fi
+    ln -sfn "$launcher" "$link"
+    echo "installed: $link -> $launcher" >&2
+  fi
+  local winner
+  winner="$(command -v bbapprove 2>/dev/null || true)"
+  if [[ "$winner" != "$link" ]]; then
+    if [[ -n "$winner" ]]; then
+      echo "warning: 'bbapprove' on PATH resolves to $winner, not $link (another bbapprove comes first)" >&2
+    else
+      echo "warning: $prefix is not on PATH; 'bbapprove' will not be found" >&2
+    fi
+  fi
+}
+
+do_test=0 do_install=0 force=0 show_version=0
+prefix="${HOME:-}/.local/bin"
+out="$REPO/bin/bbapprove-go"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h | --help) usage; exit 0 ;;
+    --test) do_test=1 ;;
+    --install) do_install=1 ;;
+    --force) force=1 ;;
+    --version) show_version=1 ;;
+    --prefix)
+      [[ $# -ge 2 ]] || { echo "bbapprove: --prefix needs a directory" >&2; exit 2; }
+      prefix="$2"; shift ;;
+    -o)
+      [[ $# -ge 2 ]] || { echo "bbapprove: -o needs a file" >&2; exit 2; }
+      out="$2"; shift ;;
+    *) echo "bbapprove: unknown option: $1" >&2; usage >&2; exit 2 ;;
+  esac
+  shift
+done
+
+VERSION="$(compute_version)"
+
+if [[ "$show_version" == 1 ]]; then
+  printf '%s\n' "$VERSION"
+  exit 0
+fi
+
+if ! command -v go >/dev/null 2>&1; then
+  echo "bbapprove: needs Go to build (https://go.dev/dl/)" >&2
+  exit 127
+fi
+
+[[ "$do_test" == 1 ]] && run_checks
+[[ "$out" == /* ]] || out="$PWD/$out"
+
+# Stdout stays clean: the launcher execs bbapprove after building and its output must not be polluted.
+(cd "$REPO" && go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "$out" ./cmd/bbapprove) >&2
+echo "built $out ($VERSION)" >&2
+
+[[ "$do_install" == 1 ]] && install_link "$prefix" "$force"
+exit 0

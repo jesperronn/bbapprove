@@ -596,3 +596,18 @@ func TestIgnoreUnmarksAndCounter(t *testing.T) {
 		t.Fatalf("targets %v", got)
 	}
 }
+
+func TestFooterShowsVersion(t *testing.T) {
+	m, _, _, _ := fixture(t)
+	if strings.Contains(plain(m.View()), "bbapprove ") {
+		t.Fatal("no version expected when unset")
+	}
+	m.cfg.Version = "v1.0.0-rc.1"
+	if !strings.Contains(plain(m.View()), "bbapprove v1.0.0-rc.1") {
+		t.Fatal("footer missing version")
+	}
+	send(m, "?")
+	if !strings.Contains(plain(m.View()), "bbapprove v1.0.0-rc.1") {
+		t.Fatal("extended help missing version")
+	}
+}

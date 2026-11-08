@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -12,7 +13,16 @@ import (
 	"bbapprove/internal/tui"
 )
 
+// version is injected at build time: -ldflags "-X main.version=<git describe>" (see bin/build).
+var version = "dev"
+
 func main() {
+	for _, a := range os.Args[1:] {
+		if a == "--version" || a == "-V" {
+			fmt.Println("bbapprove " + version)
+			return
+		}
+	}
 	fd := int(os.Stdout.Fd())
 	tty := term.IsTerminal(fd)
 	width := 0
@@ -25,13 +35,13 @@ func main() {
 		if a == "-i" || a == "--interactive" {
 			os.Exit(tui.Run(context.Background(), tui.RunOptions{
 				Args: os.Args[1:], Environ: os.Environ(), RepoDir: repoDir(),
-				Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr,
+				Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr, Version: version,
 			}))
 		}
 	}
 	os.Exit(app.Run(context.Background(), app.Options{
 		Args: os.Args[1:], Environ: os.Environ(), RepoDir: repoDir(),
-		Stdout: os.Stdout, Stderr: os.Stderr, IsTTY: tty, Width: width,
+		Stdout: os.Stdout, Stderr: os.Stderr, IsTTY: tty, Width: width, Version: version,
 	}))
 }
 

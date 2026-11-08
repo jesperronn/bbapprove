@@ -4,7 +4,7 @@ Approve and merge Renovate PRs on Bitbucket Server (bitbucket.example.com) via t
 Dry-run by default; `--apply` approves, then merges.
 
 The core is a Go program (`cmd/bbapprove`, `internal/`). `bin/bbapprove` is a small bash launcher:
-it builds `bin/bbapprove-go` when it is missing or older than the Go sources (`go.mod`, `go.sum`,
+it (through `bin/build`) builds `bin/bbapprove-go` when it is missing or older than the Go sources (`go.mod`, `go.sum`,
 `cmd/**/*.go`, `internal/**/*.go`) and then execs it with all arguments unchanged. Building needs Go
 on PATH (https://go.dev/dl/); without it and without a built binary the launcher exits 127.
 
@@ -108,12 +108,44 @@ A GitHub/GitLab adapter only needs to implement these commands and emit this sha
 Packages: `internal/adapter` (subprocess client), `internal/rules` (eligibility), `internal/app` (CLI and
 dry run/apply), `internal/tui` (Bubble Tea interface), `internal/ignore` (per-user ignore list).
 
+## Build, install, version
+
+```
+bin/build                      # build bin/bbapprove-go with the version embedded
+bin/build --test               # gofmt -l, go vet, go test -race first; abort on failure
+bin/build --install            # build, then symlink bin/bbapprove to ~/.local/bin/bbapprove
+bin/build --install --prefix DIR [--force]
+bin/build --version            # print the version that would be embedded (no build)
+bin/build -o FILE              # write the binary somewhere else
+bbapprove --version            # prints "bbapprove <version>"; -V works too
+```
+
+`--install` links the launcher `bin/bbapprove`, not the Go binary, because the launcher keeps working from
+the repo (adapters/ and disallow.txt are resolved relative to it) and rebuilds when the sources change.
+The prefix defaults to `$HOME/.local/bin` (created if missing). An existing link to this launcher is left
+alone; any other file at the target is refused unless `--force`. After installing, `bin/build` warns when
+`command -v bbapprove` resolves elsewhere. Note the dotfiles wrapper `dotfiles/bin/bbapprove` (see
+Environment) may come earlier on PATH and shadow the installed link; the warning names the winner.
+
+Versioning comes from git: `git describe --tags --always --dirty` (for example `v1.0.0-rc.1`,
+`v1.0.0-rc.1-3-gabc1234`, `v1.0.0-rc.1-dirty`), injected with `-ldflags "-X main.version=..."` and shown
+exactly as git prints it. Without git a build reports `dev`; `BBAPPROVE_VERSION` overrides the value (tests,
+release builds). The version also appears on the first line of `--help` and dim in the TUI footer.
+
+Cut a release: update CHANGELOG.md, commit, then
+
+```
+git tag -a v1.0.0 -m "bbapprove 1.0.0"
+bin/build --test --install
+```
+
 ## Test and lint
 
 ```
 go vet ./... && go test ./... -race          # Go unit tests
 bash test/bitbucket-adapter.test.sh          # adapter against a stubbed curl
 bash test/bbapprove-launcher.test.sh         # launcher: rebuild rules, arg passing, symlinks, missing go
-shellcheck bin/bbapprove adapters/bitbucket test/*.sh
+bash test/build.test.sh                      # bin/build: version embedding, --install, --test, missing go
+shellcheck bin/bbapprove bin/build adapters/bitbucket test/*.sh
 gofmt -l .                                   # should print nothing
 ```

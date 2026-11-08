@@ -24,6 +24,7 @@ type RunOptions struct {
 	Stdin   io.Reader
 	Stdout  io.Writer
 	Stderr  io.Writer
+	Version string
 }
 
 // Run configures the TUI from args/env (same variables as the CLI) and runs it. Returns the exit code.
@@ -85,7 +86,7 @@ func Run(ctx context.Context, o RunOptions) int {
 	}
 	m := New(Config{
 		Backend: ClientBackend{Client: client}, IgnorePath: ignore.DefaultPath(),
-		Check: rc.Check, Concurrency: jobs, Ctx: ctx,
+		Check: rc.Check, Concurrency: jobs, Ctx: ctx, Version: o.Version,
 	})
 	p := tea.NewProgram(m, tea.WithInput(o.Stdin), tea.WithOutput(o.Stdout), tea.WithAltScreen(), tea.WithContext(ctx))
 	if _, err := p.Run(); err != nil {

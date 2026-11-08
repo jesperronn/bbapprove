@@ -26,6 +26,8 @@ adapter pr list --reviewer @me --state open   # JSON array of normalized PRs
 adapter pr view URL                           # one normalized PR
 adapter pr review URL --approve
 adapter pr merge URL                          # retries stale versions itself
+adapter pr comment URL --body TEXT            # or --body-file FILE; empty body exits 2
+adapter pr close URL [--comment TEXT]         # decline; --comment is posted first, and a failed comment aborts the decline
 ```
 
 Normalized PR: `{url, number, project, repo, title, author:{email,login}, headBranch, approvedByMe}`.

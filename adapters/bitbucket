@@ -7,6 +7,8 @@
 #   bitbucket pr view URL                       one normalized PR as compact JSON
 #   bitbucket pr review URL --approve           approve
 #   bitbucket pr merge URL                      merge (retries when the PR version went stale)
+#   bitbucket pr comment URL --body TEXT        post a comment (or --body-file FILE)
+#   bitbucket pr close URL [--comment TEXT]     decline the PR; --comment is posted first, and a failed comment aborts the decline
 #
 # Normalized PR: {url, number, project, repo, title, author:{email,login}, headBranch, approvedByMe,
 #   build: passed|failed|running|none, qualityGate: passed|failed|unknown,
@@ -159,6 +161,63 @@ cmd_pr_merge() { # URL
   return 1
 }
 
+comment_pr() { # KEY REPO ID TEXT -> posts one PR comment; stderr + 1 on failure
+  local key="$1" repo="$2" id="$3" text="$4" payload
+  payload="$(jq -n --arg t "$text" '{text: $t}')"
+  api POST "/rest/api/1.0/projects/$key/repos/$repo/pull-requests/$id/comments" "$payload" || true
+  [[ "$LAST_CODE" == 2* ]] || { err "comment HTTP $LAST_CODE"; return 1; }
+}
+
+cmd_pr_comment() { # URL --body TEXT | --body-file FILE
+  local url="${1:-}" body="" have_body=0 body_file="" key repo id parts
+  parts="$(parse_pr_url "$url")" || return 2
+  read -r key repo id <<<"$parts"
+  shift
+  while (( $# )); do
+    case "$1" in
+      --body) [[ $# -ge 2 ]] || { err "pr comment: --body needs a value"; return 2; }
+              body="$2"; have_body=1; shift 2 ;;
+      --body-file) [[ $# -ge 2 ]] || { err "pr comment: --body-file needs a value"; return 2; }
+              body_file="$2"; shift 2 ;;
+      *) err "pr comment: unknown argument: $1"; return 2 ;;
+    esac
+  done
+  if [[ -n "$body_file" ]]; then
+    (( have_body == 0 )) || { err "pr comment: use either --body or --body-file, not both"; return 2; }
+    body="$(cat -- "$body_file")" || { err "pr comment: cannot read $body_file"; return 2; }
+  fi
+  [[ -n "${body//[[:space:]]/}" ]] || { err "pr comment: empty comment (use --body TEXT or --body-file FILE)"; return 2; }
+  comment_pr "$key" "$repo" "$id" "$body"
+}
+
+cmd_pr_close() { # URL [--comment TEXT]
+  local url="${1:-}" comment="" have_comment=0 key repo id parts base fresh
+  parts="$(parse_pr_url "$url")" || return 2
+  read -r key repo id <<<"$parts"
+  shift
+  while (( $# )); do
+    case "$1" in
+      --comment) [[ $# -ge 2 ]] || { err "pr close: --comment needs a value"; return 2; }
+                 comment="$2"; have_comment=1; shift 2 ;;
+      *) err "pr close: unknown argument: $1"; return 2 ;;
+    esac
+  done
+  if (( have_comment )); then
+    [[ -n "${comment//[[:space:]]/}" ]] || { err "pr close: --comment must not be empty"; return 2; }
+    # Comment first: if it fails, do not decline, so a close is never silent.
+    comment_pr "$key" "$repo" "$id" "$comment" || { err "close aborted: comment failed, PR not declined"; return 1; }
+  fi
+  base="/rest/api/1.0/projects/$key/repos/$repo/pull-requests/$id"
+  # Decline needs the current PR version, so read it right before the call.
+  api GET "$base" || true
+  fresh="$(jq -r '.version // empty' <<<"$API_BODY" 2>/dev/null || true)"
+  [[ -n "$fresh" ]] || { err "close: could not read PR version (HTTP $LAST_CODE)"; return 1; }
+  api POST "$base/decline?version=$fresh" "{\"version\":$fresh}" || true
+  [[ "$LAST_CODE" == 2* ]] && return 0
+  err "decline HTTP $LAST_CODE: $(jq -r '[.errors[]?.message] | join("; ")' <<<"$API_BODY" 2>/dev/null || true)"
+  return 1
+}
+
 main() {
   local group="${1:-}" sub="${2:-}"
   case "$group $sub" in
@@ -167,7 +226,9 @@ main() {
     "pr view") shift 2; cmd_pr_view "$@" ;;
     "pr review") shift 2; cmd_pr_review "$@" ;;
     "pr merge") shift 2; cmd_pr_merge "$@" ;;
-    *) err "usage: bitbucket auth token | pr list|view|review|merge ..."; return 2 ;;
+    "pr comment") shift 2; cmd_pr_comment "$@" ;;
+    "pr close") shift 2; cmd_pr_close "$@" ;;
+    *) err "usage: bitbucket auth token | pr list|view|review|merge|comment|close ..."; return 2 ;;
   esac
 }
 

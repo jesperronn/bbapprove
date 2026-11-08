@@ -21,7 +21,10 @@ setup_stub() {
 #!/usr/bin/env bash
 url="${!#}"
 echo "$*" >>"$STUB_LOG"
+prev=""; for a in "$@"; do [[ "$prev" == -d ]] && printf '%s' "$a" >"$STUB_LOG.body"; prev="$a"; done
 if [[ "$url" == *whoami* ]]; then printf 'me\n200'
+elif [[ "$*" == *"-X POST"* && "$url" == */comments && -n "${STUB_COMMENT_FAIL:-}" ]]; then printf '{}\n500'
+elif [[ "$url" == *"/decline"* && -n "${STUB_DECLINE_FAIL:-}" ]]; then printf '{"errors":[{"message":"PR is out of date"}]}\n409'
 elif [[ "$url" == *build-status*/commits/stats ]]; then printf '{"abc":{"successful":2,"failed":0,"inProgress":0}}\n200'
 elif [[ "$url" == *"/activities"* ]]; then printf '{"values":[{"action":"COMMENTED"},{"action":"COMMENTED"},{"action":"COMMENTED"},{"action":"OPENED"}]}\n200'
 elif [[ "$url" == *"/blocker-comments"* ]]; then printf '{"values":[{"state":"OPEN"},{"state":"RESOLVED"}]}\n200'
@@ -100,6 +103,91 @@ test_failures_exit_nonzero_with_message() {
   rc=0; out="$(run_adapter pr view "not-a-url")" || rc=$?
   assert_eq "$rc" "2" "bad URL exits 2"
   assert_contains "$out" "Not a PR URL" "bad URL message"
+  cleanup_test_tmp; TEST_TMP=""
+}
+
+test_pr_comment_posts_text() {
+  setup_stub
+  run_adapter pr comment "$URL" --body "looks good" >/dev/null
+  assert_contains "$(cat "$STUB_LOG")" "-X POST" "comment uses POST"
+  assert_contains "$(cat "$STUB_LOG")" "/rest/api/1.0/projects/PROJ/repos/repo/pull-requests/5/comments" "comments endpoint"
+  assert_eq "$(jq -r '.text' "$STUB_LOG.body")" "looks good" "body is {text: TEXT}"
+  cleanup_test_tmp; TEST_TMP=""
+}
+
+test_pr_comment_special_chars_are_valid_json() {
+  setup_stub
+  local text=$'say "hi" \\ back\nnew line — ✓ é'
+  run_adapter pr comment "$URL" --body "$text" >/dev/null
+  jq -e . "$STUB_LOG.body" >/dev/null || test_fail "comment body is not valid JSON"
+  assert_eq "$(jq -r '.text' "$STUB_LOG.body")" "$text" "quotes, backslash, newline and unicode survive"
+  cleanup_test_tmp; TEST_TMP=""
+}
+
+test_pr_comment_empty_body_exits_2() {
+  setup_stub
+  local rc=0 out
+  out="$(run_adapter pr comment "$URL" --body "   ")" || rc=$?
+  assert_eq "$rc" "2" "empty body exits 2"
+  assert_contains "$out" "empty comment" "empty body message"
+  rc=0; out="$(run_adapter pr comment "$URL")" || rc=$?
+  assert_eq "$rc" "2" "missing body exits 2"
+  assert_eq "$(grep -c comments "$STUB_LOG" || true)" "0" "no comment request sent"
+  cleanup_test_tmp; TEST_TMP=""
+}
+
+test_pr_comment_body_file() {
+  setup_stub
+  printf 'from "file"\nsecond line\n' >"$TEST_TMP/body.txt"
+  run_adapter pr comment "$URL" --body-file "$TEST_TMP/body.txt" >/dev/null
+  assert_eq "$(jq -r '.text' "$STUB_LOG.body")" $'from "file"\nsecond line' "--body-file content is posted"
+  cleanup_test_tmp; TEST_TMP=""
+}
+
+test_pr_comment_failure_exits_1() {
+  setup_stub
+  local rc=0 out
+  out="$(STUB_COMMENT_FAIL=1 run_adapter pr comment "$URL" --body "x")" || rc=$?
+  assert_eq "$rc" "1" "comment failure exits 1"
+  assert_contains "$out" "comment HTTP 500" "comment failure message with HTTP code"
+  cleanup_test_tmp; TEST_TMP=""
+}
+
+test_pr_close_declines_with_fresh_version() {
+  setup_stub
+  STUB_RAW="${RAW/\"version\":3/\"version\":7}" run_adapter pr close "$URL" >/dev/null
+  assert_contains "$(cat "$STUB_LOG")" "pull-requests/5/decline?version=7" "decline uses fresh version"
+  assert_eq "$(jq -r '.version' "$STUB_LOG.body")" "7" "decline body carries version"
+  assert_eq "$(grep -c '/comments' "$STUB_LOG" || true)" "0" "no comment without --comment"
+  cleanup_test_tmp; TEST_TMP=""
+}
+
+test_pr_close_comments_before_decline() {
+  setup_stub
+  run_adapter pr close "$URL" --comment "closing: superseded" >/dev/null
+  local order
+  order="$(awk '/\/comments/ {c = NR} /\/decline/ {d = NR} END {print (c && d && c < d) ? "comment-then-decline" : "wrong-order"}' "$STUB_LOG")"
+  assert_eq "$order" "comment-then-decline" "comment is posted before decline"
+  assert_eq "$(jq -r '.version' "$STUB_LOG.body")" "3" "decline body carries the fresh version after the comment"
+  cleanup_test_tmp; TEST_TMP=""
+}
+
+test_pr_close_failed_comment_prevents_decline() {
+  setup_stub
+  local rc=0 out
+  out="$(STUB_COMMENT_FAIL=1 run_adapter pr close "$URL" --comment "bye")" || rc=$?
+  assert_eq "$rc" "1" "close exits 1 when the comment fails"
+  assert_contains "$out" "close aborted" "close abort message"
+  assert_not_contains "$(cat "$STUB_LOG")" "decline" "no decline call after failed comment"
+  cleanup_test_tmp; TEST_TMP=""
+}
+
+test_pr_close_decline_failure_exits_1() {
+  setup_stub
+  local rc=0 out
+  out="$(STUB_DECLINE_FAIL=1 run_adapter pr close "$URL")" || rc=$?
+  assert_eq "$rc" "1" "decline failure exits 1"
+  assert_contains "$out" "decline HTTP 409: PR is out of date" "decline failure message with HTTP code and errors"
   cleanup_test_tmp; TEST_TMP=""
 }
 

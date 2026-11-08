@@ -38,7 +38,7 @@ echo "$*" >>"$STUB_LOG"
 if [[ "$url" == *whoami* ]]; then printf 'me\n200'
 elif [[ "$url" == *dashboard/pull-requests* ]]; then printf '{"isLastPage":true,"values":%s}\n200' "$(cat "$STUB_PRS")"
 elif [[ "$url" == *"/merge"* && -n "${STUB_MERGE_FAIL:-}" ]]; then printf '{"errors":[{"message":"checks failed"}]}\n409'
-elif [[ "$url" == *"/merge"* && -n "${STUB_STALE_FILE:-}" && ! -e "$STUB_STALE_FILE" ]]; then touch "$STUB_STALE_FILE"; printf '{"errors":[{"message":"modify a pull request based on out-of-date information."}]}\n409'
+elif [[ "$url" == *"pull-requests/1/merge"* && -n "${STUB_STALE_FILE:-}" && ! -e "$STUB_STALE_FILE" ]]; then touch "$STUB_STALE_FILE"; printf '{"errors":[{"message":"modify a pull request based on out-of-date information."}]}\n409'
 elif [[ "$url" =~ pull-requests/[0-9]+$ && -n "${STUB_BY_ID:-}" ]]; then printf '%s\n200' "$(jq -c ".[]|select(.id==${url##*/})" "$STUB_PRS")"
 elif [[ "$url" =~ pull-requests/[0-9]+$ ]]; then printf '{"version":7}\n200'
 else printf '{}\n200'; fi

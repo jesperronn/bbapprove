@@ -13,7 +13,7 @@ cleanup_test_tmp() { [[ -n "$TEST_TMP" ]] && rm -rf "$TEST_TMP"; return 0; }
 trap 'cleanup_test_tmp' EXIT
 
 URL="https://bitbucket.example.com/projects/PROJ/repos/repo/pull-requests/5"
-RAW='{"id":5,"version":3,"title":"chore(deps): update x to v1.0.1","author":{"user":{"emailAddress":"bot@x","slug":"bot"}},"fromRef":{"displayId":"renovate/x","latestCommit":"abc"},"toRef":{"repository":{"slug":"repo","project":{"key":"PROJ"}}},"participants":[],"reviewers":[{"user":{"slug":"me"},"status":"APPROVED"},{"user":{"slug":"bob"},"status":"NEEDS_WORK"}],"properties":{"qgStatus":"PASSED","commentCount":4,"openTaskCount":1}}'
+RAW='{"id":5,"version":3,"title":"chore(deps): update x to v1.0.1","author":{"user":{"emailAddress":"bot@example.com","slug":"bot"}},"fromRef":{"displayId":"renovate/x","latestCommit":"abc"},"toRef":{"repository":{"slug":"repo","project":{"key":"PROJ"}}},"participants":[],"reviewers":[{"user":{"slug":"me"},"status":"APPROVED"},{"user":{"slug":"bob"},"status":"NEEDS_WORK"}],"properties":{"qgStatus":"PASSED","commentCount":4,"openTaskCount":1}}'
 
 setup_stub() {
   TEST_TMP="$(mktemp -d)"; mkdir -p "$TEST_TMP/bin"
@@ -36,7 +36,7 @@ elif [[ "$url" =~ pull-requests/[0-9]+$ ]]; then printf '%s\n200' "$STUB_RAW"
 else printf '{}\n200'; fi
 STUB
   chmod +x "$TEST_TMP/bin/curl"
-  export STUB_LOG="$TEST_TMP/curl.log" STUB_RAW="$RAW" BBAPPROVE_TOKEN=t BBAPPROVE_RETRY_SLEEP=0
+  export BBAPPROVE_BASE_URL="https://bitbucket.example.com" STUB_LOG="$TEST_TMP/curl.log" STUB_RAW="$RAW" BBAPPROVE_TOKEN=t BBAPPROVE_RETRY_SLEEP=0
   : >"$STUB_LOG"
 }
 
@@ -47,7 +47,7 @@ test_pr_view_normalizes() {
   local out; out="$(run_adapter pr view "$URL")"
   assert_eq "$(jq -r '.url' <<<"$out")" "$URL" "url"
   assert_eq "$(jq -r '"\(.project)/\(.repo)#\(.number)"' <<<"$out")" "PROJ/repo#5" "project/repo#number"
-  assert_eq "$(jq -r '.author.email' <<<"$out")" "bot@x" "author email"
+  assert_eq "$(jq -r '.author.email' <<<"$out")" "bot@example.com" "author email"
   assert_eq "$(jq -r '.headBranch' <<<"$out")" "renovate/x" "head branch"
   assert_eq "$(jq -r '.approvedByMe' <<<"$out")" "true" "approvedByMe from whoami + reviewers"
   assert_eq "$(jq -r '.build' <<<"$out")" "passed" "build from batched build-status stats"
@@ -188,6 +188,45 @@ test_pr_close_decline_failure_exits_1() {
   out="$(STUB_DECLINE_FAIL=1 run_adapter pr close "$URL")" || rc=$?
   assert_eq "$rc" "1" "decline failure exits 1"
   assert_contains "$out" "decline HTTP 409: PR is out of date" "decline failure message with HTTP code and errors"
+  cleanup_test_tmp; TEST_TMP=""
+}
+
+test_missing_base_url_exits_2() {
+  setup_stub
+  local rc=0 out
+  out="$(BBAPPROVE_BASE_URL="" run_adapter pr list --reviewer @me --state open)" || rc=$?
+  assert_eq "$rc" "2" "missing BBAPPROVE_BASE_URL exits 2"
+  assert_eq "$out" "bitbucket adapter: BBAPPROVE_BASE_URL is not set" "no built-in default URL"
+  assert_eq "$(cat "$STUB_LOG")" "" "no curl call without a base URL"
+  cleanup_test_tmp; TEST_TMP=""
+}
+
+setup_op_stub() {
+  setup_stub
+  cat >"$TEST_TMP/bin/op" <<'STUB'
+#!/usr/bin/env bash
+echo "$*" >>"$STUB_LOG.op"
+echo "tok-from-op"
+STUB
+  chmod +x "$TEST_TMP/bin/op"
+}
+
+test_auth_token_uses_token_name_item() {
+  setup_op_stub
+  local out
+  out="$(BBAPPROVE_TOKEN="" BBAPPROVE_TOKEN_NAME="MY_ITEM" run_adapter auth token)"
+  assert_contains "$out" "Waiting for 1Password: op item get MY_ITEM" "message names the configured item"
+  assert_contains "$out" "tok-from-op" "token printed"
+  assert_contains "$(cat "$STUB_LOG.op")" "item get MY_ITEM --fields label=token --reveal" "op asked for the configured item"
+  cleanup_test_tmp; TEST_TMP=""
+}
+
+test_auth_token_item_defaults_to_bitbucket_token() {
+  setup_op_stub
+  local out
+  out="$(BBAPPROVE_TOKEN="" run_adapter auth token)"
+  assert_contains "$out" "Waiting for 1Password: op item get BITBUCKET_TOKEN" "default item name in the message"
+  assert_contains "$(cat "$STUB_LOG.op")" "item get BITBUCKET_TOKEN --fields" "op asked for the default item"
   cleanup_test_tmp; TEST_TMP=""
 }
 

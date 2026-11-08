@@ -1,0 +1,24 @@
+# bbapprove configuration. Copy to bbapprove.config.toml (git-ignored) and edit:
+#   cp bbapprove.config.template bbapprove.config.toml
+#
+# Lookup order: --config FILE, $BBAPPROVE_CONFIG, <repo>/bbapprove.config.toml,
+# $XDG_CONFIG_HOME/bbapprove/config.toml (default ~/.config/bbapprove/config.toml).
+# Precedence per setting: command line > environment (BBAPPROVE_*) > this file > built-in default.
+# Check the result with: bbapprove --print-config
+
+# which forge adapter to use: adapters/<type> (bitbucket today). Default: "bitbucket"
+type = "bitbucket"
+
+# base URL of the forge (no built-in default; required). Env: BBAPPROVE_REPOSITORY
+repository = "https://bitbucket.example.com"
+
+# name of the 1Password item holding the API token (field "token"). Default: BITBUCKET_TOKEN.
+# Env: BBAPPROVE_TOKEN_NAME; the command line (--token-name NAME) wins over the file.
+user_token_name = "BITBUCKET_TOKEN"
+
+# only PRs authored by this bot are eligible (no built-in default; required). Env: BBAPPROVE_AUTHOR_EMAIL
+author_email = "renovate-bot@example.com"
+
+# dependencies bbapprove must never auto-approve (case-insensitive substrings of the PR title).
+# Merged with --disallow / BBAPPROVE_DISALLOW.
+disallow = ["some-library", "another-library"]

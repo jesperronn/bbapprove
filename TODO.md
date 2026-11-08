@@ -8,7 +8,7 @@
   - [ ] Show merge-check failures before acting (today a failed merge only shows after the attempt).
   - [ ] Build and SonarQube links (`o` currently opens only the PR).
 - [x] **`--help`**: lists every flag, the eligibility rules and the env vars.
-- [x] **Wrapper in `dotfiles/bin`** (`bin/bbapprove`): injects the 1Password token and passes all flags through. The repo's `bin/bbapprove` is now the Go launcher at the same path.
+- [x] **Configuration file**: site settings (forge URL, token item, bot author, disallow list) live in a git-ignored TOML file; see README.
 - [ ] **Major-version detection must not rely on branch names or title heuristics.** Never auto-approve a major bump.
   - Today: title ending `to vN` or branch `renovate/major-*` counts as major (`internal/rules`). Drop the branch check, and treat "can't tell" as NOT eligible (fail closed).
   - Compare the real old vs new version instead (e.g. from the PR diff or the Renovate PR description table), and only approve minor/patch/digest.

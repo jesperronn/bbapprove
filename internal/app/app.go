@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"bbapprove/internal/adapter"
+	"bbapprove/internal/config"
 	"bbapprove/internal/ignore"
 	"bbapprove/internal/rules"
 )
@@ -43,7 +44,8 @@ func (o Options) env(key string) string {
 
 const usageBody = `approve and merge Renovate PRs on Bitbucket Server.
 
-Usage: bbapprove [--apply] [--hide-ignored] [--disallow a,b] [--token T] [PR_URL...]
+Usage: bbapprove [--apply] [--hide-ignored] [--disallow a,b] [--token T] [--token-name NAME]
+                 [--config FILE] [--print-config] [PR_URL...]
 
 With no PR_URL, every open PR where you are a reviewer is considered.
 Without --apply nothing is changed; eligibility is only reported.
@@ -59,15 +61,22 @@ rows, r reload, o open, ? help, q quit (prints a summary of what was done). --no
 BBAPPROVE_MOUSE=0) turns mouse capture off.
 
 A PR is eligible when ALL hold:
-  - author email is BBAPPROVE_AUTHOR_EMAIL (default renovate-bot@example.com)
+  - author email is the configured author_email (config file, BBAPPROVE_AUTHOR_EMAIL; no default)
   - title starts with "chore(deps):" or "fix(deps):"
-  - title does not mention a disallowed dependency (disallow.txt, --disallow)
+  - title does not mention a disallowed dependency (config "disallow", --disallow)
   - update is minor/patch/digest (title "to vN" only, or branch renovate/major-*, is major)
   - not already approved by you
   - not on your ignore list (a PR on it is IGNORED whatever else applies, and never acted on)
 
-Env: BBAPPROVE_AUTHOR_EMAIL, BBAPPROVE_DISALLOW, BBAPPROVE_DISALLOW_FILE, BBAPPROVE_JOBS,
-     BBAPPROVE_ADAPTER, BBAPPROVE_TOKEN, BBAPPROVE_MOUSE, BBAPPROVE_KITTY; NO_COLOR, FORCE_COLOR.
+Configuration: a TOML file (see bbapprove.config.template) with type, repository, user_token_name,
+author_email, disallow. Found via --config / BBAPPROVE_CONFIG, else <repo>/bbapprove.config.toml, else
+$XDG_CONFIG_HOME/bbapprove/config.toml (default ~/.config/...). Precedence: command line > env > file >
+default. repository and author_email have no default. --print-config shows the effective settings
+(no secrets) and where each came from. --token-name NAME overrides the 1Password item name.
+
+Env: BBAPPROVE_CONFIG, BBAPPROVE_REPOSITORY, BBAPPROVE_AUTHOR_EMAIL, BBAPPROVE_TOKEN_NAME,
+     BBAPPROVE_DISALLOW, BBAPPROVE_DISALLOW_FILE, BBAPPROVE_JOBS, BBAPPROVE_ADAPTER, BBAPPROVE_TOKEN,
+     BBAPPROVE_MOUSE, BBAPPROVE_KITTY; NO_COLOR, FORCE_COLOR.
 `
 
 // usage returns the help text; the first line carries the version when known.
@@ -95,8 +104,12 @@ func Run(ctx context.Context, o Options) int {
 	var (
 		apply    bool
 		hideIgn  bool
-		disallow = o.env("BBAPPROVE_DISALLOW")
+		disallow string
 		token    = o.env("BBAPPROVE_TOKEN")
+		tokName  string
+		cfgFile  string
+		printCfg bool
+		wantTUI  bool
 		targets  []string
 	)
 	args := o.Args
@@ -121,8 +134,7 @@ func Run(ctx context.Context, o Options) int {
 		case a == "--hide-ignored":
 			hideIgn = true
 		case a == "-i" || a == "--interactive":
-			fmt.Fprintln(o.Stderr, "interactive mode: not implemented yet")
-			return 2
+			wantTUI = true
 		case a == "--disallow" || strings.HasPrefix(a, "--disallow="):
 			v, ok := val()
 			if !ok {
@@ -130,6 +142,22 @@ func Run(ctx context.Context, o Options) int {
 				return 2
 			}
 			disallow = v
+		case a == "--print-config":
+			printCfg = true
+		case a == "--token-name" || strings.HasPrefix(a, "--token-name="):
+			v, ok := val()
+			if !ok {
+				fmt.Fprintln(o.Stderr, "--token-name needs a value")
+				return 2
+			}
+			tokName = v
+		case a == "--config" || strings.HasPrefix(a, "--config="):
+			v, ok := val()
+			if !ok {
+				fmt.Fprintln(o.Stderr, "--config needs a value")
+				return 2
+			}
+			cfgFile = v
 		case a == "--token" || strings.HasPrefix(a, "--token="):
 			v, ok := val()
 			if !ok {
@@ -145,18 +173,29 @@ func Run(ctx context.Context, o Options) int {
 		}
 	}
 
-	email := o.env("BBAPPROVE_AUTHOR_EMAIL")
-	if email == "" {
-		email = "renovate-bot@example.com"
+	if wantTUI && !printCfg {
+		fmt.Fprintln(o.Stderr, "interactive mode: not implemented yet")
+		return 2
 	}
-	file := o.env("BBAPPROVE_DISALLOW_FILE")
-	if file == "" {
-		file = filepath.Join(o.RepoDir, "disallow.txt")
+	cfg, err := config.Load(config.Input{
+		Env: o.env, RepoDir: o.RepoDir, ConfigFlag: cfgFile, TokenNameFlag: tokName, DisallowFlag: disallow,
+	})
+	if err != nil {
+		fmt.Fprintf(o.Stderr, "bbapprove: %v\n", err)
+		return 1
 	}
-	adapterPath := o.env("BBAPPROVE_ADAPTER")
-	if adapterPath == "" {
-		adapterPath = filepath.Join(o.RepoDir, "adapters", "bitbucket")
+	for _, w := range cfg.Warnings {
+		fmt.Fprintf(o.Stderr, "bbapprove: warning: %s\n", w)
 	}
+	if printCfg {
+		io.WriteString(o.Stdout, cfg.Describe())
+		return 0
+	}
+	if err := cfg.Missing(); err != nil {
+		fmt.Fprintln(o.Stderr, err)
+		return 1
+	}
+	adapterPath := cfg.Adapter.Value
 	jobs := runtime.NumCPU()
 	if n, err := strconv.Atoi(o.env("BBAPPROVE_JOBS")); err == nil && n > 0 {
 		jobs = n
@@ -177,8 +216,8 @@ func Run(ctx context.Context, o Options) int {
 		return 1
 	}
 
-	cfg := rules.Config{AuthorEmail: email, Disallow: rules.LoadDisallow(file, disallow)}
-	client := &adapter.Client{Path: adapterPath, Token: token, Environ: o.Environ}
+	rc := rules.Config{AuthorEmail: cfg.AuthorEmail.Value, Disallow: cfg.Disallow}
+	client := &adapter.Client{Path: adapterPath, Token: token, Environ: cfg.ChildEnv(o.Environ)}
 
 	if token == "" {
 		t, err := client.AuthToken(ctx)
@@ -215,7 +254,7 @@ func Run(ctx context.Context, o Options) int {
 	var eligible []adapter.PR
 	hidden := 0
 	for _, pr := range prs {
-		kind, reason := cfg.Classify(ignored, pr)
+		kind, reason := rc.Classify(ignored, pr)
 		switch kind {
 		case rules.Eligible:
 			eligible = append(eligible, pr)

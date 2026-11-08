@@ -5,7 +5,21 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **BREAKING:** the built-in site defaults are gone. `repository` (the forge URL) and `author_email` must now be
+  configured, and the tracked `disallow.txt` was removed. Migrate: `cp bbapprove.config.template bbapprove.config.toml`,
+  fill in `repository`, `user_token_name`, `author_email` and `disallow`, then check with `bbapprove --print-config`.
+- The bash adapter no longer has a default `BBAPPROVE_BASE_URL` (it exits 2 when unset) and takes the
+  1Password item from `BBAPPROVE_TOKEN_NAME` (default `BITBUCKET_TOKEN`).
+- Release archives ship `bbapprove.config.template` instead of `disallow.txt`.
+
 ### Added
+- TOML config file (`bbapprove.config.toml`, git-ignored; template `bbapprove.config.template`) with `type`,
+  `repository`, `user_token_name`, `author_email` and `disallow`. Looked up via `--config` / `BBAPPROVE_CONFIG`, the
+  repo root, then `$XDG_CONFIG_HOME/bbapprove/config.toml`. Precedence: command line > environment > file > default.
+  Unknown keys warn, malformed TOML names file and line.
+- `--config FILE`, `--token-name NAME`, `--print-config` (effective settings and their sources, no secrets) and the
+  env vars `BBAPPROVE_CONFIG`, `BBAPPROVE_REPOSITORY`, `BBAPPROVE_TOKEN_NAME`.
 - GitHub Actions CI (`bin/lint` and `bin/runtests` on Linux and macOS), a tag-driven release workflow
   (cross-built `.tar.gz` archives for darwin and linux on arm64/amd64, `SHA256SUMS`, notes from this changelog,
   pre-release for `-rc` tags) and Dependabot for `gomod` and `github-actions` with `chore(deps):` titles.

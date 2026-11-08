@@ -1,1 +1,4 @@
 bin/bbapprove-go
+bbapprove.config.toml
+disallow.txt
+dist/

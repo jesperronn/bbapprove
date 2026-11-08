@@ -32,7 +32,7 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      # Each archive is a self-contained tree: the binary finds adapters/ and disallow.txt in the parent
+      # Each archive is a self-contained tree: the binary finds adapters/ and bbapprove.config.toml in the parent
       # of its own directory, and the launcher bin/bbapprove execs bin/bbapprove-go without rebuilding
       # (no Go sources in the archive).
       - name: Build archives
@@ -50,7 +50,7 @@ jobs:
               bin/build -o "$stage/bin/bbapprove-go"
             cp bin/bbapprove "$stage/bin/bbapprove"
             cp adapters/bitbucket "$stage/adapters/bitbucket"
-            cp disallow.txt README.md CHANGELOG.md "$stage/"
+            cp bbapprove.config.template README.md CHANGELOG.md "$stage/"
             [[ -f LICENSE ]] && cp LICENSE "$stage/"
             tar -C "$RUNNER_TEMP/stage" -czf "dist/$name.tar.gz" "$name"
           done

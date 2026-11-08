@@ -1,6 +1,6 @@
 # bbapprove
 
-Approve and merge Renovate PRs on Bitbucket Server (bitbucket.example.com) via the REST API.
+Approve and merge Renovate PRs on Bitbucket Server via the REST API.
 Dry-run by default; `--apply` approves, then merges.
 
 The core is a Go program (`cmd/bbapprove`, `internal/`). `bin/bbapprove` is a small bash launcher:
@@ -18,12 +18,13 @@ bin/bbapprove -i                   # interactive TUI (see below)
 bin/bbapprove --help               # flags, eligibility rules, env vars
 ```
 
-Flags: `--apply`, `--hide-ignored`, `--disallow a,b` (adds to the disallow list), `--token T`, `-i/--interactive`, `-h/--help`.
+Flags: `--apply`, `--hide-ignored`, `--disallow a,b` (adds to the disallow list), `--token T`, `--token-name NAME`,
+`--config FILE`, `--print-config`, `-i/--interactive`, `-h/--help`.
 
 Eligible, all of:
-- author is `BBAPPROVE_AUTHOR_EMAIL` (default `renovate-bot@example.com`)
+- author is the configured `author_email` (no default, see Configuration)
 - subject starts `chore(deps):` or `fix(deps):`
-- not on the disallow list (`disallow.txt` in the repo root, one dependency per line, `#` comments and blank lines ignored; currently `some-library` and `another-library`; plus `--disallow` / `BBAPPROVE_DISALLOW`). Case-insensitive substring match on the title.
+- not on the disallow list (`disallow` in the config file, merged with `--disallow` / `BBAPPROVE_DISALLOW`). Case-insensitive substring match on the title.
 - minor/patch/digest only. Current heuristic: a title ending `to vN` or a branch `renovate/major-*` counts as major. This is not reliable yet, see TODO.md.
 - not already approved by you
 - not on your per-user ignore list (see below)
@@ -43,6 +44,42 @@ The ignore list wins over every other skip reason: a PR matching an entry is `IG
 otherwise be `SKIP` (author, subject, disallow, major, already approved), and an ignored PR is never acted
 on. Removing the entry restores the PR's own `SKIP` reason. The CLI and the TUI share one classification
 function (`rules.Classify`).
+
+## Configuration
+
+Nothing site- or person-specific is built in. Copy the committed template and edit it; the real file is git-ignored:
+
+```
+cp bbapprove.config.template bbapprove.config.toml
+```
+
+```toml
+type = "bitbucket"                              # forge adapter: adapters/<type>; default "bitbucket"
+repository = "https://bitbucket.example.com"    # base URL of the forge; required, no default
+user_token_name = "BITBUCKET_TOKEN"             # 1Password item (field "token"); default BITBUCKET_TOKEN
+author_email = "renovate-bot@example.com"       # only PRs by this bot are eligible; required, no default
+disallow = ["some-library", "another-library"]  # never auto-approve; merged with --disallow
+```
+
+**File lookup** (the first that exists is used): `--config FILE`, `$BBAPPROVE_CONFIG` (both must exist, else an
+error), `<repo root>/bbapprove.config.toml` (the parent of the binary's directory, like `adapters/`), then
+`$XDG_CONFIG_HOME/bbapprove/config.toml` (default `~/.config/bbapprove/config.toml`).
+
+**Precedence** per setting: command line > environment > config file > built-in default. The environment names are
+`BBAPPROVE_REPOSITORY`, `BBAPPROVE_TOKEN_NAME` and `BBAPPROVE_AUTHOR_EMAIL`; the command line has `--token-name NAME`.
+Only `type` and `user_token_name` have built-in defaults. `disallow` is the union of the file, `--disallow` /
+`BBAPPROVE_DISALLOW` and the optional legacy `BBAPPROVE_DISALLOW_FILE` (one dependency per line; default `disallow.txt`
+in the repo root, git-ignored). `BBAPPROVE_ADAPTER` (an executable path) overrides what `type` selects.
+
+Unknown keys only print a warning (typo catching); malformed TOML stops the run and names the file and line.
+The bash adapter never reads TOML: the Go core hands it the resolved values as `BBAPPROVE_BASE_URL` and
+`BBAPPROVE_TOKEN_NAME`.
+
+**First run**: without `repository` or `author_email` bbapprove exits 1, names the missing setting, lists the
+paths it searched and tells you to run the `cp` above.
+
+**Debugging**: `bbapprove --print-config` prints the effective settings and whether each came from the flag, the
+environment, the file or a default. It never prints a token and never contacts the forge.
 
 ## Interactive TUI (`-i`)
 
@@ -120,7 +157,7 @@ Hold Shift to bypass the capture in most terminals (Ghostty, iTerm2, kitty). Tur
 `--no-mouse` or `BBAPPROVE_MOUSE=0`.
 
 Ignore list: `~/.config/bbapprove/ignore` (or `$XDG_CONFIG_HOME/bbapprove/ignore` when `XDG_CONFIG_HOME` is set).
-One dependency per line, `#` comments allowed. It is personal and separate from `disallow.txt`:
+One dependency per line, `#` comments allowed. It is personal and separate from the disallow list in the config:
 the disallow list is a repo-wide hard block that always skips a PR, while ignored dependencies are only
 hidden from your TUI view (`.` or `h` shows them) and shown dim as `IGNORED` in the CLI (never acted on).
 
@@ -143,21 +180,22 @@ Fixed-width columns: `STATUS`, then the check glyphs, then the PR ref and title.
 | Variable | Purpose |
 | --- | --- |
 | `BBAPPROVE_TOKEN` | API token (also `--token`); the adapter's `auth token` prints it when unset |
-| `BBAPPROVE_AUTHOR_EMAIL` | author the eligibility check requires |
+| `BBAPPROVE_CONFIG` | config file path (also `--config`); must exist |
+| `BBAPPROVE_REPOSITORY` | forge base URL (overrides `repository`) |
+| `BBAPPROVE_TOKEN_NAME` | 1Password item name (also `--token-name`; overrides `user_token_name`) |
+| `BBAPPROVE_AUTHOR_EMAIL` | author the eligibility check requires (overrides `author_email`) |
 | `BBAPPROVE_DISALLOW` | comma-separated extra disallow items |
-| `BBAPPROVE_DISALLOW_FILE` | disallow file instead of `disallow.txt` |
+| `BBAPPROVE_DISALLOW_FILE` | optional extra disallow file (default `disallow.txt` in the repo root, git-ignored) |
 | `BBAPPROVE_JOBS` | parallel PR fetches and merges (default: CPU count) |
 | `BBAPPROVE_ADAPTER` | forge adapter executable (default `adapters/bitbucket`) |
 | `BBAPPROVE_MOUSE` | `0` turns TUI mouse capture off (same as `--no-mouse`) |
 | `BBAPPROVE_KITTY` | `0` stops the TUI requesting the kitty keyboard protocol, so the hints never follow Shift |
 | `NO_COLOR`, `FORCE_COLOR` | colour control (colour only on a TTY by default) |
 
-Adapter-only (read by `adapters/bitbucket`): `BBAPPROVE_BASE_URL` (default `https://bitbucket.example.com`),
+Adapter-side (read by `adapters/bitbucket`; the core sets the first two from the configuration):
+`BBAPPROVE_BASE_URL` (required, no default), `BBAPPROVE_TOKEN_NAME` (default `BITBUCKET_TOKEN`),
 `BBAPPROVE_MERGE_RETRIES` (default 4; merge retries when the PR version went stale), `BBAPPROVE_RETRY_SLEEP`
 (default 2 seconds between retries).
-
-The dotfiles wrapper (`dotfiles/bin/bbapprove`) execs `bin/bbapprove` and injects `BBAPPROVE_TOKEN` from
-1Password; all flags pass through unchanged.
 
 ## Architecture
 
@@ -194,7 +232,7 @@ bbapprove --version            # prints "bbapprove <version>"; -V works too
 ```
 
 `--install` links the launcher `bin/bbapprove`, not the Go binary, because the launcher keeps working from
-the repo (adapters/ and disallow.txt are resolved relative to it) and rebuilds when the sources change.
+the repo (adapters/ and bbapprove.config.toml are resolved relative to it) and rebuilds when the sources change.
 The prefix defaults to `$HOME/.local/bin` (created if missing). An existing link to this launcher is left
 alone; any other file at the target is refused unless `--force`. After installing, `bin/build` warns when
 `command -v bbapprove` resolves elsewhere. Note the dotfiles wrapper `dotfiles/bin/bbapprove` (see
@@ -237,7 +275,7 @@ git push origin main vX.Y.Z
 ```
 
 Install from a release archive: each `bbapprove-<tag>-<os>-<arch>.tar.gz` is a self-contained tree
-(`bin/bbapprove` launcher, `bin/bbapprove-go` binary, `adapters/bitbucket`, `disallow.txt`, docs). Verify it
+(`bin/bbapprove` launcher, `bin/bbapprove-go` binary, `adapters/bitbucket`, `bbapprove.config.template`, docs). Verify it
 against `SHA256SUMS`, extract it somewhere permanent and link the launcher onto PATH:
 
 ```
@@ -245,7 +283,7 @@ tar -xzf bbapprove-v1.0.0-darwin-arm64.tar.gz -C ~/.local/share
 ln -s ~/.local/share/bbapprove-v1.0.0-darwin-arm64/bin/bbapprove ~/.local/bin/bbapprove
 ```
 
-The binary finds `adapters/` and `disallow.txt` relative to its own directory's parent, so keep the tree intact.
+The binary finds `adapters/` and `bbapprove.config.toml` relative to its own directory's parent, so keep the tree intact. After extracting, create your config: `cp bbapprove.config.template bbapprove.config.toml` in the extracted directory (or put it in `~/.config/bbapprove/config.toml`).
 
 ## Test and lint
 

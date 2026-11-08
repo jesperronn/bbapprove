@@ -14,7 +14,7 @@ const bot = "renovate-bot@example.com"
 
 const listJSON = `[
  {"url":"http://h/projects/P/repos/a/pull-requests/1","number":1,"project":"P","repo":"a","title":"chore(deps): update a","author":{"email":"` + bot + `"},"headBranch":"renovate/a","build":"passed","qualityGate":"passed","approvals":1,"approvedByMe":true},
- {"url":"http://h/projects/P/repos/b/pull-requests/2","number":2,"project":"P","repo":"b","title":"chore(deps): update another-library","author":{"email":"` + bot + `"},"headBranch":"renovate/k"},
+ {"url":"http://h/projects/P/repos/b/pull-requests/2","number":2,"project":"P","repo":"b","title":"chore(deps): update some-library","author":{"email":"` + bot + `"},"headBranch":"renovate/k"},
  {"url":"http://h/projects/P/repos/c/pull-requests/3","number":3,"project":"P","repo":"c","title":"chore(deps): update c","author":{"email":"` + bot + `"},"headBranch":"renovate/c","commentCount":2},
  {"url":"http://h/projects/P/repos/d/pull-requests/4","number":4,"project":"P","repo":"d","title":"chore(deps): update d","author":{"email":"` + bot + `"},"headBranch":"renovate/d"}
 ]`
@@ -27,6 +27,7 @@ func fake(t *testing.T) (path, log string) {
 	path = filepath.Join(dir, "adapter")
 	script := `#!/bin/sh
 echo "$* token=$BBAPPROVE_TOKEN" >> "$FAKE_LOG"
+echo "base=$BBAPPROVE_BASE_URL name=$BBAPPROVE_TOKEN_NAME" >> "$FAKE_LOG.env"
 case "$1 $2" in
   "auth token") echo tok-from-adapter ;;
   "pr list") if [ -n "$FAKE_LIST_FAIL" ]; then echo "boom: list failed" >&2; exit 1; fi; printf '%s' "$FAKE_LIST" ;;
@@ -44,7 +45,7 @@ esac
 func run(t *testing.T, env []string, args ...string) (code int, out, errOut string) {
 	t.Helper()
 	repo := t.TempDir()
-	os.WriteFile(filepath.Join(repo, "disallow.txt"), []byte("# c\n\nanother-library\n"), 0o644)
+	os.WriteFile(filepath.Join(repo, "disallow.txt"), []byte("# c\n\nsome-library\n"), 0o644)
 	var so, se bytes.Buffer
 	code = Run(context.Background(), Options{Args: args, Environ: env, RepoDir: repo, Stdout: &so, Stderr: &se})
 	return code, so.String(), se.String()
@@ -53,7 +54,8 @@ func run(t *testing.T, env []string, args ...string) (code int, out, errOut stri
 func baseEnv(t *testing.T) ([]string, string) {
 	ad, log := fake(t)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // never read the real per-user ignore list
-	return []string{"BBAPPROVE_ADAPTER=" + ad, "FAKE_LOG=" + log, "FAKE_LIST=" + listJSON, "NO_COLOR=1", "BBAPPROVE_JOBS=4"}, log
+	return []string{"BBAPPROVE_ADAPTER=" + ad, "FAKE_LOG=" + log, "FAKE_LIST=" + listJSON, "NO_COLOR=1", "BBAPPROVE_JOBS=4",
+		"BBAPPROVE_REPOSITORY=https://bitbucket.example.com", "BBAPPROVE_AUTHOR_EMAIL=" + bot}, log
 }
 
 func readLog(t *testing.T, p string) string {
@@ -78,7 +80,7 @@ func TestDryRun(t *testing.T) {
 			t.Errorf("line %d = %q, want %s %s", i+1, lines[i+1], w, refs[i])
 		}
 	}
-	if !strings.Contains(lines[1], "— already approved by me") || !strings.Contains(lines[2], "disallowed dependency 'another-library'") {
+	if !strings.Contains(lines[1], "— already approved by me") || !strings.Contains(lines[2], "disallowed dependency 'some-library'") {
 		t.Errorf("reasons wrong:\n%s", out)
 	}
 	if lines[5] != "Dry run — pass --apply to approve and merge." {
@@ -248,7 +250,7 @@ func ignoreList() string {
 	return "[" + strings.Join([]string{
 		prJSON(11, "chore(deps): update dependency npm to v1.2.3"),
 		prJSON(12, "chore(deps): update dependency lodash to v4.17.21"),
-		prJSON(13, "chore(deps): update another-library to v1.2.3"),      // disallowed AND ignored
+		prJSON(13, "chore(deps): update some-library to v1.2.3"),  // disallowed AND ignored
 		prJSON(14, "chore(deps): update dependency npm to v9"),    // major AND ignored
 		prJSON(16, "chore(deps): update dependency react to v19"), // major, not ignored
 	}, ",") + "]"
@@ -265,7 +267,7 @@ func lineFor(out, sub string) string {
 
 func TestIgnoreListHonouredInDryRun(t *testing.T) {
 	env, log := baseEnv(t)
-	writeIgnore(t, "# mine\nnpm\nanother-library\n")
+	writeIgnore(t, "# mine\nnpm\nsome-library\n")
 	env = append(env, "FAKE_LIST="+ignoreList())
 	code, out, errOut := run(t, env)
 	if code != 0 || errOut != "" {
@@ -274,7 +276,7 @@ func TestIgnoreListHonouredInDryRun(t *testing.T) {
 	tests := []struct{ ref, prefix, suffix string }{
 		{"P/r11#11", "IGNORED     ", "— on your ignore list: npm"},
 		{"P/r12#12", strings.Repeat(" ", 13), "update dependency lodash to v4.17.21"}, // eligible: blank status
-		{"P/r13#13", "IGNORED     ", "— on your ignore list: another-library"},               // ignore beats disallow
+		{"P/r13#13", "IGNORED     ", "— on your ignore list: some-library"},           // ignore beats disallow
 		{"P/r14#14", "IGNORED     ", "— on your ignore list: npm"},                    // ignore beats major
 		{"P/r16#16", "SKIP        ", "— major update"},                                // not ignored: reason unchanged
 	}
@@ -381,5 +383,142 @@ func TestHelpMentionsIgnoreAndStatus(t *testing.T) {
 		if !strings.Contains(usage("x"), w) {
 			t.Errorf("help lacks %q", w)
 		}
+	}
+}
+
+// runIn is run with an explicit repo dir, so a test can put a config file there.
+func runIn(t *testing.T, repo string, env []string, args ...string) (code int, out, errOut string) {
+	t.Helper()
+	var so, se bytes.Buffer
+	code = Run(context.Background(), Options{Args: args, Environ: env, RepoDir: repo, Stdout: &so, Stderr: &se})
+	return code, so.String(), se.String()
+}
+
+// bareEnv has the fake adapter but no repository / author email, so settings must come from elsewhere.
+func bareEnv(t *testing.T) ([]string, string) {
+	env, log := baseEnv(t)
+	var out []string
+	for _, kv := range env {
+		if !strings.HasPrefix(kv, "BBAPPROVE_REPOSITORY=") && !strings.HasPrefix(kv, "BBAPPROVE_AUTHOR_EMAIL=") {
+			out = append(out, kv)
+		}
+	}
+	return out, log
+}
+
+func TestFirstRunWithoutConfigFailsHelpfully(t *testing.T) {
+	env, log := bareEnv(t)
+	repo := t.TempDir()
+	code, out, errOut := runIn(t, repo, env)
+	if code != 1 || out != "" {
+		t.Fatalf("code %d out %q", code, out)
+	}
+	for _, w := range []string{`"repository" is not set`, "cp bbapprove.config.template bbapprove.config.toml",
+		"Searched: " + filepath.Join(repo, "bbapprove.config.toml")} {
+		if !strings.Contains(errOut, w) {
+			t.Errorf("stderr lacks %q:\n%s", w, errOut)
+		}
+	}
+	if readLog(t, log) != "" {
+		t.Error("the adapter must not run before the config is complete")
+	}
+	// repository set, author_email still missing
+	code, _, errOut = runIn(t, repo, append(env, "BBAPPROVE_REPOSITORY=https://bitbucket.example.com"))
+	if code != 1 || !strings.Contains(errOut, `"author_email" is not set`) {
+		t.Fatalf("code %d err %q", code, errOut)
+	}
+}
+
+func TestConfigFileDrivesRunAndAdapterEnv(t *testing.T) {
+	env, log := bareEnv(t)
+	repo := t.TempDir()
+	cfg := "repository = \"https://file.example.com\"\nuser_token_name = \"FILE_ITEM\"\nauthor_email = \"" + bot + "\"\ndisallow = [\"some-library\"]\n"
+	os.WriteFile(filepath.Join(repo, "bbapprove.config.toml"), []byte(cfg), 0o644)
+	code, out, errOut := runIn(t, repo, env)
+	if code != 0 || errOut != "" {
+		t.Fatalf("code %d err %q", code, errOut)
+	}
+	if !strings.Contains(out, "disallowed dependency 'some-library'") {
+		t.Errorf("disallow from the file not applied:\n%s", out)
+	}
+	envLog, _ := os.ReadFile(log + ".env")
+	if !strings.Contains(string(envLog), "base=https://file.example.com name=FILE_ITEM") {
+		t.Errorf("adapter child env:\n%s", envLog)
+	}
+
+	// flag beats env beats file for the item name, and reaches the adapter
+	os.Remove(log + ".env")
+	code, _, errOut = runIn(t, repo, append(env, "BBAPPROVE_TOKEN_NAME=ENV_ITEM", "BBAPPROVE_REPOSITORY=https://env.example.com"), "--token-name", "FLAG_ITEM")
+	if code != 0 {
+		t.Fatalf("code %d err %q", code, errOut)
+	}
+	envLog, _ = os.ReadFile(log + ".env")
+	if !strings.Contains(string(envLog), "base=https://env.example.com name=FLAG_ITEM") {
+		t.Errorf("adapter child env:\n%s", envLog)
+	}
+}
+
+func TestConfigFlagAndErrors(t *testing.T) {
+	env, _ := bareEnv(t)
+	repo := t.TempDir()
+	good := filepath.Join(t.TempDir(), "c.toml")
+	os.WriteFile(good, []byte("repository = \"https://h.example.com\"\nauthor_email = \""+bot+"\"\nbogus = 1\n"), 0o644)
+	code, _, errOut := runIn(t, repo, env, "--config", good)
+	if code != 0 || !strings.Contains(errOut, `warning:`) || !strings.Contains(errOut, `unknown key "bogus"`) {
+		t.Fatalf("unknown key: code %d err %q", code, errOut)
+	}
+	code, _, errOut = runIn(t, repo, env, "--config="+filepath.Join(repo, "missing.toml"))
+	if code != 1 || !strings.Contains(errOut, "missing.toml") {
+		t.Fatalf("missing: code %d err %q", code, errOut)
+	}
+	code, _, errOut = runIn(t, repo, append(env, "BBAPPROVE_CONFIG="+filepath.Join(repo, "missing2.toml")))
+	if code != 1 || !strings.Contains(errOut, "missing2.toml") {
+		t.Fatalf("env missing: code %d err %q", code, errOut)
+	}
+	bad := filepath.Join(repo, "bad.toml")
+	os.WriteFile(bad, []byte("a = 1\nb = \n"), 0o644)
+	code, _, errOut = runIn(t, repo, env, "--config", bad)
+	if code != 1 || !strings.Contains(errOut, bad) || !strings.Contains(errOut, "line 2") {
+		t.Fatalf("malformed: code %d err %q", code, errOut)
+	}
+	for _, flag := range []string{"--config", "--token-name"} {
+		if code, _, errOut = runIn(t, repo, env, flag); code != 2 || !strings.Contains(errOut, flag+" needs a value") {
+			t.Errorf("%s: code %d err %q", flag, code, errOut)
+		}
+	}
+}
+
+func TestPrintConfig(t *testing.T) {
+	env, log := bareEnv(t)
+	repo := t.TempDir()
+	os.WriteFile(filepath.Join(repo, "bbapprove.config.toml"),
+		[]byte("repository = \"https://file.example.com\"\nauthor_email = \"file-bot@example.com\"\ndisallow = [\"some-library\"]\n"), 0o644)
+	code, out, errOut := runIn(t, repo, append(env, "BBAPPROVE_TOKEN=s3cret-value", "BBAPPROVE_AUTHOR_EMAIL=env-bot@example.com"),
+		"--print-config", "--token-name", "FLAG_ITEM", "--token", "also-secret")
+	if code != 0 || errOut != "" {
+		t.Fatalf("code %d err %q", code, errOut)
+	}
+	for _, w := range []string{
+		"config file:     " + filepath.Join(repo, "bbapprove.config.toml"),
+		"repository:      https://file.example.com  [file]",
+		"user_token_name: FLAG_ITEM  [flag]",
+		"author_email:    env-bot@example.com  [env]",
+		"type:            bitbucket  [default]",
+		"disallow:        some-library",
+	} {
+		if !strings.Contains(out, w) {
+			t.Errorf("output lacks %q:\n%s", w, out)
+		}
+	}
+	if strings.Contains(out, "secret") {
+		t.Errorf("secret leaked:\n%s", out)
+	}
+	if readLog(t, log) != "" {
+		t.Error("--print-config must not call the adapter")
+	}
+	// it works even when required settings are missing, and together with -i
+	code, out, _ = runIn(t, t.TempDir(), env, "-i", "--print-config")
+	if code != 0 || !strings.Contains(out, "repository:      (not set)  [unset]") {
+		t.Errorf("code %d out %q", code, out)
 	}
 }

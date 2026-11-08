@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -16,6 +15,7 @@ import (
 
 	"bbapprove/internal/adapter"
 	"bbapprove/internal/app"
+	"bbapprove/internal/config"
 	"bbapprove/internal/ignore"
 	"bbapprove/internal/rules"
 )
@@ -45,7 +45,8 @@ func Run(ctx context.Context, o RunOptions) int {
 		}
 		return v
 	}
-	disallow, token := env("BBAPPROVE_DISALLOW"), env("BBAPPROVE_TOKEN")
+	var disallow, tokName, cfgFile string
+	token := env("BBAPPROVE_TOKEN")
 	for i := 0; i < len(o.Args); i++ {
 		a := o.Args[i]
 		next := func() string {
@@ -61,28 +62,35 @@ func Run(ctx context.Context, o RunOptions) int {
 		switch {
 		case a == "--disallow" || strings.HasPrefix(a, "--disallow="):
 			disallow = next()
+		case a == "--token-name" || strings.HasPrefix(a, "--token-name="):
+			tokName = next()
+		case a == "--config" || strings.HasPrefix(a, "--config="):
+			cfgFile = next()
 		case a == "--token" || strings.HasPrefix(a, "--token="):
 			token = next()
 		}
 	}
-	email := env("BBAPPROVE_AUTHOR_EMAIL")
-	if email == "" {
-		email = "renovate-bot@example.com"
+	cfg, err := config.Load(config.Input{
+		Env: env, RepoDir: o.RepoDir, ConfigFlag: cfgFile, TokenNameFlag: tokName, DisallowFlag: disallow,
+	})
+	if err != nil {
+		fmt.Fprintf(o.Stderr, "bbapprove: %v\n", err)
+		return 1
 	}
-	file := env("BBAPPROVE_DISALLOW_FILE")
-	if file == "" {
-		file = filepath.Join(o.RepoDir, "disallow.txt")
+	for _, w := range cfg.Warnings {
+		fmt.Fprintf(o.Stderr, "bbapprove: warning: %s\n", w)
 	}
-	path := env("BBAPPROVE_ADAPTER")
-	if path == "" {
-		path = filepath.Join(o.RepoDir, "adapters", "bitbucket")
+	if err := cfg.Missing(); err != nil {
+		fmt.Fprintln(o.Stderr, err)
+		return 1
 	}
+	path := cfg.Adapter.Value
 	jobs := runtime.NumCPU()
 	if n, err := strconv.Atoi(env("BBAPPROVE_JOBS")); err == nil && n > 0 {
 		jobs = n
 	}
-	rc := rules.Config{AuthorEmail: email, Disallow: rules.LoadDisallow(file, disallow)}
-	client := &adapter.Client{Path: path, Token: token, Environ: o.Environ}
+	rc := rules.Config{AuthorEmail: cfg.AuthorEmail.Value, Disallow: cfg.Disallow}
+	client := &adapter.Client{Path: path, Token: token, Environ: cfg.ChildEnv(o.Environ)}
 	if token == "" {
 		t, err := client.AuthToken(ctx)
 		if err != nil {

@@ -31,13 +31,16 @@ func main() {
 			width = w
 		}
 	}
+	interactive, printConfig := false, false
 	for _, a := range os.Args[1:] {
-		if a == "-i" || a == "--interactive" {
-			os.Exit(tui.Run(context.Background(), tui.RunOptions{
-				Args: os.Args[1:], Environ: os.Environ(), RepoDir: repoDir(),
-				Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr, Version: version,
-			}))
-		}
+		interactive = interactive || a == "-i" || a == "--interactive"
+		printConfig = printConfig || a == "--print-config"
+	}
+	if interactive && !printConfig { // --print-config is handled by the plain CLI, even with -i
+		os.Exit(tui.Run(context.Background(), tui.RunOptions{
+			Args: os.Args[1:], Environ: os.Environ(), RepoDir: repoDir(),
+			Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr, Version: version,
+		}))
 	}
 	os.Exit(app.Run(context.Background(), app.Options{
 		Args: os.Args[1:], Environ: os.Environ(), RepoDir: repoDir(),

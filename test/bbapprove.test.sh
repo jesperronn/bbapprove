@@ -139,9 +139,6 @@ test_curl_has_timeouts() {
   setup_stub
   run_script >/dev/null
   assert_contains "$(head -n1 "$STUB_LOG")" "--connect-timeout 2.7 --max-time 3.5" "default timeouts passed to curl"
-  : >"$STUB_LOG"
-  BBAPPROVE_CONNECT_TIMEOUT=1 BBAPPROVE_MAX_TIME=2 run_script >/dev/null
-  assert_contains "$(head -n1 "$STUB_LOG")" "--connect-timeout 1 --max-time 2" "timeouts configurable"
   cleanup_test_tmp; TEST_TMP=""
 }
 

@@ -13,7 +13,7 @@ Eligible: author `renovate-bot@example.com`, subject starts `chore(deps):` / `fi
 not on the disallow list (`disallow.txt` next to `bin/`: one dependency per line, `#` comments and blank lines ignored, currently `some-library` and `another-library`; `--disallow a,b` adds more), minor/patch/digest only
 (title `to vN` or branch `renovate/major-*` counts as major).
 
-Network: every curl call has `--connect-timeout 2.7 --max-time 3.5` (`BBAPPROVE_CONNECT_TIMEOUT`, `BBAPPROVE_MAX_TIME`); PR fetches and `--apply` run in parallel via `xargs -P`, one job per CPU core (`BBAPPROVE_JOBS`).
+Network: every curl call has `--connect-timeout 2.7 --max-time 3.5`; PR fetches and `--apply` run in parallel via `xargs -P`, one job per CPU core (`BBAPPROVE_JOBS`).
 
 Token: `BBAPPROVE_TOKEN`, `--token`, or 1Password `BITBUCKET_TOKEN`.
 

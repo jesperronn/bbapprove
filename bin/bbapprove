@@ -11,10 +11,10 @@ SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SO
 # --disallow / BBAPPROVE_DISALLOW (comma-separated) add to it. Case-insensitive substrings.
 BBAPPROVE_DISALLOW_FILE="${BBAPPROVE_DISALLOW_FILE:-$(dirname "$SCRIPT_PATH")/../disallow.txt}"
 BBAPPROVE_DISALLOW="${BBAPPROVE_DISALLOW:-}"
-BBAPPROVE_CONNECT_TIMEOUT="${BBAPPROVE_CONNECT_TIMEOUT:-2.7}"   # seconds
-BBAPPROVE_MAX_TIME="${BBAPPROVE_MAX_TIME:-3.5}"                 # seconds, per curl call
+CURL_CONNECT_TIMEOUT=2.7   # seconds
+CURL_MAX_TIME=3.5          # seconds, per curl call
 BBAPPROVE_JOBS="${BBAPPROVE_JOBS:-$( (nproc || sysctl -n hw.ncpu || echo 4) 2>/dev/null | head -n1)}"
-export BBAPPROVE_BASE_URL BBAPPROVE_AUTHOR_EMAIL BBAPPROVE_DISALLOW_FILE BBAPPROVE_CONNECT_TIMEOUT BBAPPROVE_MAX_TIME BBAPPROVE_JOBS
+export BBAPPROVE_BASE_URL BBAPPROVE_AUTHOR_EMAIL BBAPPROVE_DISALLOW_FILE BBAPPROVE_JOBS
 BBAPPROVE_TOKEN="${BBAPPROVE_TOKEN:-}"
 BBAPPROVE_APPLY="${BBAPPROVE_APPLY:-0}"
 BBAPPROVE_INTERACTIVE=0
@@ -64,7 +64,7 @@ Disallow list: disallow.txt next to bin/ (one dependency per line, # comments); 
 Requests time out (connect 2.7s, total 3.5s) and run in parallel (one job per CPU core).
 
 Env: BBAPPROVE_MERGE_RETRIES, BBAPPROVE_RETRY_SLEEP, BBAPPROVE_BASE_URL, BBAPPROVE_AUTHOR_EMAIL, BBAPPROVE_DISALLOW,
-     BBAPPROVE_DISALLOW_FILE, BBAPPROVE_CONNECT_TIMEOUT, BBAPPROVE_MAX_TIME, BBAPPROVE_JOBS, BBAPPROVE_TOKEN.
+     BBAPPROVE_DISALLOW_FILE, BBAPPROVE_JOBS, BBAPPROVE_TOKEN.
 Token falls back to 1Password item BITBUCKET_TOKEN (same as bbpr).
 USAGE
 }
@@ -97,7 +97,7 @@ fetch_token() {
 LAST_CODE=""
 api() { # method endpoint [data] -> body on stdout, http code in LAST_CODE (call without subshell via api_to)
   local method="$1" endpoint="$2" data="${3:-}" out
-  local args=(--connect-timeout "$BBAPPROVE_CONNECT_TIMEOUT" --max-time "$BBAPPROVE_MAX_TIME" -sS -w $'\n%{http_code}' -X "$method" -H "Authorization: Bearer $BBAPPROVE_TOKEN" -H "Accept: application/json")
+  local args=(--connect-timeout "$CURL_CONNECT_TIMEOUT" --max-time "$CURL_MAX_TIME" -sS -w $'\n%{http_code}' -X "$method" -H "Authorization: Bearer $BBAPPROVE_TOKEN" -H "Accept: application/json")
   [[ -n "$data" ]] && args+=(-H "Content-Type: application/json" -d "$data")
   if ! out="$(curl "${args[@]}" "$BBAPPROVE_BASE_URL$endpoint")"; then
     LAST_CODE="000"; API_BODY=""; return 1   # curl already printed why (timeout, connect failure)

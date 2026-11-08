@@ -30,8 +30,8 @@ func TestGlyphs(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			p := mk()
 			tc.mod(&p)
-			row := st.Row("ELIGIBLE", green, p, "")
-			if !strings.HasPrefix(row, "ELIGIBLE  "+tc.want) {
+			row := st.Row("", "", p, "")
+			if !strings.HasPrefix(row, strings.Repeat(" ", 13)+tc.want) {
 				t.Fatalf("row %q lacks glyphs %q", row, tc.want)
 			}
 		})
@@ -42,11 +42,11 @@ func TestRowLayoutAndSkipReason(t *testing.T) {
 	p := mk()
 	p.CommentCount, p.OpenTasks = 12, 0
 	row := Style{}.Row("SKIP", yellow, p, "major update")
-	want := "SKIP      ✓  ?  –   12   0 PRJ/repo#7 chore(deps): update foo — major update"
+	want := "SKIP         ✓  ?  –   12   0 PRJ/repo#7 chore(deps): update foo — major update"
 	if row != want {
 		t.Fatalf("got  %q\nwant %q", row, want)
 	}
-	if h := (Style{}).Header(); h != "STATUS    🔨 🔎 👍 💬  ✅  PR   TITLE" {
+	if h := (Style{}).Header(); h != "STATUS       🔨 🔎 👍 💬  ✅  PR   TITLE" {
 		t.Fatalf("header %q", h)
 	}
 }
@@ -54,13 +54,13 @@ func TestRowLayoutAndSkipReason(t *testing.T) {
 func TestColor(t *testing.T) {
 	p := mk()
 	p.CommentCount, p.OpenTasks = 2, 3
-	row := Style{Color: true}.Row("ELIGIBLE", green, p, "")
-	for _, s := range []string{green + "ELIGIBLE", green + "✓", dim + "?", bold + cyan + "  2", yellow + "  3", bold + "#7"} {
+	row := Style{Color: true}.Row("MERGED", green, p, "")
+	for _, s := range []string{green + "MERGED", green + "✓", dim + "?", bold + cyan + "  2", yellow + "  3", bold + "#7"} {
 		if !strings.Contains(row, s) {
 			t.Errorf("missing %q in %q", s, row)
 		}
 	}
-	if plain := (Style{}).Row("ELIGIBLE", green, p, ""); strings.Contains(plain, "\033") {
+	if plain := (Style{}).Row("MERGED", green, p, ""); strings.Contains(plain, "\033") {
 		t.Fatalf("escape codes without color: %q", plain)
 	}
 }

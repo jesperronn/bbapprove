@@ -14,6 +14,7 @@ import (
 	"bbapprove/internal/adapter"
 	"bbapprove/internal/app"
 	"bbapprove/internal/ignore"
+	"bbapprove/internal/rules"
 )
 
 // Config is everything the model needs from the outside world.
@@ -27,7 +28,25 @@ type Config struct {
 	Version     string // shown dim at the right of the footer's first line when non-empty
 	NoColor     bool   // strip every colour/style escape and skip the cursor background
 	NoMouse     bool   // ignore mouse events (Run also leaves mouse capture off)
+	// Summary styles the exit summary: Color for ANSI colours, Width (0 = never truncate) for lines.
+	// Run sets it from the stdout terminal and NO_COLOR; the zero value is plain and untruncated.
+	Summary app.Style
 }
+
+// Row result words. Eligible and untouched rows have no result and a blank status cell.
+const (
+	wApproving  = "APPROVING…"
+	wDeclining  = "DECLINING…"
+	wCommenting = "COMMENTING…"
+	wMerged     = "MERGED"
+	wNotMerged  = "NOT MERGED"
+	wDeclined   = "DECLINED"
+	wCommented  = "COMMENTED"
+	wFail       = "FAIL"
+	wWorking    = "WORKING…" // summary only: action still running at quit
+	wIgnored    = "IGNORED"
+	wUnignored  = "UN-IGNORED"
+)
 
 const (
 	cReset  = "\033[0m"
@@ -56,9 +75,26 @@ func stripSGR(s string) string { return sgrRe.ReplaceAllString(s, "") }
 
 type row struct {
 	pr      adapter.PR
-	result  string // non-empty after an action: WORKING, MERGED, FAIL, APPROVED, NOT MERGED
+	result  string // non-empty after an action: APPROVING…, MERGED, NOT MERGED, DECLINED, COMMENTED, FAIL ...
 	resCode string
 	resMsg  string
+	// locked is set by an approve or decline attempt (any outcome): the row is no longer eligible
+	// until a reload. A comment never locks.
+	locked bool
+}
+
+func (r row) busy() bool {
+	return r.result == wApproving || r.result == wDeclining || r.result == wCommenting
+}
+
+// logEntry is one completed (or still running) action of this session, kept for the exit summary.
+// Entries survive reloads, which reset the rows. One entry per PR and verb; a repeat replaces it.
+type logEntry struct {
+	key  string
+	pr   adapter.PR
+	word string
+	code string
+	msg  string
 }
 
 type mode int
@@ -126,12 +162,13 @@ type Model struct {
 	hover          int // visible index under the mouse, -1 for none
 	input          []rune
 	inputKind      inputKind
-	// Comment-only results are not stored on the rows (a comment must not change a PR's status word);
-	// they are summarised in the status bar once every outstanding comment finished.
+	// Comment results also show on the row (COMMENTED / FAIL) and are summarised in the status bar
+	// once every outstanding comment finished.
 	cmtOutstanding, cmtOK int
 	cmtFails              []string
 	msg                   string
 	width, height         int
+	log                   []logEntry
 }
 
 // New builds the model.
@@ -170,33 +207,46 @@ func (m *Model) Init() tea.Cmd {
 	}
 }
 
-// status computes the display status of a row.
-func (m *Model) status(r row) (word, code, reason string) {
-	if r.result != "" {
-		return r.result, r.resCode, r.resMsg
-	}
-	if _, ok := ignore.Matches(m.ignored, r.pr.Title); ok {
-		return "IGNORED", cDim, ""
-	}
-	if why, ok := m.cfg.Check(r.pr); !ok {
-		return "SKIP", cYellow, why
-	}
-	return "ELIGIBLE", cGreen, ""
+// kind classifies a row with the logic shared with the CLI (rules.Classify).
+func (m *Model) kind(r row) (rules.Kind, string) {
+	return rules.Classify(m.cfg.Check, m.ignored, r.pr)
 }
 
+// status computes the display status of a row; the word is blank for an eligible, untouched row.
+func (m *Model) status(r row) (word, code, reason string) {
+	kind, why := m.kind(r)
+	if r.result != "" && !(r.result == wCommented && kind == rules.Ignored) {
+		return r.result, r.resCode, r.resMsg
+	}
+	switch kind {
+	case rules.Ignored:
+		return wIgnored, cDim, why
+	case rules.Skip:
+		return "SKIP", cYellow, why
+	}
+	return "", "", ""
+}
+
+// eligible reports whether the row may be approved: classified eligible, no approve/decline attempt
+// yet and nothing in flight. A COMMENTED row stays eligible.
 func (m *Model) eligible(i int) bool {
-	w, _, _ := m.status(m.rows[i])
-	return w == "ELIGIBLE"
+	r := m.rows[i]
+	k, _ := m.kind(r)
+	return k == rules.Eligible && !r.locked && !r.busy()
+}
+
+// hiddenIgnored is true for a row the `.`/`h` toggle hides: classified Ignored and not part of an action.
+func (m *Model) hiddenIgnored(r row) bool {
+	k, _ := m.kind(r)
+	return k == rules.Ignored && !r.locked && !r.busy()
 }
 
 // visible returns indexes into m.rows currently shown.
 func (m *Model) visible() []int {
 	var v []int
 	for i, r := range m.rows {
-		if !m.showIgnored {
-			if w, _, _ := m.status(r); w == "IGNORED" {
-				continue
-			}
+		if !m.showIgnored && m.hiddenIgnored(r) {
+			continue
 		}
 		v = append(v, i)
 	}
@@ -240,7 +290,7 @@ func (m *Model) helpArea() []string {
 		return nil
 	}
 	return []string{
-		"↑/↓ j/k move   x/space mark   ctrl+a mark all eligible   u clear marks   r reload   . ignored",
+		"↑/↓ j/k move   x/space mark   ctrl+a mark all eligible   u clear marks   r reload   . or h ignored",
 		"a approve+merge  d decline  c comment  i ignore  o open: instant, on the cursor row only",
 		"A D C: approve (eligible only) / decline / comment ALL MARKED rows; no marks = nothing; marks",
 		"are cleared afterwards. Mouse: click row = cursor, left edge = mark, wheel = scroll, hover.",
@@ -277,38 +327,29 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseMsg:
 		m.mouse(msg)
 	case doneMsg:
-		r := m.rowByURL(msg.url)
-		if r == nil {
-			break
-		}
 		var pe *PartialError
+		word, code, text := wMerged, cGreen+cBold, ""
 		switch {
 		case msg.err == nil:
-			r.result, r.resCode, r.resMsg = "MERGED", cGreen+cBold, ""
 		case errors.As(msg.err, &pe):
-			r.result, r.resCode, r.resMsg = "APPROVED, NOT MERGED", cRed, oneLine(msg.err.Error())
+			word, code, text = wNotMerged, cRed, oneLine(msg.err.Error())
 		default:
-			r.result, r.resCode, r.resMsg = "FAIL", cRed, oneLine(msg.err.Error())
+			word, code, text = wFail, cRed, oneLine(msg.err.Error())
 		}
-		m.msg = r.pr.Project + "/" + r.pr.Repo + "#" + fmt.Sprint(r.pr.Number) + " " + r.result
-		m.clamp()
+		m.finish(msg.url, "approve", word, code, text, true)
 	case declineDoneMsg:
-		r := m.rowByURL(msg.url)
-		if r == nil {
-			break
+		word, code, text := wDeclined, cRed, ""
+		if msg.err != nil {
+			word, code, text = wFail, cRed, oneLine(msg.err.Error())
 		}
-		if msg.err == nil {
-			r.result, r.resCode, r.resMsg = "DECLINED", cRed, ""
-		} else {
-			r.result, r.resCode, r.resMsg = "FAIL", cRed, oneLine(msg.err.Error())
-		}
-		m.msg = r.pr.Project + "/" + r.pr.Repo + "#" + fmt.Sprint(r.pr.Number) + " " + r.result
-		m.clamp()
+		m.finish(msg.url, "decline", word, code, text, true)
 	case commentDoneMsg:
 		if msg.err == nil {
 			m.cmtOK++
+			m.finish(msg.url, "comment", wCommented, cGreen, "", false)
 		} else {
 			m.cmtFails = append(m.cmtFails, msg.ref+": "+oneLine(msg.err.Error()))
+			m.finish(msg.url, "comment", wFail, cRed, oneLine(msg.err.Error()), false)
 		}
 		if m.cmtOutstanding--; m.cmtOutstanding <= 0 {
 			m.msg = fmt.Sprintf("COMMENTED on %d PR(s)", m.cmtOK)
@@ -321,6 +362,48 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.key(msg)
 	}
 	return m, nil
+}
+
+// finish records the outcome of an approve/decline/comment: always in the session log (the row may be
+// gone after a reload), and on the row when it is still listed. lock marks approve/decline attempts.
+func (m *Model) finish(url, verb, word, code, text string, lock bool) {
+	m.logSet(url, verb, word, code, text)
+	r := m.rowByURL(url)
+	if r == nil {
+		return
+	}
+	r.result, r.resCode, r.resMsg = word, code, text
+	if lock {
+		r.locked = true
+		m.msg = r.pr.Project + "/" + r.pr.Repo + "#" + fmt.Sprint(r.pr.Number) + " " + word
+	}
+	m.clamp()
+}
+
+// logStart records an action as running; finish replaces it with the outcome.
+func (m *Model) logStart(pr adapter.PR, verb string) {
+	m.logPut(logEntry{key: pr.URL + "|" + verb, pr: pr, word: wWorking, code: cYellow})
+}
+
+func (m *Model) logSet(url, verb, word, code, text string) {
+	key := url + "|" + verb
+	for i := range m.log {
+		if m.log[i].key == key {
+			m.log[i].word, m.log[i].code, m.log[i].msg = word, code, text
+			return
+		}
+	}
+}
+
+// logPut replaces the entry with the same key in place, or appends.
+func (m *Model) logPut(e logEntry) {
+	for i := range m.log {
+		if m.log[i].key == e.key {
+			m.log[i] = e
+			return
+		}
+	}
+	m.log = append(m.log, e)
 }
 
 func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
@@ -400,7 +483,7 @@ func (m *Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		cmd = m.reload()
 	case "i":
 		m.toggleIgnore()
-	case ".":
+	case ".", "h":
 		m.showIgnored = !m.showIgnored
 	case "o":
 		if i, ok := m.current(); ok {
@@ -552,7 +635,7 @@ func (m *Model) ref(i int) string {
 func (m *Model) markedTargets() []int {
 	var t []int
 	for _, i := range m.visible() {
-		if m.marks[i] && m.rows[i].result != "WORKING" {
+		if m.marks[i] && !m.rows[i].busy() {
 			t = append(t, i)
 		}
 	}
@@ -565,7 +648,7 @@ func (m *Model) cursorTarget() (int, bool) {
 	if !ok {
 		return 0, false
 	}
-	if m.rows[i].result == "WORKING" {
+	if m.rows[i].busy() {
 		m.msg = "row busy"
 		return 0, false
 	}
@@ -673,7 +756,8 @@ func (m *Model) runDecline(comment string) tea.Cmd {
 	cmds := make([]tea.Cmd, 0, len(m.pending))
 	for _, i := range m.pending {
 		i, pr := i, m.rows[i].pr
-		m.rows[i].result, m.rows[i].resCode, m.rows[i].resMsg = "WORKING", cYellow, ""
+		m.rows[i].result, m.rows[i].resCode, m.rows[i].resMsg = wDeclining, cYellow, ""
+		m.logStart(pr, "decline")
 		m.unmark(i)
 		cmds = append(cmds, func() tea.Msg {
 			m.sem <- struct{}{}
@@ -690,7 +774,9 @@ func (m *Model) runComment(body string) tea.Cmd {
 	cmds := make([]tea.Cmd, 0, len(m.pending))
 	for _, i := range m.pending {
 		i, pr := i, m.rows[i].pr
-		m.unmark(i) // the row's status word is left untouched
+		m.rows[i].result, m.rows[i].resCode, m.rows[i].resMsg = wCommenting, cYellow, ""
+		m.logStart(pr, "comment")
+		m.unmark(i)
 		ref := m.ref(i)
 		m.cmtOutstanding++
 		cmds = append(cmds, func() tea.Msg {
@@ -717,7 +803,8 @@ func (m *Model) approveCursor() tea.Cmd {
 	if !ok {
 		return nil
 	}
-	if w, _, why := m.status(m.rows[i]); w != "ELIGIBLE" {
+	if !m.eligible(i) {
+		w, _, why := m.status(m.rows[i])
 		if why == "" {
 			why = strings.ToLower(w)
 		}
@@ -752,7 +839,8 @@ func (m *Model) runPending() tea.Cmd {
 	cmds := make([]tea.Cmd, 0, len(m.pending))
 	for _, i := range m.pending {
 		i, pr := i, m.rows[i].pr
-		m.rows[i].result, m.rows[i].resCode, m.rows[i].resMsg = "WORKING", cYellow, ""
+		m.rows[i].result, m.rows[i].resCode, m.rows[i].resMsg = wApproving, cYellow, ""
+		m.logStart(pr, "approve")
 		m.unmark(i)
 		cmds = append(cmds, func() tea.Msg {
 			m.sem <- struct{}{}
@@ -780,6 +868,7 @@ func (m *Model) toggleIgnore() {
 			return
 		}
 		m.msg = "un-ignored '" + e + "'"
+		m.logIgnore(pr, wUnignored, e)
 	} else {
 		dep, ok := ignore.DependencyFromTitle(pr.Title)
 		if !ok {
@@ -791,6 +880,7 @@ func (m *Model) toggleIgnore() {
 			return
 		}
 		m.msg = "ignored '" + dep + "'"
+		m.logIgnore(pr, wIgnored, dep)
 	}
 	m.reloadIgnored()
 }
@@ -902,7 +992,7 @@ func (m *Model) statusLine() string {
 
 var hintItems = [][2]string{
 	{"a", "approve"}, {"d", "decline"}, {"c", "comment"}, {"i", "ignore"},
-	{"x", "mark"}, {"o", "open"}, {"?", "help"}, {"q", "quit"},
+	{"x", "mark"}, {"o", "open"}, {"h", "ignored"}, {"?", "help"}, {"q", "quit"},
 }
 
 // hintLine is footer line 2: counts first when they fit, then as many key hints as fit; hints are
@@ -976,5 +1066,42 @@ func (m *Model) view() string {
 	// No trailing newline: a View of exactly m.height lines plus "\n" would make Bubble Tea
 	// drop the first line (the header) in the alt screen.
 	b.WriteString(m.hintLine(len(v)))
+	return b.String()
+}
+
+// logIgnore records an ignore / un-ignore action; every press is its own entry.
+func (m *Model) logIgnore(pr adapter.PR, word, dep string) {
+	m.log = append(m.log, logEntry{key: fmt.Sprintf("ignore:%d", len(m.log)), pr: pr, word: word, code: cDim, msg: "dependency: " + dep})
+}
+
+// Summary is what is printed to stdout after the TUI quits: the session's actions as a table in the
+// CLI's fixed-width format followed by a tally line, or "No changes made." The text comes from the
+// session log, not from the row states (a reload resets those). It ends with a newline.
+func (m *Model) Summary() string {
+	if len(m.log) == 0 {
+		return "No changes made.\n"
+	}
+	st := m.cfg.Summary
+	var b strings.Builder
+	b.WriteString(st.Header() + "\n")
+	counts := map[string]int{}
+	for _, e := range m.log {
+		b.WriteString(st.Row(e.word, e.code, e.pr, e.msg) + "\n")
+		counts[e.word]++
+	}
+	var parts []string
+	for _, t := range []struct{ word, label string }{
+		{wMerged, "merged"}, {wNotMerged, "not merged"}, {wDeclined, "declined"}, {wCommented, "commented"},
+		{wFail, "failed"}, {wIgnored, "ignored"}, {wUnignored, "un-ignored"}, {wWorking, "working"},
+	} {
+		if n := counts[t.word]; n > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", n, t.label))
+		}
+	}
+	tally := strings.Join(parts, ", ")
+	if counts[wWorking] > 0 {
+		tally += " (still running)"
+	}
+	b.WriteString(tally + "\n")
 	return b.String()
 }

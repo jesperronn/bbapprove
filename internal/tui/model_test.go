@@ -295,7 +295,7 @@ func TestApproveMarkedConfirmAndParallel(t *testing.T) {
 	}
 	m.Update(tea.WindowSizeMsg{Width: 200, Height: 20})
 	out := plain(m.View())
-	for _, want := range []string{"MERGED", "FAIL", "boom stderr", "APPROVED, NOT MERGED", "merge conflict"} {
+	for _, want := range []string{"MERGED", "FAIL", "boom stderr", "NOT MERGED", "merge conflict"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
 		}
@@ -499,13 +499,20 @@ func TestCommentFlow(t *testing.T) {
 	if !strings.Contains(m.msg, "COMMENTED on 1") || !strings.Contains(m.msg, "FAIL 1") || !strings.Contains(m.msg, "nope") {
 		t.Fatalf("msg %q", m.msg)
 	}
-	// Row state untouched: row 1 is still ELIGIBLE, row 3 still SKIP, no declines.
-	out := plain(m.View())
-	if strings.Contains(out, "FAIL") && !strings.Contains(m.msg, "FAIL") || !strings.Contains(out, "ELIGIBLE") || len(fb.declined) != 0 {
-		t.Fatalf("state changed:\n%s", out)
+	// The result now shows on the row: row 1 COMMENTED, row 3 FAIL; no declines, and a comment never locks.
+	ls := lines(m)
+	if !strings.HasPrefix(ls[1], "  COMMENTED ") || !strings.HasPrefix(ls[3], "› FAIL ") || len(fb.declined) != 0 {
+		t.Fatalf("state:\n%s", strings.Join(ls, "\n"))
 	}
-	if m.rows[0].result != "" || m.rows[2].result != "" {
-		t.Fatal("comment must not set row results")
+	if m.rows[0].result != "COMMENTED" || m.rows[2].result != "FAIL" || m.rows[0].locked || m.rows[2].locked {
+		t.Fatalf("row results %q %q", m.rows[0].result, m.rows[2].result)
+	}
+	if !m.eligible(0) {
+		t.Fatal("a COMMENTED row must stay eligible")
+	}
+	drain(m, send(m, "k", "k", "a")) // a later action replaces COMMENTED
+	if m.rows[0].result != "MERGED" {
+		t.Fatalf("result %q", m.rows[0].result)
 	}
 }
 

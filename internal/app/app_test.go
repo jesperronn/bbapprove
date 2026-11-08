@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -51,6 +52,7 @@ func run(t *testing.T, env []string, args ...string) (code int, out, errOut stri
 
 func baseEnv(t *testing.T) ([]string, string) {
 	ad, log := fake(t)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // never read the real per-user ignore list
 	return []string{"BBAPPROVE_ADAPTER=" + ad, "FAKE_LOG=" + log, "FAKE_LIST=" + listJSON, "NO_COLOR=1", "BBAPPROVE_JOBS=4"}, log
 }
 
@@ -69,10 +71,10 @@ func TestDryRun(t *testing.T) {
 	if len(lines) != 6 || !strings.HasPrefix(lines[0], "STATUS") {
 		t.Fatalf("unexpected output:\n%s", out)
 	}
-	wants := []string{"SKIP", "SKIP", "ELIGIBLE", "ELIGIBLE"}
+	wants := []string{"SKIP", "SKIP", "", ""}
 	refs := []string{"P/a#1", "P/b#2", "P/c#3", "P/d#4"}
 	for i, w := range wants {
-		if !strings.HasPrefix(lines[i+1], w) || !strings.Contains(lines[i+1], refs[i]) {
+		if !strings.HasPrefix(lines[i+1], w+strings.Repeat(" ", 13-len(w))) || w == "" && strings.TrimSpace(lines[i+1][:13]) != "" || !strings.Contains(lines[i+1], refs[i]) {
 			t.Errorf("line %d = %q, want %s %s", i+1, lines[i+1], w, refs[i])
 		}
 	}
@@ -136,7 +138,7 @@ func TestApply(t *testing.T) {
 	if l := find("P/c#3"); !strings.HasPrefix(l, "FAIL") || !strings.HasSuffix(l, "— approve denied") {
 		t.Errorf("c: %q", l)
 	}
-	if l := find("P/d#4"); !strings.HasPrefix(l, "APPROVED, NOT MERGED") || !strings.HasSuffix(l, "— merge conflict") {
+	if l := find("P/d#4"); !strings.HasPrefix(l, "NOT MERGED") || !strings.HasSuffix(l, "— merge conflict") {
 		t.Errorf("d: %q", l)
 	}
 	if l := find("P/f#6"); !strings.HasPrefix(l, "SKIP") || !strings.Contains(l, "major update") {
@@ -173,7 +175,7 @@ func TestApplyParallelNoInterleave(t *testing.T) {
 		t.Fatalf("got %d lines", len(lines))
 	}
 	for _, l := range lines[1:] {
-		if !strings.HasPrefix(l, "MERGED   ") || strings.Count(l, "MERGED") != 1 || !strings.HasSuffix(l, "chore(deps): update x") {
+		if !strings.HasPrefix(l, "MERGED     ") || strings.Count(l, "MERGED") != 1 || !strings.HasSuffix(l, "chore(deps): update x") {
 			t.Fatalf("interleaved/garbled line %q", l)
 		}
 	}
@@ -182,7 +184,7 @@ func TestApplyParallelNoInterleave(t *testing.T) {
 func TestPositionalURLs(t *testing.T) {
 	env, log := baseEnv(t)
 	code, out, _ := run(t, env, "http://h/pr/1", "http://h/pr/2")
-	if code != 0 || strings.Count(out, "ELIGIBLE") != 2 {
+	if code != 0 || strings.Count(out, "P/v#9") != 2 || strings.Contains(out, "ELIGIBLE") {
 		t.Fatalf("code %d out %s", code, out)
 	}
 	if l := readLog(t, log); !strings.Contains(l, "pr view http://h/pr/1") || !strings.Contains(l, "pr view http://h/pr/2") || strings.Contains(l, "pr list") {
@@ -224,5 +226,158 @@ func TestUsageFirstLineCarriesVersion(t *testing.T) {
 	}
 	if !strings.HasPrefix(usage(""), "bbapprove dev — ") {
 		t.Errorf("empty version should read dev")
+	}
+}
+
+func writeIgnore(t *testing.T, content string) {
+	t.Helper()
+	dir := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "bbapprove")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "ignore"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func prJSON(n int, title string) string {
+	return fmt.Sprintf(`{"url":"http://h/pull-requests/%d","number":%d,"project":"P","repo":"r%d","title":%q,"author":{"email":"%s"},"headBranch":"r"}`, n, n, n, title, bot)
+}
+
+func ignoreList() string {
+	return "[" + strings.Join([]string{
+		prJSON(11, "chore(deps): update dependency npm to v1.2.3"),
+		prJSON(12, "chore(deps): update dependency lodash to v4.17.21"),
+		prJSON(13, "chore(deps): update another-library to v1.2.3"),   // disallowed AND ignored
+		prJSON(14, "chore(deps): update dependency npm to v9"), // major AND ignored
+	}, ",") + "]"
+}
+
+func lineFor(out, sub string) string {
+	for _, l := range strings.Split(out, "\n") {
+		if strings.Contains(l, sub) {
+			return l
+		}
+	}
+	return ""
+}
+
+func TestIgnoreListHonouredInDryRun(t *testing.T) {
+	env, log := baseEnv(t)
+	writeIgnore(t, "# mine\nnpm\nanother-library\n")
+	env = append(env, "FAKE_LIST="+ignoreList())
+	code, out, errOut := run(t, env)
+	if code != 0 || errOut != "" {
+		t.Fatalf("code %d err %q", code, errOut)
+	}
+	tests := []struct{ ref, prefix, suffix string }{
+		{"P/r11#11", "IGNORED     ", "— on your ignore list: npm"},
+		{"P/r12#12", strings.Repeat(" ", 13), "update dependency lodash to v4.17.21"}, // eligible: blank status
+		{"P/r13#13", "SKIP        ", "— disallowed dependency 'another-library'"},            // reasons unchanged
+		{"P/r14#14", "SKIP        ", "— major update"},
+	}
+	for _, tc := range tests {
+		l := lineFor(out, tc.ref)
+		if !strings.HasPrefix(l, tc.prefix) || !strings.HasSuffix(l, tc.suffix) {
+			t.Errorf("%s: %q want prefix %q suffix %q", tc.ref, l, tc.prefix, tc.suffix)
+		}
+	}
+	if strings.Contains(out, "ignored (hidden)") || !strings.Contains(out, "Dry run") {
+		t.Errorf("footer:\n%s", out)
+	}
+	if l := readLog(t, log); strings.Contains(l, "pr review") || strings.Contains(l, "pr merge") {
+		t.Errorf("dry run mutated: %s", l)
+	}
+}
+
+func TestApplyNeverTouchesIgnoredPR(t *testing.T) {
+	env, log := baseEnv(t)
+	writeIgnore(t, "npm\n")
+	env = append(env, "FAKE_LIST="+ignoreList())
+	code, out, errOut := run(t, env, "--apply")
+	if code != 0 || errOut != "" {
+		t.Fatalf("code %d err %q", code, errOut)
+	}
+	if l := lineFor(out, "P/r11#11"); !strings.HasPrefix(l, "IGNORED") || !strings.HasSuffix(l, "— on your ignore list: npm") {
+		t.Errorf("ignored row: %q", l)
+	}
+	if l := lineFor(out, "P/r12#12"); !strings.HasPrefix(l, "MERGED") {
+		t.Errorf("lodash must merge: %q", l)
+	}
+	l := readLog(t, log)
+	if strings.Contains(l, "pull-requests/11") || strings.Contains(l, "pull-requests/14") {
+		t.Fatalf("ignored PR was acted on:\n%s", l)
+	}
+	if !strings.Contains(l, "pr review http://h/pull-requests/12 --approve") || !strings.Contains(l, "pr merge http://h/pull-requests/12") {
+		t.Errorf("eligible PR not merged:\n%s", l)
+	}
+}
+
+func TestHideIgnored(t *testing.T) {
+	for _, apply := range []bool{false, true} {
+		env, log := baseEnv(t)
+		writeIgnore(t, "npm\n")
+		env = append(env, "FAKE_LIST="+prListOf(prJSON(11, "chore(deps): update dependency npm to v1.2.3"), prJSON(12, "chore(deps): update lodash to v4.1"), prJSON(15, "chore(deps): update npm-run-all to v1.1")))
+		args := []string{"--hide-ignored"}
+		if apply {
+			args = append(args, "--apply")
+		}
+		code, out, _ := run(t, env, args...)
+		if code != 0 || strings.Contains(out, "IGNORED") || strings.Contains(out, "P/r11#11") || strings.Contains(out, "P/r15#15") {
+			t.Fatalf("apply=%v hidden rows shown:\n%s", apply, out)
+		}
+		if !strings.Contains(out, "2 ignored (hidden)") || !strings.Contains(out, "P/r12#12") {
+			t.Errorf("apply=%v footer/eligible:\n%s", apply, out)
+		}
+		if strings.Contains(readLog(t, log), "pull-requests/11") {
+			t.Errorf("apply=%v acted on hidden ignored PR", apply)
+		}
+	}
+}
+
+func prListOf(items ...string) string { return "[" + strings.Join(items, ",") + "]" }
+
+func TestMissingIgnoreFileIsEmpty(t *testing.T) {
+	env, _ := baseEnv(t)
+	env = append(env, "FAKE_LIST="+ignoreList())
+	_, out, _ := run(t, env)
+	if strings.Contains(out, "IGNORED") {
+		t.Errorf("no ignore file, yet IGNORED:\n%s", out)
+	}
+}
+
+func TestUnreadableIgnoreListFailsClosed(t *testing.T) {
+	env, log := baseEnv(t)
+	// a directory where the file should be: exists but cannot be read
+	if err := os.MkdirAll(filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "bbapprove", "ignore"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	env = append(env, "FAKE_LIST="+ignoreList())
+	code, out, errOut := run(t, env, "--apply")
+	if code != 1 || !strings.Contains(errOut, "cannot read ignore list") || out != "" {
+		t.Fatalf("code %d out %q err %q", code, out, errOut)
+	}
+	if l := readLog(t, log); strings.Contains(l, "pr review") || strings.Contains(l, "pr merge") {
+		t.Fatalf("acted despite unreadable ignore list: %s", l)
+	}
+}
+
+func TestIgnoreListFromEnvironXDG(t *testing.T) {
+	env, _ := baseEnv(t)
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "bbapprove"), 0o755)
+	os.WriteFile(filepath.Join(dir, "bbapprove", "ignore"), []byte("lodash\n"), 0o644)
+	env = append(env, "XDG_CONFIG_HOME="+dir, "FAKE_LIST="+ignoreList())
+	_, out, _ := run(t, env)
+	if l := lineFor(out, "P/r12#12"); !strings.HasPrefix(l, "IGNORED") {
+		t.Errorf("environ XDG_CONFIG_HOME not honoured: %q", l)
+	}
+}
+
+func TestHelpMentionsIgnoreAndStatus(t *testing.T) {
+	for _, w := range []string{"--hide-ignored", "ignore list", "IGNORED", "h or .", "COMMENTING…", "N ignored (hidden)"} {
+		if !strings.Contains(usage("x"), w) {
+			t.Errorf("help lacks %q", w)
+		}
 	}
 }

@@ -4,14 +4,18 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
 
+	"golang.org/x/term"
+
 	tea "github.com/charmbracelet/bubbletea"
 
 	"bbapprove/internal/adapter"
+	"bbapprove/internal/app"
 	"bbapprove/internal/ignore"
 	"bbapprove/internal/rules"
 )
@@ -88,18 +92,44 @@ func Run(ctx context.Context, o RunOptions) int {
 	m := New(Config{
 		Backend: ClientBackend{Client: client}, IgnorePath: ignore.DefaultPath(),
 		Check: rc.Check, Concurrency: jobs, Ctx: ctx, Version: o.Version,
-		NoColor: env("NO_COLOR") != "", NoMouse: !mouse,
+		NoColor: env("NO_COLOR") != "", NoMouse: !mouse, Summary: summaryStyle(o.Stdout, env),
 	})
+	return runModel(ctx, o, m, mouse)
+}
+
+// runModel runs the program for m and prints the exit summary. Split from Run so tests can inject a
+// model that has a fake Backend.
+func runModel(ctx context.Context, o RunOptions, m *Model, mouse bool) int {
 	opts := []tea.ProgramOption{tea.WithInput(o.Stdin), tea.WithOutput(o.Stdout), tea.WithAltScreen(), tea.WithContext(ctx)}
 	if mouse {
 		opts = append(opts, tea.WithMouseAllMotion())
 	}
 	p := tea.NewProgram(m, opts...)
-	if _, err := p.Run(); err != nil {
+	final, err := p.Run()
+	if err != nil {
 		fmt.Fprintln(o.Stderr, err)
 		return 1
 	}
+	// The alt screen is gone now: print the session summary so it stays in the scrollback.
+	if fm, ok := final.(*Model); ok {
+		fmt.Fprint(o.Stdout, fm.Summary())
+	}
 	return 0
+}
+
+// summaryStyle colours the exit summary like the CLI table (never with NO_COLOR; only on a TTY or
+// with FORCE_COLOR) and truncates its lines to the terminal width only when stdout is a TTY.
+func summaryStyle(w io.Writer, env func(string) string) app.Style {
+	st := app.Style{}
+	tty := false
+	if f, ok := w.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
+		tty = true
+		if cols, _, err := term.GetSize(int(f.Fd())); err == nil {
+			st.Width = cols
+		}
+	}
+	st.Color = env("NO_COLOR") == "" && (tty || env("FORCE_COLOR") != "")
+	return st
 }
 
 // MouseEnabled reports whether mouse capture is on: it is unless BBAPPROVE_MOUSE=0 or --no-mouse.

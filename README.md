@@ -11,14 +11,14 @@ on PATH (https://go.dev/dl/); without it and without a built binary the launcher
 ## Usage
 
 ```
-bin/bbapprove                      # dry run: list PRs where I'm reviewer, marked ELIGIBLE or SKIP (reason)
+bin/bbapprove                      # dry run: list PRs where I'm reviewer; blank status = eligible, SKIP/IGNORED carry a reason
 bin/bbapprove --apply              # approve + merge the eligible ones
 bin/bbapprove --apply <PR_URL>...  # only the given PRs (PR URLs skip the reviewer list)
 bin/bbapprove -i                   # interactive TUI (see below)
 bin/bbapprove --help               # flags, eligibility rules, env vars
 ```
 
-Flags: `--apply`, `--disallow a,b` (adds to the disallow list), `--token T`, `-i/--interactive`, `-h/--help`.
+Flags: `--apply`, `--hide-ignored`, `--disallow a,b` (adds to the disallow list), `--token T`, `-i/--interactive`, `-h/--help`.
 
 Eligible, all of:
 - author is `BBAPPROVE_AUTHOR_EMAIL` (default `renovate-bot@example.com`)
@@ -26,8 +26,22 @@ Eligible, all of:
 - not on the disallow list (`disallow.txt` in the repo root, one dependency per line, `#` comments and blank lines ignored; currently `some-library` and `another-library`; plus `--disallow` / `BBAPPROVE_DISALLOW`). Case-insensitive substring match on the title.
 - minor/patch/digest only. Current heuristic: a title ending `to vN` or a branch `renovate/major-*` counts as major. This is not reliable yet, see TODO.md.
 - not already approved by you
+- not on your per-user ignore list (see below)
 
-Anything else is reported as SKIP with the reason. Nothing is changed without `--apply`.
+Anything else is reported as SKIP with the reason. Nothing is changed without `--apply`. The `STATUS`
+cell of an eligible, untouched PR is blank.
+
+### Ignore list in the CLI
+
+The per-user ignore list (`~/.config/bbapprove/ignore`, or `$XDG_CONFIG_HOME/bbapprove/ignore`) is honoured by
+the plain CLI and `--apply`, not only by the TUI. A PR whose title matches an entry (case-insensitive substring)
+is classified `IGNORED`: it is shown dim with the reason `on your ignore list: <entry>` after the title and is
+never approved, merged, declined or commented, in dry run and with `--apply`. A missing file is an empty list;
+a file that exists but cannot be read stops the run (exit 1) rather than risk acting on an ignored PR.
+`--hide-ignored` leaves the ignored rows out of the table; the footer then says `N ignored (hidden)`.
+A PR that is also rejected by another rule (author, subject, disallow, major, already approved) keeps that
+rule's `SKIP` reason: the ignore check comes last. The CLI and the TUI share one classification function
+(`rules.Classify`).
 
 ## Interactive TUI (`-i`)
 
@@ -53,11 +67,23 @@ the marked rows.** Actions run in the background, so you can mark rows, press `D
 | `D` | decline the marked rows (confirm, then one shared optional comment) |
 | `C` | comment on the marked rows (one shared comment, empty refused) |
 | `r` | reload the list (cursor and marks are kept by PR URL; per-row result statuses are reset) |
-| `.` | show/hide ignored rows |
+| `.` / `h` | show/hide ignored rows |
 | `?` | toggle the extended help |
-| `q` | quit |
+| `q` | quit; prints a summary of the session to the terminal (see below) |
 
 With no marked rows `A`/`D`/`C` only show "no marked rows". After a batch action the acted rows are un-marked.
+
+### Exit summary
+
+On `q` / ctrl+c the TUI leaves the alternate screen and prints what was done this session, so it stays in the
+scrollback: a table in the same fixed-width format as the CLI with only the actions taken (`MERGED`,
+`NOT MERGED`, `DECLINED`, `COMMENTED`, `FAIL`, plus `IGNORED` / `UN-IGNORED` rows that show the dependency),
+then a tally such as `3 merged, 1 declined, 1 commented, 1 failed, 2 ignored, 1 un-ignored` (zero counts are
+omitted). With nothing done it prints `No changes made.` The summary comes from a session log, so a reload
+(which resets the row statuses) does not lose anything. Quitting does not wait for running actions: they are
+listed as `WORKING…` and the tally ends with `(still running)`. There is one line per PR and kind of action
+(a PR that was commented and then merged has two lines). Lines are cut to the terminal width on a TTY and
+never truncated when piped; `NO_COLOR` is respected.
 
 ### Look and status bar
 
@@ -80,7 +106,7 @@ Hold Shift to bypass the capture in most terminals (Ghostty, iTerm2, kitty). Tur
 Ignore list: `~/.config/bbapprove/ignore` (or `$XDG_CONFIG_HOME/bbapprove/ignore` when `XDG_CONFIG_HOME` is set).
 One dependency per line, `#` comments allowed. It is personal and separate from `disallow.txt`:
 the disallow list is a repo-wide hard block that always skips a PR, while ignored dependencies are only
-hidden from your TUI view.
+hidden from your TUI view (`.` or `h` shows them) and shown dim as `IGNORED` in the CLI (never acted on).
 
 ### Columns
 
@@ -88,7 +114,7 @@ Fixed-width columns: `STATUS`, then the check glyphs, then the PR ref and title.
 
 | Column | Glyph meaning |
 | --- | --- |
-| `STATUS` | `ELIGIBLE`, `SKIP` (with reason), `IGNORED`, or the result of an action (`MERGED`, `APPROVED, NOT MERGED`, `DECLINED`, `FAIL`) |
+| `STATUS` | the row's action state, 11 characters wide: blank = eligible and untouched; `SKIP` (reason after the title); `IGNORED` (on your ignore list; shown dim); in flight `APPROVING…` `DECLINING…` `COMMENTING…`; done `MERGED` `DECLINED` `COMMENTED`; failures `NOT MERGED` (approved, merge failed) and `FAIL`. A later action on a row replaces its word; `r` resets all of them. A comment never makes a row ineligible. |
 | 🔨 build | ✓ passed, ✗ failed, … running, ? unknown / none |
 | 🔎 SonarQube | ✓ quality gate passed, ✗ failed, ? unknown |
 | 👍 approval | ✓ approved (by someone), ✗ needs work (a reviewer requested changes), – no reviews yet |

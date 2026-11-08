@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"bbapprove/internal/adapter"
+	"bbapprove/internal/ignore"
 )
 
 var (
@@ -69,4 +70,38 @@ func (c Config) Check(pr adapter.PR) (string, bool) {
 		return "already approved by me", false
 	}
 	return "", true
+}
+
+// Kind is the classification of a PR for display and for acting on it.
+type Kind int
+
+const (
+	// Eligible means the PR may be approved and merged.
+	Eligible Kind = iota
+	// Skip means a rule (author, subject, disallow, major, already approved) rejects the PR.
+	Skip
+	// Ignored means the PR is otherwise eligible but matches the per-user ignore list.
+	Ignored
+)
+
+// IgnoreReasonPrefix starts the reason of an Ignored classification; the matching entry follows.
+const IgnoreReasonPrefix = "on your ignore list: "
+
+// Classify is the single classification shared by the CLI and the TUI so they can never disagree.
+// check is the eligibility rule (Config.Check); ignored is the per-user ignore list. The ignore list
+// is consulted last: a PR rejected by a rule keeps that rule's reason, and only an otherwise
+// eligible PR matching an ignore entry becomes Ignored (never eligible, never acted on).
+func Classify(check func(adapter.PR) (string, bool), ignored []string, pr adapter.PR) (Kind, string) {
+	if reason, ok := check(pr); !ok {
+		return Skip, reason
+	}
+	if entry, ok := ignore.Matches(ignored, pr.Title); ok {
+		return Ignored, IgnoreReasonPrefix + entry
+	}
+	return Eligible, ""
+}
+
+// Classify applies Config.Check and then the ignore list; see the package-level Classify.
+func (c Config) Classify(ignored []string, pr adapter.PR) (Kind, string) {
+	return Classify(c.Check, ignored, pr)
 }

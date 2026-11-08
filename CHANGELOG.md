@@ -5,7 +5,24 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- The non-interactive CLI (dry run and `--apply`) now honours the per-user ignore list. A PR matching an
+  entry is `IGNORED` and is never approved, merged, declined or commented. An unreadable ignore file stops
+  the run instead of being treated as empty. The CLI and TUI share one classification (`rules.Classify`).
+
+### Added
+- CLI shows ignored PRs dim with `IGNORED` and the reason `on your ignore list: <entry>`; `--hide-ignored`
+  omits them and the footer says `N ignored (hidden)`.
+- TUI: `h` is an alias of `.` (show/hide ignored rows).
+- TUI exit summary: on `q` / ctrl+c the actions of the session (merged, not merged, declined, commented,
+  failed, ignored, un-ignored) are printed as a table plus a tally, or `No changes made.`; rows still running
+  are listed as `WORKING…`. Truncated to the width on a TTY only, honours `NO_COLOR`.
+
 ### Changed
+- STATUS column redesigned as the row's action state and widened from 8 to 11 characters (CLI and TUI):
+  eligible and untouched rows are blank; words are `SKIP`, `IGNORED`, `APPROVING…`, `DECLINING…`,
+  `COMMENTING…`, `MERGED`, `DECLINED`, `COMMENTED`, `NOT MERGED` (was `APPROVED, NOT MERGED`) and `FAIL`.
+  `ELIGIBLE` no longer exists. A comment result now shows on the row (and a later action replaces it).
 - TUI keys: lowercase `a` (approve+merge, instant, no prompt), `d`, `c`, `i`, `o` act on the cursor row
   only and never read or change marks. Uppercase `A`, `D`, `C` act on the marked rows (confirm counts,
   one shared comment; acted rows are un-marked; "no marked rows" with none).

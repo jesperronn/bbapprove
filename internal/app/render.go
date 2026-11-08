@@ -34,7 +34,7 @@ func (s Style) c(code, text string) string {
 
 // Header is the column header row.
 func (s Style) Header() string {
-	return s.fit(s.c(dim, "STATUS    🔨 🔎 👍 💬  ✅  PR   TITLE"))
+	return s.fit(s.c(dim, "STATUS       🔨 🔎 👍 💬  ✅  PR   TITLE"))
 }
 
 func (s Style) cell(code, glyph string) string { return s.c(code, glyph) + "  " }
@@ -84,9 +84,12 @@ func (s Style) Ref(pr adapter.PR) string {
 	return s.c(dim+cyan, pr.Project) + s.c(dim, "/") + s.c(cyan, pr.Repo) + s.c(bold, fmt.Sprintf("#%d", pr.Number))
 }
 
-// Status renders a status word padded to 8 columns plus a 2-column gap.
+// StatusWidth is the width of the status column (fits "COMMENTING…").
+const StatusWidth = 11
+
+// Status renders a status word (blank = empty cell) padded to StatusWidth columns plus a 2-column gap.
 func (s Style) Status(word, code string) string {
-	pad := 8 - len(word)
+	pad := StatusWidth - ansi.StringWidth(word)
 	if pad < 0 {
 		pad = 0
 	}

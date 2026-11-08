@@ -70,3 +70,33 @@ func TestLoadDisallow(t *testing.T) {
 		t.Fatalf("missing file: got %v", got)
 	}
 }
+
+func TestClassify(t *testing.T) {
+	cfg := Config{AuthorEmail: bot, Disallow: []string{"another-library"}}
+	ign := []string{"npm", "another-library"}
+	tests := []struct {
+		name   string
+		pr     adapter.PR
+		kind   Kind
+		reason string
+	}{
+		{"eligible", pr(bot, "chore(deps): update lodash to v4.1", "r", false), Eligible, ""},
+		{"ignored", pr(bot, "chore(deps): update dependency NPM to v1.2", "r", false), Ignored, "on your ignore list: npm"},
+		{"disallow beats ignore", pr(bot, "chore(deps): update another-library to v1.2", "r", false), Skip, "disallowed dependency 'another-library'"},
+		{"major beats ignore", pr(bot, "chore(deps): update npm to v9", "r", false), Skip, "major update"},
+		{"approved beats ignore", pr(bot, "chore(deps): update npm to v1.1", "r", true), Skip, "already approved by me"},
+		{"author beats ignore", pr("x@y", "chore(deps): update npm", "r", false), Skip, "author 'x@y' is not the renovate bot"},
+		{"subject beats ignore", pr(bot, "feat: npm", "r", false), Skip, "subject does not start with chore(deps): or fix(deps):"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			k, why := cfg.Classify(ign, tc.pr)
+			if k != tc.kind || why != tc.reason {
+				t.Fatalf("got (%v, %q), want (%v, %q)", k, why, tc.kind, tc.reason)
+			}
+		})
+	}
+	if k, _ := cfg.Classify(nil, pr(bot, "chore(deps): update npm to v1.2", "r", false)); k != Eligible {
+		t.Fatal("empty ignore list must not ignore")
+	}
+}

@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"bbapprove/internal/adapter"
+	"bbapprove/internal/ignore"
 	"bbapprove/internal/rules"
 )
 
@@ -25,6 +26,9 @@ type Options struct {
 	IsTTY   bool   // stdout is a terminal
 	Width   int    // terminal width; only used when IsTTY
 	Version string // build version shown in the help text
+	// IgnorePath overrides the per-user ignore file (default: ignore.DefaultPath(), honouring
+	// XDG_CONFIG_HOME from Environ first). Mainly for tests.
+	IgnorePath string
 }
 
 func (o Options) env(key string) string {
@@ -39,13 +43,20 @@ func (o Options) env(key string) string {
 
 const usageBody = `approve and merge Renovate PRs on Bitbucket Server.
 
-Usage: bbapprove [--apply] [--disallow a,b] [--token T] [PR_URL...]
+Usage: bbapprove [--apply] [--hide-ignored] [--disallow a,b] [--token T] [PR_URL...]
 
 With no PR_URL, every open PR where you are a reviewer is considered.
 Without --apply nothing is changed; eligibility is only reported.
+Your per-user ignore list ($XDG_CONFIG_HOME/bbapprove/ignore, default ~/.config/bbapprove/ignore) is
+honoured: a PR whose title matches an entry is shown dim as IGNORED and is never approved, merged,
+declined or commented, with or without --apply. --hide-ignored leaves those rows out of the table
+(the footer then says "N ignored (hidden)").
+The STATUS column is blank for an eligible, untouched PR; otherwise SKIP, IGNORED, or the result of
+an action (APPROVING… MERGED, NOT MERGED, DECLINING… DECLINED, COMMENTING… COMMENTED, FAIL).
 -i opens an interactive TUI: x/space mark, ctrl+a mark all eligible, a approve+merge, d decline,
-c comment (cursor row); A/D/C act on the marked rows; i ignore dependency, r reload, o open,
-? help, q quit. --no-mouse (or BBAPPROVE_MOUSE=0) turns mouse capture off.
+c comment (cursor row); A/D/C act on the marked rows; i ignore dependency, h or . show/hide ignored
+rows, r reload, o open, ? help, q quit (prints a summary of what was done). --no-mouse (or
+BBAPPROVE_MOUSE=0) turns mouse capture off.
 
 A PR is eligible when ALL hold:
   - author email is BBAPPROVE_AUTHOR_EMAIL (default renovate-bot@example.com)
@@ -53,6 +64,7 @@ A PR is eligible when ALL hold:
   - title does not mention a disallowed dependency (disallow.txt, --disallow)
   - update is minor/patch/digest (title "to vN" only, or branch renovate/major-*, is major)
   - not already approved by you
+  - not on your ignore list (otherwise IGNORED)
 
 Env: BBAPPROVE_AUTHOR_EMAIL, BBAPPROVE_DISALLOW, BBAPPROVE_DISALLOW_FILE, BBAPPROVE_JOBS,
      BBAPPROVE_ADAPTER, BBAPPROVE_TOKEN, BBAPPROVE_MOUSE; NO_COLOR, FORCE_COLOR.
@@ -82,6 +94,7 @@ func Run(ctx context.Context, o Options) int {
 	out := &printer{w: o.Stdout}
 	var (
 		apply    bool
+		hideIgn  bool
 		disallow = o.env("BBAPPROVE_DISALLOW")
 		token    = o.env("BBAPPROVE_TOKEN")
 		targets  []string
@@ -105,6 +118,8 @@ func Run(ctx context.Context, o Options) int {
 			return 0
 		case a == "--apply":
 			apply = true
+		case a == "--hide-ignored":
+			hideIgn = true
 		case a == "-i" || a == "--interactive":
 			fmt.Fprintln(o.Stderr, "interactive mode: not implemented yet")
 			return 2
@@ -147,6 +162,21 @@ func Run(ctx context.Context, o Options) int {
 		jobs = n
 	}
 
+	ignorePath := o.IgnorePath
+	if ignorePath == "" {
+		if x := o.env("XDG_CONFIG_HOME"); x != "" {
+			ignorePath = filepath.Join(x, "bbapprove", "ignore")
+		} else {
+			ignorePath = ignore.DefaultPath()
+		}
+	}
+	// Fail closed: an unreadable ignore list must never be treated as empty, or an ignored PR could be merged.
+	ignored, err := ignore.Load(ignorePath)
+	if err != nil {
+		fmt.Fprintf(o.Stderr, "cannot read ignore list: %v\n", err)
+		return 1
+	}
+
 	cfg := rules.Config{AuthorEmail: email, Disallow: rules.LoadDisallow(file, disallow)}
 	client := &adapter.Client{Path: adapterPath, Token: token, Environ: o.Environ}
 
@@ -182,26 +212,35 @@ func Run(ctx context.Context, o Options) int {
 	}
 	out.line(st.Header())
 
-	if !apply {
-		for _, pr := range prs {
-			if reason, ok := cfg.Check(pr); !ok {
-				out.line(st.Row("SKIP", yellow, pr, reason))
-			} else {
-				out.line(st.Row("ELIGIBLE", green, pr, ""))
+	var eligible []adapter.PR
+	hidden := 0
+	for _, pr := range prs {
+		kind, reason := cfg.Classify(ignored, pr)
+		switch kind {
+		case rules.Eligible:
+			eligible = append(eligible, pr)
+			if !apply {
+				out.line(st.Row("", "", pr, ""))
 			}
+		case rules.Ignored:
+			if hideIgn {
+				hidden++
+			} else {
+				out.line(st.Row("IGNORED", dim, pr, reason))
+			}
+		default:
+			out.line(st.Row("SKIP", yellow, pr, reason))
 		}
+	}
+	if hidden > 0 {
+		out.line(fmt.Sprintf("%d ignored (hidden)", hidden))
+	}
+
+	if !apply {
 		out.line("Dry run — pass --apply to approve and merge.")
 		return 0
 	}
 
-	var eligible []adapter.PR
-	for _, pr := range prs {
-		if reason, ok := cfg.Check(pr); !ok {
-			out.line(st.Row("SKIP", yellow, pr, reason))
-		} else {
-			eligible = append(eligible, pr)
-		}
-	}
 	forEach(len(eligible), jobs, func(i int) {
 		out.line(act(ctx, client, st, eligible[i]))
 	})
@@ -221,7 +260,7 @@ func act(ctx context.Context, c *adapter.Client, st Style, pr adapter.PR) string
 		return st.rowFull("FAIL", red, pr, oneLine(err.Error()))
 	}
 	if err := c.Merge(ctx, pr.URL); err != nil {
-		return st.rowFull("APPROVED, NOT MERGED", red, pr, oneLine(err.Error()))
+		return st.rowFull("NOT MERGED", red, pr, oneLine(err.Error()))
 	}
 	return st.rowFull("MERGED", green+bold, pr, "")
 }

@@ -9,6 +9,7 @@ import (
 	"golang.org/x/term"
 
 	"bbapprove/internal/app"
+	"bbapprove/internal/tui"
 )
 
 func main() {
@@ -18,6 +19,14 @@ func main() {
 	if tty {
 		if w, _, err := term.GetSize(fd); err == nil {
 			width = w
+		}
+	}
+	for _, a := range os.Args[1:] {
+		if a == "-i" || a == "--interactive" {
+			os.Exit(tui.Run(context.Background(), tui.RunOptions{
+				Args: os.Args[1:], Environ: os.Environ(), RepoDir: repoDir(),
+				Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr,
+			}))
 		}
 	}
 	os.Exit(app.Run(context.Background(), app.Options{

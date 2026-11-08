@@ -6,9 +6,17 @@ set -euo pipefail
 
 BBAPPROVE_BASE_URL="${BBAPPROVE_BASE_URL:-https://bitbucket.example.com}"
 BBAPPROVE_AUTHOR_EMAIL="${BBAPPROVE_AUTHOR_EMAIL:-renovate-bot@example.com}"
-BBAPPROVE_DISALLOW="${BBAPPROVE_DISALLOW:-some-library}"   # comma-separated, case-insensitive substrings
+SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+# Disallow list: one dependency per line in this file ('#' comments and blank lines ignored);
+# --disallow / BBAPPROVE_DISALLOW (comma-separated) add to it. Case-insensitive substrings.
+BBAPPROVE_DISALLOW_FILE="${BBAPPROVE_DISALLOW_FILE:-$(dirname "$SCRIPT_PATH")/../disallow.txt}"
+BBAPPROVE_DISALLOW="${BBAPPROVE_DISALLOW:-}"
+BBAPPROVE_CONNECT_TIMEOUT="${BBAPPROVE_CONNECT_TIMEOUT:-2.7}"   # seconds
+BBAPPROVE_MAX_TIME="${BBAPPROVE_MAX_TIME:-3.5}"                 # seconds, per curl call
+BBAPPROVE_JOBS="${BBAPPROVE_JOBS:-$( (nproc || sysctl -n hw.ncpu || echo 4) 2>/dev/null | head -n1)}"
+export BBAPPROVE_BASE_URL BBAPPROVE_AUTHOR_EMAIL BBAPPROVE_DISALLOW_FILE BBAPPROVE_CONNECT_TIMEOUT BBAPPROVE_MAX_TIME BBAPPROVE_JOBS
 BBAPPROVE_TOKEN="${BBAPPROVE_TOKEN:-}"
-BBAPPROVE_APPLY=0
+BBAPPROVE_APPLY="${BBAPPROVE_APPLY:-0}"
 BBAPPROVE_INTERACTIVE=0
 BBAPPROVE_MERGE_RETRIES="${BBAPPROVE_MERGE_RETRIES:-4}"
 BBAPPROVE_RETRY_SLEEP="${BBAPPROVE_RETRY_SLEEP:-2}"
@@ -49,10 +57,14 @@ Without --apply (or -i) nothing is changed; eligibility is only reported.
 A PR is eligible when ALL hold:
   - author email is renovate-bot@example.com
   - title starts with "chore(deps):" or "fix(deps):"
-  - title does not mention a disallowed dependency (default: some-library)
+  - title does not mention a disallowed dependency (disallow.txt, --disallow)
   - update is minor/patch/digest (title "to vN" only, or branch renovate/major-*, is major)
 
-Env: BBAPPROVE_MERGE_RETRIES, BBAPPROVE_RETRY_SLEEP, BBAPPROVE_BASE_URL, BBAPPROVE_AUTHOR_EMAIL, BBAPPROVE_DISALLOW, BBAPPROVE_TOKEN.
+Disallow list: disallow.txt next to bin/ (one dependency per line, # comments); --disallow adds more.
+Requests time out (connect 2.7s, total 3.5s) and run in parallel (one job per CPU core).
+
+Env: BBAPPROVE_MERGE_RETRIES, BBAPPROVE_RETRY_SLEEP, BBAPPROVE_BASE_URL, BBAPPROVE_AUTHOR_EMAIL, BBAPPROVE_DISALLOW,
+     BBAPPROVE_DISALLOW_FILE, BBAPPROVE_CONNECT_TIMEOUT, BBAPPROVE_MAX_TIME, BBAPPROVE_JOBS, BBAPPROVE_TOKEN.
 Token falls back to 1Password item BITBUCKET_TOKEN (same as bbpr).
 USAGE
 }
@@ -85,11 +97,22 @@ fetch_token() {
 LAST_CODE=""
 api() { # method endpoint [data] -> body on stdout, http code in LAST_CODE (call without subshell via api_to)
   local method="$1" endpoint="$2" data="${3:-}" out
-  local args=(-sS -w $'\n%{http_code}' -X "$method" -H "Authorization: Bearer $BBAPPROVE_TOKEN" -H "Accept: application/json")
+  local args=(--connect-timeout "$BBAPPROVE_CONNECT_TIMEOUT" --max-time "$BBAPPROVE_MAX_TIME" -sS -w $'\n%{http_code}' -X "$method" -H "Authorization: Bearer $BBAPPROVE_TOKEN" -H "Accept: application/json")
   [[ -n "$data" ]] && args+=(-H "Content-Type: application/json" -d "$data")
-  out="$(curl "${args[@]}" "$BBAPPROVE_BASE_URL$endpoint")"
+  if ! out="$(curl "${args[@]}" "$BBAPPROVE_BASE_URL$endpoint")"; then
+    LAST_CODE="000"; API_BODY=""; return 1   # curl already printed why (timeout, connect failure)
+  fi
   LAST_CODE="$(printf '%s' "$out" | tail -n1)"
   API_BODY="$(printf '%s' "$out" | sed '$d')"
+}
+
+# disallow_items -> one lowercase item per line: file entries (no '#' lines/blanks) then comma-separated BBAPPROVE_DISALLOW
+disallow_items() {
+  local item
+  if [[ -f "$BBAPPROVE_DISALLOW_FILE" ]]; then
+    grep -vE '^[[:space:]]*(#|$)' "$BBAPPROVE_DISALLOW_FILE" || true
+  fi
+  tr ',' '\n' <<<"$BBAPPROVE_DISALLOW"
 }
 
 # eligibility: prints reason and returns 1 when not eligible
@@ -101,11 +124,10 @@ check_eligible() {
   if [[ "$email" != "$BBAPPROVE_AUTHOR_EMAIL" ]]; then echo "author '$email' is not the renovate bot"; return 1; fi
   if [[ ! "$title" =~ ^(chore|fix)\(deps\):\  ]]; then echo "subject does not start with chore(deps): or fix(deps):"; return 1; fi
   lower_title="$(tr '[:upper:]' '[:lower:]' <<<"$title")"
-  IFS=',' read -ra items <<<"$BBAPPROVE_DISALLOW"
-  for item in "${items[@]}"; do
-    item="$(tr '[:upper:]' '[:lower:]' <<<"${item// /}")"
+  while IFS= read -r item; do
+    item="$(tr '[:upper:]' '[:lower:]' <<<"${item//[[:space:]]/}")"
     [[ -n "$item" && "$lower_title" == *"$item"* ]] && { echo "disallowed dependency '$item'"; return 1; }
-  done
+  done < <(disallow_items)
   if [[ "$branch" == renovate/major-* || "$title" =~ \ to\ v?[0-9]+\ *(\(.*\))?$ ]]; then echo "major update"; return 1; fi
   if [[ -n "${ME:-}" && "$(jq -r --arg me "$ME" '[.participants[]? | select(.user.slug==$me and .status=="APPROVED")] | length' <<<"$pr")" -gt 0 ]]; then
     echo "already approved by me"; return 1
@@ -170,10 +192,28 @@ interactive_run() { # PR json...
     --header 'TAB toggle · ctrl-a all · ctrl-d none · ENTER approve+merge selected · ESC cancel' \
     --prompt 'approve> ')" || { log "Cancelled."; return 0; }
   [[ -n "$picked" ]] || { log "Nothing selected."; return 0; }
+  local chosen=()
   while IFS= read -r line; do
     idx="${line%%$'\t'*}"
-    act_on_pr "${elig[$idx]}"
+    chosen+=("${elig[$idx]}")
   done <<<"$picked"
+  par_each __act "${chosen[@]}"
+}
+
+# par_each SUBCOMMAND ARG... -> runs "$SCRIPT_PATH SUBCOMMAND ARG" per arg, up to BBAPPROVE_JOBS at once.
+par_each() {
+  local sub="$1"; shift
+  (( $# )) || return 0
+  printf '%s\0' "$@" | xargs -0 -n1 -P "$BBAPPROVE_JOBS" "$SCRIPT_PATH" "$sub"
+}
+
+fetch_pr_cmd() { # URL -> compact PR json on stdout
+  local parts key repo id
+  parts="$(parse_pr_url "$1")" || { err "Not a PR URL: $1"; return 2; }
+  read -r key repo id <<<"$parts"
+  api GET "/rest/api/1.0/projects/$key/repos/$repo/pull-requests/$id" || true
+  [[ "$LAST_CODE" == 200 ]] || { err "Fetch failed ($LAST_CODE): $1"; return 1; }
+  jq -c . <<<"$API_BODY"
 }
 
 parse_pr_url() { # url -> "KEY REPO ID"
@@ -185,6 +225,12 @@ parse_pr_url() { # url -> "KEY REPO ID"
 }
 
 main() {
+  # Internal subcommands, run by par_each in child processes (token and settings come via env).
+  case "${1:-}" in
+    __fetch) fetch_pr_cmd "$2"; return ;;
+    __process) process_pr "$2"; return ;;
+    __act) act_on_pr "$2"; return ;;
+  esac
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -h|--help) usage; return 0 ;;
@@ -198,22 +244,22 @@ main() {
   done
   command -v jq >/dev/null || { err "jq is required"; return 1; }
   fetch_token
+  export BBAPPROVE_TOKEN BBAPPROVE_APPLY BBAPPROVE_DISALLOW BBAPPROVE_MERGE_RETRIES BBAPPROVE_RETRY_SLEEP
 
   api GET "/plugins/servlet/applinks/whoami" || true
-  ME=""; [[ "$LAST_CODE" == 200 ]] && ME="$(tr -d '[:space:]' <<<"$API_BODY")"
+  export ME=""
+  [[ "$LAST_CODE" == 200 ]] && ME="$(tr -d '[:space:]' <<<"$API_BODY")"
 
   local prs=() t parts key repo id start=0 last page
   if (( ${#BBAPPROVE_TARGETS[@]} )); then
     for t in "${BBAPPROVE_TARGETS[@]}"; do
-      parts="$(parse_pr_url "$t")" || { err "Not a PR URL: $t"; return 2; }
-      read -r key repo id <<<"$parts"
-      api GET "/rest/api/1.0/projects/$key/repos/$repo/pull-requests/$id"
-      [[ "$LAST_CODE" == 200 ]] || { err "Fetch failed ($LAST_CODE): $t"; return 1; }
-      prs+=("$API_BODY")
+      parse_pr_url "$t" >/dev/null || { err "Not a PR URL: $t"; return 2; }
     done
+    while IFS= read -r page; do prs+=("$page"); done < <(par_each __fetch "${BBAPPROVE_TARGETS[@]}")
+    (( ${#prs[@]} == ${#BBAPPROVE_TARGETS[@]} )) || return 1
   else
     while :; do
-      api GET "/rest/api/1.0/dashboard/pull-requests?role=REVIEWER&state=OPEN&limit=100&start=$start"
+      api GET "/rest/api/1.0/dashboard/pull-requests?role=REVIEWER&state=OPEN&limit=100&start=$start" || true
       [[ "$LAST_CODE" == 200 ]] || { err "Dashboard fetch failed ($LAST_CODE)"; return 1; }
       while IFS= read -r page; do prs+=("$page"); done < <(jq -c '.values[]' <<<"$API_BODY")
       last="$(jq -r '.isLastPage' <<<"$API_BODY")"
@@ -224,7 +270,11 @@ main() {
 
   local pr
   if (( BBAPPROVE_INTERACTIVE )); then interactive_run ${prs[@]+"${prs[@]}"}; return; fi
-  for pr in ${prs[@]+"${prs[@]}"}; do process_pr "$pr"; done
+  if (( BBAPPROVE_APPLY )); then
+    par_each __process ${prs[@]+"${prs[@]}"}   # approve/merge calls hit the network: run in parallel
+  else
+    for pr in ${prs[@]+"${prs[@]}"}; do process_pr "$pr"; done   # dry run is local only: keep input order
+  fi
   (( BBAPPROVE_APPLY )) || log "Dry run — pass --apply to approve and merge."
 }
 

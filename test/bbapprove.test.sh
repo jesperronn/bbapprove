@@ -39,11 +39,13 @@ if [[ "$url" == *whoami* ]]; then printf 'me\n200'
 elif [[ "$url" == *dashboard/pull-requests* ]]; then printf '{"isLastPage":true,"values":%s}\n200' "$(cat "$STUB_PRS")"
 elif [[ "$url" == *"/merge"* && -n "${STUB_MERGE_FAIL:-}" ]]; then printf '{"errors":[{"message":"checks failed"}]}\n409'
 elif [[ "$url" == *"/merge"* && -n "${STUB_STALE_FILE:-}" && ! -e "$STUB_STALE_FILE" ]]; then touch "$STUB_STALE_FILE"; printf '{"errors":[{"message":"modify a pull request based on out-of-date information."}]}\n409'
+elif [[ "$url" =~ pull-requests/[0-9]+$ && -n "${STUB_BY_ID:-}" ]]; then printf '%s\n200' "$(jq -c ".[]|select(.id==${url##*/})" "$STUB_PRS")"
 elif [[ "$url" =~ pull-requests/[0-9]+$ ]]; then printf '{"version":7}\n200'
 else printf '{}\n200'; fi
 STUB
   chmod +x "$TEST_TMP/bin/curl"
-  export BBAPPROVE_RETRY_SLEEP=0 STUB_LOG="$TEST_TMP/curl.log" STUB_PRS="$TEST_TMP/prs.json" BBAPPROVE_TOKEN=t
+  printf '# comment\n\nsome-library\n  Another-Library  \n' >"$TEST_TMP/disallow.txt"
+  export BBAPPROVE_DISALLOW_FILE="$TEST_TMP/disallow.txt" BBAPPROVE_RETRY_SLEEP=0 STUB_LOG="$TEST_TMP/curl.log" STUB_PRS="$TEST_TMP/prs.json" BBAPPROVE_TOKEN=t
   : >"$STUB_LOG"
 }
 
@@ -121,6 +123,45 @@ test_custom_disallow() {
   setup_stub
   local out; out="$(run_script --disallow some-library,jsoup)"
   assert_contains "$out" "disallowed dependency 'jsoup'" "custom disallow honored"
+  cleanup_test_tmp; TEST_TMP=""
+}
+
+test_disallow_file_ignores_comments_and_matches_another-library() {
+  setup_stub
+  printf '%s' "[$(pr_json 7 "$BOT" 'chore(deps): update dependency org.another-library:another-library-core to v26.0.1' renovate/kc),$(pr_json 8 "$BOT" 'chore(deps): update dependency comment to v1.0.1' renovate/c)]" >"$STUB_PRS"
+  local out; out="$(run_script)"
+  assert_contains "$out" "#7 chore(deps): update dependency org.another-library:another-library-core to v26.0.1 — disallowed dependency 'another-library'" "another-library from file disallowed"
+  assert_contains "$out" "ELIGIBLE PROJ/repo#8" "'# comment' line is not a disallow entry"
+  cleanup_test_tmp; TEST_TMP=""
+}
+
+test_curl_has_timeouts() {
+  setup_stub
+  run_script >/dev/null
+  assert_contains "$(head -n1 "$STUB_LOG")" "--connect-timeout 2.7 --max-time 3.5" "default timeouts passed to curl"
+  : >"$STUB_LOG"
+  BBAPPROVE_CONNECT_TIMEOUT=1 BBAPPROVE_MAX_TIME=2 run_script >/dev/null
+  assert_contains "$(head -n1 "$STUB_LOG")" "--connect-timeout 1 --max-time 2" "timeouts configurable"
+  cleanup_test_tmp; TEST_TMP=""
+}
+
+test_curl_failure_reported_not_fatal_crash() {
+  setup_stub
+  printf '#!/usr/bin/env bash\necho "curl: (28) timed out" >&2; exit 28\n' >"$TEST_TMP/bin/curl"
+  local out rc=0; out="$(run_script)" || rc=$?
+  assert_contains "$out" "Dashboard fetch failed (000)" "timeout surfaces as failed fetch"
+  assert_eq "$rc" "1" "exit status 1"
+  cleanup_test_tmp; TEST_TMP=""
+}
+
+test_pr_url_targets_fetched_via_xargs() {
+  setup_stub
+  local out; out="$(STUB_BY_ID=1 BBAPPROVE_JOBS=4 run_script "https://x/projects/PROJ/repos/repo/pull-requests/1" "https://x/projects/PROJ/repos/repo/pull-requests/2")"
+  assert_contains "$out" "ELIGIBLE PROJ/repo#1" "target 1 fetched and classified"
+  assert_contains "$out" "disallowed dependency 'some-library'" "target 2 fetched and classified"
+  out="$(STUB_BY_ID=1 BBAPPROVE_JOBS=4 run_script --apply "https://x/projects/PROJ/repos/repo/pull-requests/1" "https://x/projects/PROJ/repos/repo/pull-requests/6")"
+  assert_contains "$out" "MERGED   PROJ/repo#1" "parallel apply merges #1"
+  assert_contains "$out" "MERGED   PROJ/repo#6" "parallel apply merges #6"
   cleanup_test_tmp; TEST_TMP=""
 }
 

@@ -45,8 +45,18 @@ type row struct {
 type mode int
 
 const (
-	modeList mode = iota
-	modeConfirm
+	modeList           mode = iota
+	modeConfirm             // approve+merge confirm (y/N)
+	modeConfirmDecline      // decline confirm (y/N)
+	modeInput               // single-line text prompt (decline comment or comment-only)
+)
+
+// inputKind says what the active text prompt will do on Enter.
+type inputKind int
+
+const (
+	inputDecline inputKind = iota
+	inputComment
 )
 
 type loadedMsg struct {
@@ -59,22 +69,38 @@ type doneMsg struct {
 	err error
 }
 
+type declineDoneMsg struct {
+	idx int
+	err error
+}
+
+type commentDoneMsg struct {
+	idx int
+	err error
+}
+
 // Model is the Bubble Tea model. It is a plain tea.Model: no TTY is needed to drive it.
 type Model struct {
-	cfg           Config
-	sem           chan struct{}
-	rows          []row
-	ignored       []string
-	loading       bool
-	loadErr       error
-	cursor, top   int
-	marks         map[int]bool
-	showIgnored   bool
-	showHelp      bool
-	mode          mode
-	pending       []int
-	msg           string
-	width, height int
+	cfg         Config
+	sem         chan struct{}
+	rows        []row
+	ignored     []string
+	loading     bool
+	loadErr     error
+	cursor, top int
+	marks       map[int]bool
+	showIgnored bool
+	showHelp    bool
+	mode        mode
+	pending     []int
+	input       []rune
+	inputKind   inputKind
+	// Comment-only results are not stored on the rows (a comment must not change a PR's status word);
+	// they are summarised in the status bar once every outstanding comment finished.
+	cmtOutstanding, cmtOK int
+	cmtFails              []string
+	msg                   string
+	width, height         int
 }
 
 // New builds the model.
@@ -182,10 +208,14 @@ func (m *Model) helpLines() []string {
 		return []string{
 			"↑/↓ j/k move   x/space mark   X mark all eligible   u/ctrl+d clear marks",
 			"a approve+merge (marked, else current)   i ignore/un-ignore dependency",
+			"d decline (confirm, then optional comment)   c comment (marked, else current)",
 			". show/hide ignored   o open in browser   ? less help   q quit",
 		}
 	}
-	return []string{"↑↓ move  x mark  X all  u clear  a approve+merge  i ignore  . ignored  o open  ? help  q quit"}
+	return []string{
+		"↑↓ move  x mark  X all  u clear  a approve+merge  d decline  c comment",
+		"i ignore  . ignored  o open  ? help  q quit",
+	}
 }
 
 func (m *Model) bodyHeight() int {
@@ -221,6 +251,27 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			r.result, r.resCode, r.resMsg = "FAIL", cRed, oneLine(msg.err.Error())
 		}
 		m.clamp()
+	case declineDoneMsg:
+		r := &m.rows[msg.idx]
+		if msg.err == nil {
+			r.result, r.resCode, r.resMsg = "DECLINED", cRed, ""
+		} else {
+			r.result, r.resCode, r.resMsg = "FAIL", cRed, oneLine(msg.err.Error())
+		}
+		m.clamp()
+	case commentDoneMsg:
+		if msg.err == nil {
+			m.cmtOK++
+		} else {
+			m.cmtFails = append(m.cmtFails, m.ref(msg.idx)+": "+oneLine(msg.err.Error()))
+		}
+		if m.cmtOutstanding--; m.cmtOutstanding <= 0 {
+			m.msg = fmt.Sprintf("COMMENTED on %d PR(s)", m.cmtOK)
+			if len(m.cmtFails) > 0 {
+				m.msg += fmt.Sprintf(", FAIL %d: %s", len(m.cmtFails), strings.Join(m.cmtFails, "; "))
+			}
+			m.cmtOutstanding, m.cmtOK, m.cmtFails = 0, 0, nil
+		}
 	case tea.KeyMsg:
 		return m.key(msg)
 	}
@@ -234,9 +285,17 @@ func (m *Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if s == "ctrl+c" {
 		return m, tea.Quit
 	}
-	if m.mode == modeConfirm {
+	switch m.mode {
+	case modeInput:
+		return m.inputKey(k)
+	case modeConfirm, modeConfirmDecline:
+		decline := m.mode == modeConfirmDecline
 		m.mode = modeList
 		if s == "y" || s == "Y" {
+			if decline {
+				m.startInput(inputDecline)
+				return m, nil
+			}
 			return m, m.runPending()
 		}
 		m.pending = nil
@@ -266,15 +325,20 @@ func (m *Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "X":
 		for i := range m.rows {
+			// eligible() is false for IGNORED rows, so hidden/ignored rows are never marked.
 			if m.eligible(i) {
 				m.marks[i] = true
 			}
 		}
-		m.msg = fmt.Sprintf("%d marked", len(m.marks))
+		m.msg = fmt.Sprintf("%d marked", m.markedVisible())
 	case "ctrl+d", "u":
 		m.marks = map[int]bool{}
 	case "a":
 		m.askApprove()
+	case "d":
+		m.askDecline()
+	case "c":
+		m.askComment()
 	case "i":
 		m.toggleIgnore()
 	case ".":
@@ -289,10 +353,161 @@ func (m *Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "?":
 		m.showHelp = !m.showHelp
-		// TODO(decline/comment): hook for `d` (decline PR) and `c` (comment) -- intentionally unbound for now.
 	}
+	m.pruneMarks()
 	m.clamp()
 	return m, nil
+}
+
+// pruneMarks drops marks on rows that are not visible (rows that just became hidden IGNORED rows).
+func (m *Model) pruneMarks() {
+	vis := map[int]bool{}
+	for _, i := range m.visible() {
+		vis[i] = true
+	}
+	for i := range m.marks {
+		if !vis[i] {
+			delete(m.marks, i)
+		}
+	}
+}
+
+// markedVisible counts marked rows that are currently shown.
+func (m *Model) markedVisible() int {
+	n := 0
+	for _, i := range m.visible() {
+		if m.marks[i] {
+			n++
+		}
+	}
+	return n
+}
+
+func (m *Model) ref(i int) string {
+	pr := m.rows[i].pr
+	return fmt.Sprintf("%s/%s#%d", pr.Project, pr.Repo, pr.Number)
+}
+
+// anyStatusTargets returns the marked visible rows (any status), else the current row. Rows with an
+// action in flight are skipped.
+func (m *Model) anyStatusTargets() []int {
+	var t []int
+	for _, i := range m.visible() {
+		if m.marks[i] && m.rows[i].result != "WORKING" {
+			t = append(t, i)
+		}
+	}
+	if len(t) > 0 {
+		return t
+	}
+	if m.markedVisible() > 0 {
+		return nil
+	}
+	if i, ok := m.current(); ok && m.rows[i].result != "WORKING" {
+		return []int{i}
+	}
+	return nil
+}
+
+func (m *Model) askDecline() {
+	t := m.anyStatusTargets()
+	if len(t) == 0 {
+		m.msg = "nothing to decline"
+		return
+	}
+	m.pending, m.mode = t, modeConfirmDecline
+}
+
+func (m *Model) askComment() {
+	t := m.anyStatusTargets()
+	if len(t) == 0 {
+		m.msg = "nothing to comment on"
+		return
+	}
+	m.pending = t
+	m.startInput(inputComment)
+}
+
+func (m *Model) startInput(k inputKind) {
+	m.mode, m.inputKind, m.input = modeInput, k, nil
+}
+
+func (m *Model) inputPrompt() string {
+	if m.inputKind == inputDecline {
+		return "comment (enter = none, esc = cancel): "
+	}
+	return fmt.Sprintf("comment on %d PR(s) (enter = send, esc = cancel): ", len(m.pending))
+}
+
+// inputKey is the minimal single-line editor: printable runes, backspace, ctrl+u, enter, esc.
+// Every key is consumed here so no list action can fire while a prompt is active.
+func (m *Model) inputKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch k.Type {
+	case tea.KeyEsc:
+		m.mode, m.pending, m.input = modeList, nil, nil
+		m.msg = "cancelled"
+	case tea.KeyEnter:
+		text := strings.TrimSpace(string(m.input))
+		m.mode, m.input = modeList, nil
+		if m.inputKind == inputComment {
+			if text == "" {
+				m.pending = nil
+				m.msg = "refused: empty comment"
+				return m, nil
+			}
+			return m, m.runComment(text)
+		}
+		return m, m.runDecline(text)
+	case tea.KeyBackspace:
+		if n := len(m.input); n > 0 {
+			m.input = m.input[:n-1]
+		}
+	case tea.KeyCtrlU:
+		m.input = nil
+	case tea.KeySpace:
+		m.input = append(m.input, ' ')
+	case tea.KeyRunes:
+		for _, r := range k.Runes {
+			if r >= ' ' && r != 0x7f {
+				m.input = append(m.input, r)
+			}
+		}
+	}
+	return m, nil
+}
+
+func (m *Model) runDecline(comment string) tea.Cmd {
+	cmds := make([]tea.Cmd, 0, len(m.pending))
+	for _, i := range m.pending {
+		i, pr := i, m.rows[i].pr
+		m.rows[i].result, m.rows[i].resCode, m.rows[i].resMsg = "WORKING", cYellow, ""
+		delete(m.marks, i)
+		cmds = append(cmds, func() tea.Msg {
+			m.sem <- struct{}{}
+			defer func() { <-m.sem }()
+			return declineDoneMsg{i, m.cfg.Backend.Decline(m.cfg.Ctx, pr, comment)}
+		})
+	}
+	m.msg = fmt.Sprintf("declining %d PR(s)…", len(m.pending))
+	m.pending = nil
+	return tea.Batch(cmds...)
+}
+
+func (m *Model) runComment(body string) tea.Cmd {
+	cmds := make([]tea.Cmd, 0, len(m.pending))
+	for _, i := range m.pending {
+		i, pr := i, m.rows[i].pr
+		delete(m.marks, i) // avoid double-sending; the row's status word is left untouched
+		m.cmtOutstanding++
+		cmds = append(cmds, func() tea.Msg {
+			m.sem <- struct{}{}
+			defer func() { <-m.sem }()
+			return commentDoneMsg{i, m.cfg.Backend.Comment(m.cfg.Ctx, pr, body)}
+		})
+	}
+	m.msg = fmt.Sprintf("commenting on %d PR(s)…", len(m.pending))
+	m.pending = nil
+	return tea.Batch(cmds...)
 }
 
 func (m *Model) askApprove() {
@@ -398,6 +613,23 @@ func (m *Model) renderRow(idx int, selected bool) string {
 	return m.fit(cur + mark + line)
 }
 
+// visibleInput returns the tail of the input that fits next to the prompt so the cursor stays visible.
+func (m *Model) visibleInput(prompt string) string {
+	in := string(m.input)
+	if m.width <= 0 {
+		return in
+	}
+	room := m.width - ansi.StringWidth(prompt) - 1
+	if room < 1 {
+		room = 1
+	}
+	r := []rune(in)
+	for len(r) > 0 && ansi.StringWidth(string(r)) > room {
+		r = r[1:]
+	}
+	return string(r)
+}
+
 // View renders the whole screen.
 func (m *Model) View() string {
 	var b strings.Builder
@@ -422,15 +654,25 @@ func (m *Model) View() string {
 		b.WriteString("\n")
 	}
 	status := m.msg
-	if m.mode == modeConfirm {
+	switch m.mode {
+	case modeConfirm:
 		status = fmt.Sprintf("approve+merge %d PR(s)? y/N", len(m.pending))
+	case modeConfirmDecline:
+		status = fmt.Sprintf("decline %d PR(s)? y/N", len(m.pending))
+	case modeInput:
+		status = m.inputPrompt() + m.visibleInput(m.inputPrompt()) + "█"
 	}
 	if status == "" {
-		status = fmt.Sprintf("%d PRs, %d marked", len(v), len(m.marks))
+		status = fmt.Sprintf("%d PRs, %d marked", len(v), m.markedVisible())
 	}
 	b.WriteString(m.fit(cBold+status+cReset) + "\n")
-	for _, l := range m.helpLines() {
-		b.WriteString(m.fit(cDim+l+cReset) + "\n")
+	// No trailing newline: a View of exactly m.height lines plus "\n" would make Bubble Tea
+	// drop the first line (the header) in the alt screen.
+	for n, l := range m.helpLines() {
+		if n > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString(m.fit(cDim + l + cReset))
 	}
 	return b.String()
 }

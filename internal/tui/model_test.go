@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -25,6 +27,24 @@ type fakeBackend struct {
 	inflight int32
 	maxSeen  int32
 	errs     map[string]error
+	declined []call // Decline calls: url + comment
+	comments []call // Comment calls: url + body
+}
+
+type call struct{ url, text string }
+
+func (f *fakeBackend) Comment(_ context.Context, pr adapter.PR, body string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.comments = append(f.comments, call{pr.URL, body})
+	return f.errs[pr.URL]
+}
+
+func (f *fakeBackend) Decline(_ context.Context, pr adapter.PR, comment string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.declined = append(f.declined, call{pr.URL, comment})
+	return f.errs[pr.URL]
 }
 
 func (f *fakeBackend) List(context.Context) ([]adapter.PR, error) { return f.prs, nil }
@@ -83,6 +103,12 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyCtrlD}
 	case "ctrl+c":
 		return tea.KeyMsg{Type: tea.KeyCtrlC}
+	case "enter":
+		return tea.KeyMsg{Type: tea.KeyEnter}
+	case "backspace":
+		return tea.KeyMsg{Type: tea.KeyBackspace}
+	case "ctrl+u":
+		return tea.KeyMsg{Type: tea.KeyCtrlU}
 	}
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
 }
@@ -160,8 +186,7 @@ func TestNavigationBounds(t *testing.T) {
 
 func TestScrollSmallViewport(t *testing.T) {
 	m, _, _, _ := fixture(t)
-	m.Update(tea.WindowSizeMsg{Width: 100, Height: 6}) // header+status+help = 3 -> body 3... help 1 line
-	m.Update(tea.WindowSizeMsg{Width: 100, Height: 5})
+	m.Update(tea.WindowSizeMsg{Width: 100, Height: 6}) // header+status+2 help lines = 4 -> body 2
 	if m.bodyHeight() != 2 {
 		t.Fatalf("body %d", m.bodyHeight())
 	}
@@ -362,5 +387,212 @@ func TestLoadError(t *testing.T) {
 	m.Update(loadedMsg{err: errors.New("nope")})
 	if !strings.Contains(m.View(), "error: nope") {
 		t.Fatal(m.View())
+	}
+}
+
+// typeText sends each rune of s as its own key (spaces as KeySpace), like a real terminal.
+func typeText(m *Model, s string) {
+	for _, r := range s {
+		if r == ' ' {
+			send(m, "space")
+		} else {
+			send(m, string(r))
+		}
+	}
+}
+
+func TestDeclineFlow(t *testing.T) {
+	tests := []struct {
+		name    string
+		keys    []string // before typing
+		text    string
+		after   []string
+		want    []call
+		wantMsg string
+	}{
+		{"marked rows incl SKIP with comment", []string{"x", "j", "j", "x", "d", "y"}, "no longer needed", []string{"enter"},
+			[]call{{"https://bb/pr/1", "no longer needed"}, {"https://bb/pr/3", "no longer needed"}}, ""},
+		{"empty comment passes empty string", []string{"x", "d", "y"}, "", []string{"enter"},
+			[]call{{"https://bb/pr/1", ""}}, ""},
+		{"current row when nothing marked", []string{"j", "j", "d", "y"}, "x", []string{"enter"},
+			[]call{{"https://bb/pr/3", "x"}}, ""},
+		{"esc at comment prompt", []string{"x", "d", "y"}, "abc", []string{"esc"}, nil, "cancelled"},
+		{"esc at confirm", []string{"x", "d", "esc"}, "", nil, nil, "cancelled"},
+		{"n at confirm", []string{"x", "d", "n"}, "", nil, nil, "cancelled"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m, fb, _, _ := fixture(t)
+			send(m, tc.keys...)
+			typeText(m, tc.text)
+			c := send(m, tc.after...)
+			drain(m, c)
+			if m.mode != modeList {
+				t.Fatalf("mode %v", m.mode)
+			}
+			sort.Slice(fb.declined, func(i, j int) bool { return fb.declined[i].url < fb.declined[j].url })
+			if !reflect.DeepEqual(fb.declined, tc.want) {
+				t.Fatalf("declined %v want %v", fb.declined, tc.want)
+			}
+			if tc.wantMsg != "" && m.msg != tc.wantMsg {
+				t.Fatalf("msg %q want %q", m.msg, tc.wantMsg)
+			}
+			if len(fb.comments) != 0 || len(fb.called) != 0 {
+				t.Fatal("unexpected other backend calls")
+			}
+		})
+	}
+}
+
+func TestDeclinePromptsAndStatuses(t *testing.T) {
+	m, fb, _, _ := fixture(t)
+	fb.errs["https://bb/pr/2"] = errors.New("403\nforbidden")
+	send(m, "x", "j", "x", "d")
+	if !strings.Contains(plain(m.View()), "decline 2 PR(s)? y/N") {
+		t.Fatalf("confirm prompt:\n%s", m.View())
+	}
+	send(m, "y")
+	if !strings.Contains(plain(m.View()), "comment (enter = none, esc = cancel): █") {
+		t.Fatalf("comment prompt:\n%s", m.View())
+	}
+	c := send(m, "enter")
+	drain(m, c)
+	m.Update(tea.WindowSizeMsg{Width: 200, Height: 20})
+	lines := strings.Split(plain(m.View()), "\n")
+	if !strings.Contains(lines[1], "DECLINED") || !strings.Contains(lines[2], "FAIL") || !strings.Contains(lines[2], "403 forbidden") {
+		t.Fatalf("statuses:\n%s", strings.Join(lines, "\n"))
+	}
+	if len(m.marks) != 0 {
+		t.Fatal("marks should be cleared")
+	}
+	if fb.maxSeen > 2 {
+		t.Fatal("concurrency")
+	}
+}
+
+func TestCommentFlow(t *testing.T) {
+	m, fb, _, _ := fixture(t)
+	fb.errs["https://bb/pr/3"] = errors.New("nope")
+	send(m, "x", "j", "j", "x", "c")
+	if !strings.Contains(plain(m.View()), "comment on 2 PR(s) (enter = send, esc = cancel): █") {
+		t.Fatalf("prompt:\n%s", m.View())
+	}
+	typeText(m, "hi there")
+	before := plain(m.View())
+	drain(m, send(m, "enter"))
+	sort.Slice(fb.comments, func(i, j int) bool { return fb.comments[i].url < fb.comments[j].url })
+	want := []call{{"https://bb/pr/1", "hi there"}, {"https://bb/pr/3", "hi there"}}
+	if !reflect.DeepEqual(fb.comments, want) {
+		t.Fatalf("comments %v", fb.comments)
+	}
+	if !strings.Contains(before, "hi there█") {
+		t.Fatalf("input not shown:\n%s", before)
+	}
+	if !strings.Contains(m.msg, "COMMENTED on 1") || !strings.Contains(m.msg, "FAIL 1") || !strings.Contains(m.msg, "nope") {
+		t.Fatalf("msg %q", m.msg)
+	}
+	// Row state untouched: row 1 is still ELIGIBLE, row 3 still SKIP, no declines.
+	out := plain(m.View())
+	if strings.Contains(out, "FAIL") && !strings.Contains(m.msg, "FAIL") || !strings.Contains(out, "ELIGIBLE") || len(fb.declined) != 0 {
+		t.Fatalf("state changed:\n%s", out)
+	}
+	if m.rows[0].result != "" || m.rows[2].result != "" {
+		t.Fatal("comment must not set row results")
+	}
+}
+
+func TestCommentRefusesEmptyAndEsc(t *testing.T) {
+	m, fb, _, _ := fixture(t)
+	drain(m, send(m, "c", "space", "space", "enter"))
+	if !strings.Contains(m.msg, "empty comment") || m.mode != modeList || len(fb.comments) != 0 {
+		t.Fatalf("msg=%q mode=%v calls=%v", m.msg, m.mode, fb.comments)
+	}
+	send(m, "c")
+	typeText(m, "abc")
+	drain(m, send(m, "esc"))
+	if len(fb.comments) != 0 || m.mode != modeList {
+		t.Fatal("esc must cancel")
+	}
+}
+
+func TestPromptSwallowsActionKeys(t *testing.T) {
+	for _, kind := range []string{"c", "d"} {
+		m, fb, _, ign := fixture(t)
+		send(m, kind)
+		if kind == "d" {
+			send(m, "y")
+		}
+		typeText(m, "aiq x.o?jX")
+		if m.mode != modeInput || string(m.input) != "aiq x.o?jX" {
+			t.Fatalf("%s: mode=%v input=%q", kind, m.mode, string(m.input))
+		}
+		send(m, "backspace", "backspace")
+		if string(m.input) != "aiq x.o?" {
+			t.Fatalf("backspace: %q", string(m.input))
+		}
+		send(m, "ctrl+u")
+		if len(m.input) != 0 {
+			t.Fatal("ctrl+u should clear")
+		}
+		if len(fb.called)+len(fb.declined)+len(fb.comments) != 0 || len(m.marks) != 0 || m.cursor != 0 || m.showIgnored {
+			t.Fatalf("%s: a list action fired", kind)
+		}
+		if _, err := os.Stat(ign); err == nil {
+			t.Fatalf("%s: i wrote the ignore file", kind)
+		}
+	}
+}
+
+func TestHeaderAndWidthBound(t *testing.T) {
+	m, _, _, _ := fixture(t)
+	first := strings.Split(plain(m.View()), "\n")[0]
+	if !strings.HasPrefix(first, "  STATUS") || !strings.Contains(first, "TITLE") {
+		t.Fatalf("header missing: %q", first)
+	}
+	m.rows[0].pr.Title += strings.Repeat(" long", 40)
+	send(m, "d", "y")
+	typeText(m, strings.Repeat("comment ", 30))
+	for _, w := range []int{20, 40, 100} {
+		m.Update(tea.WindowSizeMsg{Width: w, Height: 12})
+		if strings.HasSuffix(m.View(), "\n") {
+			t.Fatal("View must not end with a newline")
+		}
+		lines := strings.Split(m.View(), "\n")
+		if len(lines) > 12 {
+			t.Fatalf("w=%d: %d lines > height", w, len(lines))
+		}
+		for _, l := range lines {
+			if ansi.StringWidth(l) > w {
+				t.Fatalf("w=%d: too wide: %q", w, plain(l))
+			}
+		}
+	}
+	if !strings.Contains(plain(m.View()), "█") {
+		t.Fatal("cursor must stay visible on a long input")
+	}
+}
+
+func TestIgnoreUnmarksAndCounter(t *testing.T) {
+	m, _, _, _ := fixture(t)
+	send(m, "X")
+	if len(m.marks) != 3 {
+		t.Fatalf("marks %v", m.marks)
+	}
+	send(m, "i") // ignore npm: rows 1 and 4 become hidden IGNORED
+	if m.marks[0] || m.marks[3] || len(m.marks) != 1 {
+		t.Fatalf("hidden rows must be un-marked: %v", m.marks)
+	}
+	send(m, "u")
+	if !strings.Contains(plain(m.View()), "3 PRs, 0 marked") && !strings.Contains(plain(m.View()), "2 PRs, 0 marked") {
+		t.Fatalf("view:\n%s", m.View())
+	}
+	send(m, "X")
+	if m.marks[0] || m.marks[3] || len(m.marks) != 1 || m.msg != "1 marked" {
+		t.Fatalf("X must skip ignored rows: %v %q", m.marks, m.msg)
+	}
+	// decline targets never include hidden IGNORED rows
+	m.marks[0] = true // simulate a stale mark
+	if got := m.anyStatusTargets(); len(got) != 1 || got[0] != 1 {
+		t.Fatalf("targets %v", got)
 	}
 }

@@ -135,3 +135,20 @@ func (c *Client) Merge(ctx context.Context, url string) error {
 	_, err := c.runFor(ctx, MergeTimeout, "pr", "merge", url)
 	return err
 }
+
+// Comment runs `pr comment URL --body TEXT`. The body is passed as a single argv entry (no shell).
+func (c *Client) Comment(ctx context.Context, url, body string) error {
+	_, err := c.run(ctx, "pr", "comment", url, "--body", body)
+	return err
+}
+
+// Close runs `pr close URL [--comment TEXT]` (Bitbucket decline). An empty comment omits --comment.
+// With a comment the adapter posts it first and aborts the decline when that fails.
+func (c *Client) Close(ctx context.Context, url, comment string) error {
+	args := []string{"pr", "close", url}
+	if comment != "" {
+		args = append(args, "--comment", comment)
+	}
+	_, err := c.run(ctx, args...)
+	return err
+}

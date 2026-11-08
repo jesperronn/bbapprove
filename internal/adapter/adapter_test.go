@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -137,4 +138,70 @@ func TestMergeRunsPRMerge(t *testing.T) {
 func withAuthor(p PR, email, login string) PR {
 	p.Author.Email, p.Author.Login = email, login
 	return p
+}
+
+// argvAdapter logs each argv entry on its own line, NUL-free, followed by a "--" separator, to log.
+func argvAdapter(t *testing.T, exit int, stderr string) (path, log string) {
+	t.Helper()
+	log = filepath.Join(t.TempDir(), "argv.log")
+	body := `for a in "$@"; do printf '%s\n' "$a" >> "` + log + `"; done; printf -- '--\n' >> "` + log + `"`
+	if stderr != "" {
+		body += "; echo '" + stderr + "' >&2"
+	}
+	body += "; exit " + strconv.Itoa(exit)
+	return fakeAdapter(t, body), log
+}
+
+func TestCommentAndCloseArgv(t *testing.T) {
+	const url = "https://bb/pr/9"
+	tests := []struct {
+		name string
+		call func(c *Client) error
+		want []string
+	}{
+		{"comment simple", func(c *Client) error { return c.Comment(context.Background(), url, "hello") },
+			[]string{"pr", "comment", url, "--body", "hello"}},
+		{"comment special chars", func(c *Client) error {
+			return c.Comment(context.Background(), url, `a "b" $HOME 'c' ; rm -rf * --flag`)
+		},
+			[]string{"pr", "comment", url, "--body", `a "b" $HOME 'c' ; rm -rf * --flag`}},
+		{"comment newline", func(c *Client) error { return c.Comment(context.Background(), url, "line1\nline2") },
+			[]string{"pr", "comment", url, "--body", "line1", "line2"}}, // log is line-based; newline splits entries
+		{"close no comment", func(c *Client) error { return c.Close(context.Background(), url, "") },
+			[]string{"pr", "close", url}},
+		{"close with comment", func(c *Client) error { return c.Close(context.Background(), url, "superseded by #10; $x") },
+			[]string{"pr", "close", url, "--comment", "superseded by #10; $x"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ad, log := argvAdapter(t, 0, "")
+			if err := tc.call(newClient(ad)); err != nil {
+				t.Fatal(err)
+			}
+			b, _ := os.ReadFile(log)
+			got := strings.Split(strings.TrimSuffix(string(b), "--\n"), "\n")
+			got = got[:len(got)-1]
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("argv = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCommentNewlineIsOneArg(t *testing.T) {
+	ad := fakeAdapter(t, `[ "$#" = 5 ] && [ "$5" = "$(printf 'x\ny')" ] || { echo "argc=$#" >&2; exit 4; }`)
+	if err := newClient(ad).Comment(context.Background(), "u", "x\ny"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCommentCloseStderrPropagation(t *testing.T) {
+	ad, _ := argvAdapter(t, 5, "comment rejected: 403")
+	c := newClient(ad)
+	if err := c.Comment(context.Background(), "u", "b"); err == nil || !strings.Contains(err.Error(), "comment rejected: 403") {
+		t.Fatalf("Comment err = %v", err)
+	}
+	if err := c.Close(context.Background(), "u", "b"); err == nil || !strings.Contains(err.Error(), "comment rejected: 403") {
+		t.Fatalf("Close err = %v", err)
+	}
 }

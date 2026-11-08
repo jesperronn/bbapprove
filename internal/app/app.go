@@ -42,7 +42,8 @@ Usage: bbapprove [--apply] [--disallow a,b] [--token T] [PR_URL...]
 
 With no PR_URL, every open PR where you are a reviewer is considered.
 Without --apply nothing is changed; eligibility is only reported.
--i (interactive) is not implemented yet in the Go port.
+-i opens an interactive TUI: x/space mark, X mark all eligible, a approve+merge, d decline,
+c comment, i ignore dependency, . show ignored, o open, ? help, q quit.
 
 A PR is eligible when ALL hold:
   - author email is BBAPPROVE_AUTHOR_EMAIL (default renovate-bot@example.com)

@@ -5,26 +5,6 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-### Changed
-- **BREAKING:** the built-in site defaults are gone. `repository` (the forge URL) and `author_email` must now be
-  configured, and the tracked `disallow.txt` was removed. Migrate: `cp bbapprove.config.template bbapprove.config.toml`,
-  fill in `repository`, `user_token_name`, `author_email` and `disallow`, then check with `bbapprove --print-config`.
-- The bash adapter no longer has a default `BBAPPROVE_BASE_URL` (it exits 2 when unset) and takes the
-  1Password item from `BBAPPROVE_TOKEN_NAME` (default `BITBUCKET_TOKEN`).
-- Release archives ship `bbapprove.config.template` instead of `disallow.txt`.
-
-### Added
-- TOML config file (`bbapprove.config.toml`, git-ignored; template `bbapprove.config.template`) with `type`,
-  `repository`, `user_token_name`, `author_email` and `disallow`. Looked up via `--config` / `BBAPPROVE_CONFIG`, the
-  repo root, then `$XDG_CONFIG_HOME/bbapprove/config.toml`. Precedence: command line > environment > file > default.
-  Unknown keys warn, malformed TOML names file and line.
-- `--config FILE`, `--token-name NAME`, `--print-config` (effective settings and their sources, no secrets) and the
-  env vars `BBAPPROVE_CONFIG`, `BBAPPROVE_REPOSITORY`, `BBAPPROVE_TOKEN_NAME`.
-- GitHub Actions CI (`bin/lint` and `bin/runtests` on Linux and macOS), a tag-driven release workflow
-  (cross-built `.tar.gz` archives for darwin and linux on arm64/amd64, `SHA256SUMS`, notes from this changelog,
-  pre-release for `-rc` tags) and Dependabot for `gomod` and `github-actions` with `chore(deps):` titles.
-- `bin/release-notes <tag>` prints the matching CHANGELOG.md section.
-
 ## [1.0.0-rc.2] - 2026-11-09
 
 ### Fixed
@@ -52,6 +32,17 @@ All notable changes to this project are documented here. The format follows
 - `r` reloads the list, keeping cursor and marks by PR URL.
 - Mouse support: click to move the cursor, click the mark column to toggle, wheel scroll, hover highlight.
   Disable with `--no-mouse` or `BBAPPROVE_MOUSE=0` (capture disables native text selection; Shift bypasses it).
+- MIT license (`LICENSE`).
+- TOML config file (`bbapprove.config.toml`, git-ignored; template `bbapprove.config.template`) with `type`,
+  `repository`, `user_token_name`, `author_email` and `disallow`. Looked up via `--config` / `BBAPPROVE_CONFIG`, the
+  repo root, then `$XDG_CONFIG_HOME/bbapprove/config.toml`. Precedence: command line > environment > file > default.
+  Unknown keys warn, malformed TOML names file and line.
+- `--config FILE`, `--token-name NAME`, `--print-config` (effective settings and their sources, no secrets) and the
+  env vars `BBAPPROVE_CONFIG`, `BBAPPROVE_REPOSITORY`, `BBAPPROVE_TOKEN_NAME`.
+- GitHub Actions CI (`bin/lint` and `bin/runtests` on Linux and macOS), a tag-driven release workflow
+  (cross-built `.tar.gz` archives for darwin and linux on arm64/amd64, `SHA256SUMS`, notes from this changelog,
+  pre-release for `-rc` tags) and Dependabot for `gomod` and `github-actions` with `chore(deps):` titles.
+- `bin/release-notes <tag>` prints the matching CHANGELOG.md section.
 
 ### Changed
 - Internal: the TUI now uses Bubble Tea v2 (`charm.land/bubbletea/v2`); no behaviour change.
@@ -65,6 +56,12 @@ All notable changes to this project are documented here. The format follows
 - `ctrl+a` replaces `X` for marking all eligible rows.
 - Footer redesigned as two never-wrapping lines: message / prompt / cursor row URL with the dim version
   right-aligned, then compact key hints (as many as fit) after `N PRs, M marked`. `?` opens extended help.
+- **BREAKING:** the built-in site defaults are gone. `repository` (the forge URL) and `author_email` must now be
+  configured, and the tracked `disallow.txt` was removed. Migrate: `cp bbapprove.config.template bbapprove.config.toml`,
+  fill in `repository`, `user_token_name`, `author_email` and `disallow`, then check with `bbapprove --print-config`.
+- The bash adapter no longer has a default `BBAPPROVE_BASE_URL` (it exits 2 when unset) and takes the
+  1Password item from `BBAPPROVE_TOKEN_NAME` (default `BITBUCKET_TOKEN`).
+- Release archives ship `bbapprove.config.template` instead of `disallow.txt`.
 
 ## [1.0.0-rc.1]
 

@@ -173,8 +173,9 @@ test_missing_shellcheck_exits_127() {
   setup_fixture
   local only_go="$TEST_TMP/no-shellcheck"
   mkdir -p "$only_go"
+  make_tool_dir "$only_go"
   cp "$TEST_TMP/stubs/go" "$TEST_TMP/stubs/gofmt" "$only_go/"
-  LINT_PATH="$only_go:/usr/bin:/bin"
+  LINT_PATH="$only_go"
   local found
   found="$(env PATH="$LINT_PATH" bash -c 'command -v shellcheck' || true)"
   assert_eq "" "$found" "fixture PATH has no shellcheck"
@@ -188,8 +189,9 @@ test_missing_go_exits_127_only_when_go_needed() {
   setup_fixture
   local only_sc="$TEST_TMP/no-go"
   mkdir -p "$only_sc"
+  make_tool_dir "$only_sc"
   cp "$TEST_TMP/stubs/shellcheck" "$only_sc/"
-  LINT_PATH="$only_sc:/usr/bin:/bin"
+  LINT_PATH="$only_sc"
   local found
   found="$(env PATH="$LINT_PATH" bash -c 'command -v go' || true)"
   assert_eq "" "$found" "fixture PATH has no go"

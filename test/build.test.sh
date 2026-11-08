@@ -183,7 +183,8 @@ test_test_flag_runs_checks_then_builds() {
 test_missing_go_exits_127() {
   setup_repo
   local out rc
-  run_build out rc PATH="$TEST_TMP/empty:/usr/bin:/bin" -- -o "$TEST_TMP/bb"
+  make_tool_dir "$TEST_TMP/empty"
+  run_build out rc PATH="$TEST_TMP/empty" -- -o "$TEST_TMP/bb"
   assert_eq "$rc" "127" "no go exits 127"
   assert_contains "$out" "bbapprove: needs Go to build (https://go.dev/dl/)" "message names the install URL"
   cleanup_test_tmp; TEST_TMP=""

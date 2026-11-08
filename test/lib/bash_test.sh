@@ -202,3 +202,18 @@ run_tests() {
   bash_test_color_print "${BASH_TEST_C_BOLD}${BASH_TEST_C_GREEN}" \
     "SUMMARY: ${BASH_TEST_CASES} test(s), ${BASH_TEST_ASSERTIONS} assertion(s), ${suite_elapsed}s"
 }
+
+# make_tool_dir DIR [TOOL...]: create DIR holding symlinks to the basic tools our scripts need (bash, env,
+# coreutils, find, ...; resolved with `command -v` at call time, so it works for brew bash on macOS and
+# /usr/bin on Linux alike) plus any extra TOOLs named. Use `PATH=DIR[:stubs]` as the whole PATH to get an
+# environment that reliably lacks everything else (e.g. go, shellcheck), wherever the real ones live.
+make_tool_dir() {
+  local dir="$1" tool path
+  shift
+  mkdir -p "$dir"
+  for tool in bash env dirname basename readlink find sort cat tr mkdir rm uname sed grep head wc mktemp cp chmod ln pwd printf test dd sleep touch "$@"; do
+    path="$(command -v "$tool" 2>/dev/null || true)"
+    [[ "$path" == /* ]] || continue
+    ln -sf "$path" "$dir/$tool"
+  done
+}

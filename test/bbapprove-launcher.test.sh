@@ -90,7 +90,8 @@ test_touched_go_mod_triggers_rebuild() {
 test_missing_go_exits_127() {
   setup_repo
   local out rc
-  run_launcher out rc PATH="$TEST_TMP/empty:/usr/bin:/bin" -- "$REPO/bin/bbapprove" --help
+  make_tool_dir "$TEST_TMP/empty"
+  run_launcher out rc PATH="$TEST_TMP/empty" -- "$REPO/bin/bbapprove" --help
   assert_eq "$rc" "127" "no go on PATH with missing binary exits 127"
   assert_contains "$out" "bbapprove: needs Go to build (https://go.dev/dl/)" "no-go message names the install URL"
   assert_eq "$(wc -l <"$GO_LOG" | tr -d ' ')" "0" "no go build attempted without go"

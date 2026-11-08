@@ -5,6 +5,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.0.0-rc.2] - 2026-11-09
+
 ### Fixed
 - The ignore list now wins over every other skip reason. A PR matching an ignore entry is `IGNORED` even when
   it is a major bump, disallowed, already approved or not a Renovate PR (before, the ignore check came last,
@@ -25,6 +27,11 @@ All notable changes to this project are documented here. The format follows
 - TUI exit summary: on `q` / ctrl+c the actions of the session (merged, not merged, declined, commented,
   failed, ignored, un-ignored) are printed as a table plus a tally, or `No changes made.`; rows still running
   are listed as `WORKING…`. Truncated to the width on a TTY only, honours `NO_COLOR`.
+- Cursor row gets a full-width background (kept across inner colour resets; off with `NO_COLOR`), a bold
+  yellow mark bar, and a fainter hover background.
+- `r` reloads the list, keeping cursor and marks by PR URL.
+- Mouse support: click to move the cursor, click the mark column to toggle, wheel scroll, hover highlight.
+  Disable with `--no-mouse` or `BBAPPROVE_MOUSE=0` (capture disables native text selection; Shift bypasses it).
 
 ### Changed
 - Internal: the TUI now uses Bubble Tea v2 (`charm.land/bubbletea/v2`); no behaviour change.
@@ -38,13 +45,6 @@ All notable changes to this project are documented here. The format follows
 - `ctrl+a` replaces `X` for marking all eligible rows.
 - Footer redesigned as two never-wrapping lines: message / prompt / cursor row URL with the dim version
   right-aligned, then compact key hints (as many as fit) after `N PRs, M marked`. `?` opens extended help.
-
-### Added
-- Cursor row gets a full-width background (kept across inner colour resets; off with `NO_COLOR`), a bold
-  yellow mark bar, and a fainter hover background.
-- `r` reloads the list, keeping cursor and marks by PR URL.
-- Mouse support: click to move the cursor, click the mark column to toggle, wheel scroll, hover highlight.
-  Disable with `--no-mouse` or `BBAPPROVE_MOUSE=0` (capture disables native text selection; Shift bypasses it).
 
 ## [1.0.0-rc.1]
 

@@ -114,10 +114,17 @@ cmd_pr_view() {
   [[ "$LAST_CODE" == 200 ]] || { err "Fetch failed ($LAST_CODE): $1"; return 1; }
   local raw="$API_BODY" comments
   load_stats "$(jq -c '[.fromRef.latestCommit] | map(select(. != null))' <<<"$raw")"
-  # A single-PR GET carries no properties: take the comment count from the activity feed instead.
+  # A single-PR GET carries no properties. A task is a blocker comment: count open tasks from
+  # /blocker-comments and report comments excluding tasks, as the dashboard's commentCount does.
+  local activity tasks_all tasks_open
   api GET "/rest/api/1.0/projects/$key/repos/$repo/pull-requests/$id/activities?limit=100" || true
-  comments="$(jq -r '[.values[]? | select(.action=="COMMENTED")] | length' <<<"$API_BODY" 2>/dev/null || echo 0)"
-  jq -c --argjson c "${comments:-0}" '.properties = ((.properties // {}) + {commentCount: $c})' <<<"$raw" | normalize
+  activity="$(jq -r '[.values[]? | select(.action=="COMMENTED")] | length' <<<"$API_BODY" 2>/dev/null || echo 0)"
+  api GET "/rest/api/1.0/projects/$key/repos/$repo/pull-requests/$id/blocker-comments?limit=100" || true
+  tasks_all="$(jq -r '[.values[]?] | length' <<<"$API_BODY" 2>/dev/null || echo 0)"
+  tasks_open="$(jq -r '[.values[]? | select(.state=="OPEN")] | length' <<<"$API_BODY" 2>/dev/null || echo 0)"
+  comments=$(( ${activity:-0} - ${tasks_all:-0} )); (( comments >= 0 )) || comments=0
+  jq -c --argjson c "$comments" --argjson t "${tasks_open:-0}" \
+    '.properties = ((.properties // {}) + {commentCount: $c, openTaskCount: $t})' <<<"$raw" | normalize
 }
 
 cmd_pr_review() { # URL --approve

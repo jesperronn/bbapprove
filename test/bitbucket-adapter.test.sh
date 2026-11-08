@@ -23,7 +23,8 @@ url="${!#}"
 echo "$*" >>"$STUB_LOG"
 if [[ "$url" == *whoami* ]]; then printf 'me\n200'
 elif [[ "$url" == *build-status*/commits/stats ]]; then printf '{"abc":{"successful":2,"failed":0,"inProgress":0}}\n200'
-elif [[ "$url" == *"/activities"* ]]; then printf '{"values":[{"action":"COMMENTED"},{"action":"COMMENTED"},{"action":"OPENED"}]}\n200'
+elif [[ "$url" == *"/activities"* ]]; then printf '{"values":[{"action":"COMMENTED"},{"action":"COMMENTED"},{"action":"COMMENTED"},{"action":"OPENED"}]}\n200'
+elif [[ "$url" == *"/blocker-comments"* ]]; then printf '{"values":[{"state":"OPEN"},{"state":"RESOLVED"}]}\n200'
 elif [[ "$url" == *dashboard/pull-requests* ]]; then printf '{"isLastPage":true,"values":[%s]}\n200' "$STUB_RAW"
 elif [[ "$url" == *"/merge"* && -n "${STUB_STALE_FILE:-}" && ! -e "$STUB_STALE_FILE" ]]; then touch "$STUB_STALE_FILE"; printf '{"errors":[{"message":"out-of-date"}]}\n409'
 elif [[ "$url" == *"/merge"* && -n "${STUB_MERGE_FAIL:-}" ]]; then printf '{"errors":[{"message":"checks failed"}]}\n409'
@@ -47,7 +48,8 @@ test_pr_view_normalizes() {
   assert_eq "$(jq -r '.headBranch' <<<"$out")" "renovate/x" "head branch"
   assert_eq "$(jq -r '.approvedByMe' <<<"$out")" "true" "approvedByMe from whoami + reviewers"
   assert_eq "$(jq -r '.build' <<<"$out")" "passed" "build from batched build-status stats"
-  assert_eq "$(jq -r '.commentCount' <<<"$out")" "2" "view takes comment count from activities"
+  assert_eq "$(jq -r '.commentCount' <<<"$out")" "1" "view: comments exclude tasks (3 comments - 2 task comments)"
+  assert_eq "$(jq -r '.openTasks' <<<"$out")" "1" "view: open tasks from blocker-comments"
   cleanup_test_tmp; TEST_TMP=""
 }
 

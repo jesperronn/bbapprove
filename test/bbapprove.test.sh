@@ -174,6 +174,21 @@ FAKE
   cleanup_test_tmp; TEST_TMP=""
 }
 
+test_check_glyphs_shown() {
+  setup_stub
+  cat >"$TEST_TMP/fake-adapter" <<'FAKE'
+#!/usr/bin/env bash
+case "$1 $2" in
+  "auth token") echo tok ;;
+  "pr list") printf '[{"url":"u","number":9,"project":"o","repo":"r","title":"chore(deps): bump lodash from 4.17.20 to 4.17.21","author":{"email":"renovate-bot@example.com"},"headBranch":"b","approvedByMe":false,"build":"failed","qualityGate":"passed","approvals":0,"needsWork":1,"commentCount":3,"openTasks":2}]' ;;
+esac
+FAKE
+  chmod +x "$TEST_TMP/fake-adapter"
+  local out; out="$(BBAPPROVE_ADAPTER="$TEST_TMP/fake-adapter" BBAPPROVE_TOKEN="" run_script)"
+  assert_contains "$out" "✗ ✓ ✗ 💬3 ☐2" "build failed, gate passed, needs-work, 3 comments, 2 open tasks"
+  cleanup_test_tmp; TEST_TMP=""
+}
+
 test_help_color_only_when_forced() {
   setup_stub
   local plain colored

@@ -8,7 +8,9 @@
 #   bitbucket pr review URL --approve           approve
 #   bitbucket pr merge URL                      merge (retries when the PR version went stale)
 #
-# Normalized PR: {url, number, project, repo, title, author:{email,login}, headBranch, approvedByMe}
+# Normalized PR: {url, number, project, repo, title, author:{email,login}, headBranch, approvedByMe,
+#   build: passed|failed|running|none, qualityGate: passed|failed|unknown,
+#   approvals, needsWork (reviewer counts), commentCount, openTasks}
 # Errors: message on stderr, non-zero exit. Env: BBAPPROVE_BASE_URL, BBAPPROVE_TOKEN, BBAPPROVE_MERGE_RETRIES, BBAPPROVE_RETRY_SLEEP.
 
 set -euo pipefail
@@ -37,9 +39,13 @@ parse_pr_url() { # url -> "KEY REPO ID"
   printf '%s %s %s' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}"
 }
 
-# normalize [ME]: raw Bitbucket PR object on stdin -> normalized compact JSON
+# normalize: raw Bitbucket PR object on stdin -> normalized compact JSON.
+# Uses ME (whoami slug) and STATS (JSON map: commit sha -> build-status counts).
 normalize() {
-  jq -c --arg base "$BASE_URL" --arg me "${ME:-}" '{
+  jq -c --arg base "$BASE_URL" --arg me "${ME:-}" --argjson stats "${STATS:-{\}}" '
+    ([.reviewers[]?, .participants[]?]) as $people
+    | ($stats[.fromRef.latestCommit // ""] // {}) as $b
+    | {
     url: "\($base)/projects/\(.toRef.repository.project.key)/repos/\(.toRef.repository.slug)/pull-requests/\(.id)",
     number: .id,
     project: .toRef.repository.project.key,
@@ -47,7 +53,13 @@ normalize() {
     title: .title,
     author: {email: (.author.user.emailAddress // ""), login: (.author.user.slug // "")},
     headBranch: (.fromRef.displayId // ""),
-    approvedByMe: ($me != "" and ([.participants[]? | select(.user.slug==$me and .status=="APPROVED")] | length) > 0)
+    approvedByMe: ($me != "" and ([$people[] | select(.user.slug==$me and .status=="APPROVED")] | length) > 0),
+    build: (if ($b.failed // 0) > 0 then "failed" elif ($b.inProgress // 0) > 0 then "running" elif ($b.successful // 0) > 0 then "passed" else "none" end),
+    qualityGate: ((.properties.qgStatus // "UNKNOWN") | ascii_downcase | if . == "passed" or . == "failed" then . else "unknown" end),
+    approvals: ([.reviewers[]? | select(.status=="APPROVED")] | length),
+    needsWork: ([.reviewers[]? | select(.status=="NEEDS_WORK")] | length),
+    commentCount: (.properties.commentCount // 0),
+    openTasks: (.properties.openTaskCount // 0)
   }'
 }
 
@@ -73,13 +85,22 @@ cmd_pr_list() { # only --reviewer @me --state open is supported
   local start=0 all='[]'
   load_me
   while :; do
-    api GET "/rest/api/1.0/dashboard/pull-requests?role=REVIEWER&state=OPEN&limit=100&start=$start" || true
+    api GET "/rest/api/1.0/dashboard/pull-requests?role=REVIEWER&state=OPEN&limit=100&start=$start&withProperties=true&withAttributes=true" || true
     [[ "$LAST_CODE" == 200 ]] || { err "Dashboard fetch failed ($LAST_CODE)"; return 1; }
     all="$(jq -c --argjson more "$(jq -c '[.values[]]' <<<"$API_BODY")" '. + $more' <<<"$all")"
     [[ "$(jq -r '.isLastPage' <<<"$API_BODY")" == "true" ]] && break
     start="$(jq -r '.nextPageStart' <<<"$API_BODY")"
   done
+  load_stats "$(jq -c '[.[].fromRef.latestCommit] | map(select(. != null))' <<<"$all")"
   jq -c '.[]' <<<"$all" | normalize_lines | jq -sc '.'
+}
+
+# load_stats SHAS_JSON: one batched call for build status of all commits; failure just means "none".
+load_stats() {
+  STATS="{}"
+  [[ "$1" != "[]" ]] || return 0
+  if api POST "/rest/build-status/1.0/commits/stats" "$1" && [[ "$LAST_CODE" == 200 ]]; then STATS="$API_BODY"; fi
+  return 0
 }
 
 normalize_lines() { while IFS= read -r l; do normalize <<<"$l"; done; }
@@ -91,7 +112,12 @@ cmd_pr_view() {
   load_me
   api GET "/rest/api/1.0/projects/$key/repos/$repo/pull-requests/$id" || true
   [[ "$LAST_CODE" == 200 ]] || { err "Fetch failed ($LAST_CODE): $1"; return 1; }
-  normalize <<<"$API_BODY"
+  local raw="$API_BODY" comments
+  load_stats "$(jq -c '[.fromRef.latestCommit] | map(select(. != null))' <<<"$raw")"
+  # A single-PR GET carries no properties: take the comment count from the activity feed instead.
+  api GET "/rest/api/1.0/projects/$key/repos/$repo/pull-requests/$id/activities?limit=100" || true
+  comments="$(jq -r '[.values[]? | select(.action=="COMMENTED")] | length' <<<"$API_BODY" 2>/dev/null || echo 0)"
+  jq -c --argjson c "${comments:-0}" '.properties = ((.properties // {}) + {commentCount: $c})' <<<"$raw" | normalize
 }
 
 cmd_pr_review() { # URL --approve

@@ -51,6 +51,8 @@ With no PR_URL, every open PR where you are a reviewer is considered.
 -i opens an fzf picker of eligible PRs; the PRs you pick are approved and merged.
 Without --apply (or -i) nothing is changed; eligibility is only reported.
 
+Each PR line ends with: build, SonarQube quality gate, approval (✗ = needs work), 💬 comments, ☐ open tasks.
+
 A PR is eligible when ALL hold:
   - author email is renovate-bot@example.com
   - title starts with "chore(deps):" or "fix(deps):"
@@ -119,11 +121,29 @@ pr_label_of() { # normalized PR json -> label
   pr_label "$(jq -r '.project' <<<"$1")" "$(jq -r '.repo' <<<"$1")" "$(jq -r '.number' <<<"$1")" "$(jq -r '.title' <<<"$1")"
 }
 
+# checks_glyphs PR -> "build quality-gate approval comments", e.g. "✓ ✓ – 💬2 ☐1" (✓ ok, ✗ failed/needs work, … running, – none)
+checks_glyphs() {
+  local b q a c t
+  read -r b q a c t < <(jq -r '[
+    ({passed:"ok",failed:"bad",running:"run"}[.build // "none"] // "none"),
+    ({passed:"ok",failed:"bad"}[.qualityGate // "unknown"] // "none"),
+    (if (.needsWork // 0) > 0 then "bad" elif (.approvals // 0) > 0 then "ok" else "none" end),
+    (.commentCount // 0), (.openTasks // 0)] | @tsv' <<<"$1")
+  local out="" w g
+  for w in "$b" "$q" "$a"; do
+    case "$w" in
+      ok) g="${C_GREEN}✓${C_RESET}" ;; bad) g="${C_RED}✗${C_RESET}" ;; run) g="${C_YELLOW}…${C_RESET}" ;; *) g="${C_DIM}–${C_RESET}" ;;
+    esac
+    out+="$g "
+  done
+  printf '%s💬%s ☐%s' "$out" "$c" "$t"
+}
+
 process_pr() { # normalized PR json
   local pr="$1" label reason
   label="$(pr_label_of "$pr")"
-  if ! reason="$(check_eligible "$pr")"; then log "$(status SKIP "$C_YELLOW") $label ${C_DIM}— $reason${C_RESET}"; return 0; fi
-  if (( ! BBAPPROVE_APPLY )); then log "$(status ELIGIBLE "$C_GREEN") $label ${C_DIM}(dry-run)${C_RESET}"; return 0; fi
+  if ! reason="$(check_eligible "$pr")"; then log "$(status SKIP "$C_YELLOW") $label ${C_DIM}— $reason${C_RESET}  $(checks_glyphs "$pr")"; return 0; fi
+  if (( ! BBAPPROVE_APPLY )); then log "$(status ELIGIBLE "$C_GREEN") $label ${C_DIM}(dry-run)${C_RESET}  $(checks_glyphs "$pr")"; return 0; fi
   act_on_pr "$pr"
 }
 

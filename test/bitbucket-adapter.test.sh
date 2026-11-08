@@ -13,7 +13,7 @@ cleanup_test_tmp() { [[ -n "$TEST_TMP" ]] && rm -rf "$TEST_TMP"; return 0; }
 trap 'cleanup_test_tmp' EXIT
 
 URL="https://bitbucket.example.com/projects/PROJ/repos/repo/pull-requests/5"
-RAW='{"id":5,"version":3,"title":"chore(deps): update x to v1.0.1","author":{"user":{"emailAddress":"bot@x","slug":"bot"}},"fromRef":{"displayId":"renovate/x"},"toRef":{"repository":{"slug":"repo","project":{"key":"PROJ"}}},"participants":[{"user":{"slug":"me"},"status":"APPROVED"}]}'
+RAW='{"id":5,"version":3,"title":"chore(deps): update x to v1.0.1","author":{"user":{"emailAddress":"bot@x","slug":"bot"}},"fromRef":{"displayId":"renovate/x","latestCommit":"abc"},"toRef":{"repository":{"slug":"repo","project":{"key":"PROJ"}}},"participants":[],"reviewers":[{"user":{"slug":"me"},"status":"APPROVED"},{"user":{"slug":"bob"},"status":"NEEDS_WORK"}],"properties":{"qgStatus":"PASSED","commentCount":4,"openTaskCount":1}}'
 
 setup_stub() {
   TEST_TMP="$(mktemp -d)"; mkdir -p "$TEST_TMP/bin"
@@ -22,6 +22,8 @@ setup_stub() {
 url="${!#}"
 echo "$*" >>"$STUB_LOG"
 if [[ "$url" == *whoami* ]]; then printf 'me\n200'
+elif [[ "$url" == *build-status*/commits/stats ]]; then printf '{"abc":{"successful":2,"failed":0,"inProgress":0}}\n200'
+elif [[ "$url" == *"/activities"* ]]; then printf '{"values":[{"action":"COMMENTED"},{"action":"COMMENTED"},{"action":"OPENED"}]}\n200'
 elif [[ "$url" == *dashboard/pull-requests* ]]; then printf '{"isLastPage":true,"values":[%s]}\n200' "$STUB_RAW"
 elif [[ "$url" == *"/merge"* && -n "${STUB_STALE_FILE:-}" && ! -e "$STUB_STALE_FILE" ]]; then touch "$STUB_STALE_FILE"; printf '{"errors":[{"message":"out-of-date"}]}\n409'
 elif [[ "$url" == *"/merge"* && -n "${STUB_MERGE_FAIL:-}" ]]; then printf '{"errors":[{"message":"checks failed"}]}\n409'
@@ -43,7 +45,9 @@ test_pr_view_normalizes() {
   assert_eq "$(jq -r '"\(.project)/\(.repo)#\(.number)"' <<<"$out")" "PROJ/repo#5" "project/repo#number"
   assert_eq "$(jq -r '.author.email' <<<"$out")" "bot@x" "author email"
   assert_eq "$(jq -r '.headBranch' <<<"$out")" "renovate/x" "head branch"
-  assert_eq "$(jq -r '.approvedByMe' <<<"$out")" "true" "approvedByMe from whoami + participants"
+  assert_eq "$(jq -r '.approvedByMe' <<<"$out")" "true" "approvedByMe from whoami + reviewers"
+  assert_eq "$(jq -r '.build' <<<"$out")" "passed" "build from batched build-status stats"
+  assert_eq "$(jq -r '.commentCount' <<<"$out")" "2" "view takes comment count from activities"
   cleanup_test_tmp; TEST_TMP=""
 }
 
@@ -52,6 +56,11 @@ test_pr_list_returns_normalized_array() {
   local out; out="$(run_adapter pr list --reviewer @me --state open)"
   assert_eq "$(jq -r 'length' <<<"$out")" "1" "one PR"
   assert_eq "$(jq -r '.[0].number' <<<"$out")" "5" "number"
+  assert_eq "$(jq -r '.[0].build' <<<"$out")" "passed" "build passed"
+  assert_eq "$(jq -r '.[0].qualityGate' <<<"$out")" "passed" "quality gate from qgStatus"
+  assert_eq "$(jq -r '"\(.[0].approvals) \(.[0].needsWork)"' <<<"$out")" "1 1" "approvals and needs-work counted from reviewers"
+  assert_eq "$(jq -r '"\(.[0].commentCount) \(.[0].openTasks)"' <<<"$out")" "4 1" "comment and open task counts"
+  assert_contains "$(cat "$STUB_LOG")" "withProperties=true" "list asks for PR properties"
   cleanup_test_tmp; TEST_TMP=""
 }
 

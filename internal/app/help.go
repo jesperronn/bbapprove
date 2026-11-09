@@ -125,7 +125,7 @@ in most terminals (Ghostty, iTerm2, kitty).
 const configMarkup = `{title:bbapprove help config — the config file and where each setting comes from.}
 
 A TOML file; {path:bbapprove.config.template} lists every key (type, repository, author_email, disallow, update_repo,
-user_token_name) with comments. Nothing site- or person-specific is built in. {flag:--print-config} shows the
+user_token_name, delete_source_branch) with comments. Nothing site- or person-specific is built in. {flag:--print-config} shows the
 effective settings and which of flag, env, file or default each came from (never a secret).
 
 {h:Lookup:} the first that exists wins: {flag:--config} {val:FILE}, {env:BBAPPROVE_CONFIG} (both must exist), {path:<repo>/bbapprove.config.toml}
@@ -134,10 +134,12 @@ effective settings and which of flag, env, file or default each came from (never
 
 {h:Precedence} per setting: command line > environment > file > built-in default. Environment names:
 {env:BBAPPROVE_REPOSITORY}, {env:BBAPPROVE_AUTHOR_EMAIL}, {env:BBAPPROVE_TOKEN_NAME}, {env:BBAPPROVE_UPDATE_REPO}. Only
-type ("bitbucket") and update_repo have defaults; repository and author_email are required and bbapprove exits 1
+type ("bitbucket"), update_repo and delete_source_branch have defaults; repository and author_email are required and bbapprove exits 1
 naming the missing one and the paths searched. disallow is the union of the file, {flag:--disallow} /
 {env:BBAPPROVE_DISALLOW} (comma-separated) and the optional {env:BBAPPROVE_DISALLOW_FILE} (one dependency per line;
 default {path:disallow.txt} in the repo root, git-ignored). {env:BBAPPROVE_ADAPTER} (an executable path) overrides what type selects.
+{h:delete_source_branch} (default true) deletes the PR's source branch after a successful merge; set it to false
+in the file or with {env:BBAPPROVE_DELETE_SOURCE_BRANCH} (true, false, 1, 0, yes, no; there is no command-line flag).
 Unknown keys only warn; malformed TOML stops the run and names the file and line.
 
 {h:First run:} with no config file, a run on a terminal offers to create {path:$XDG_CONFIG_HOME/bbapprove/config.toml}
@@ -198,6 +200,7 @@ const envMarkup = `{title:bbapprove help env — environment variables and exit 
   {env:BBAPPROVE_TOKEN_NAME}     1Password item name, used only when {env:BBAPPROVE_TOKEN} is unset (also {flag:--token-name}; no default)
   {env:BBAPPROVE_AUTHOR_EMAIL}   author the eligibility check requires (overrides author_email)
   {env:BBAPPROVE_UPDATE_REPO}    GitHub owner/repo for {flag:--outdated} and {flag:--update} (default jesperronn/bbapprove)
+  {env:BBAPPROVE_DELETE_SOURCE_BRANCH}  true (default) or false: delete the source branch after a merge (overrides delete_source_branch)
   {env:BBAPPROVE_DISALLOW}       comma-separated extra disallow items
   {env:BBAPPROVE_DISALLOW_FILE}  optional extra disallow file (default disallow.txt in the repo root)
   {env:BBAPPROVE_JOBS}           parallel PR fetches and merges (default: CPU count)
@@ -208,9 +211,10 @@ const envMarkup = `{title:bbapprove help env — environment variables and exit 
   {env:XDG_CONFIG_HOME}          base of the config and ignore paths (default ~/.config)
   {env:VISUAL}, {env:EDITOR}         editor opened by the first-run setup
 
-{h:Adapter side} (read by adapters/bitbucket; the core sets the first two from the configuration)
+{h:Adapter side} (read by adapters/bitbucket; the core sets BASE_URL, TOKEN_NAME and DELETE_SOURCE_BRANCH from the configuration)
   {env:BBAPPROVE_BASE_URL}       forge base URL (required)
   {env:BBAPPROVE_TOKEN_NAME}     1Password item for "auth token"
+  {env:BBAPPROVE_DELETE_SOURCE_BRANCH}  true (default when unset) or false: delete the source branch after a merge
   {env:BBAPPROVE_MERGE_RETRIES}  merge retries when the PR version went stale (default 4)
   {env:BBAPPROVE_RETRY_SLEEP}    seconds between retries (default 2)
   {env:BBAPPROVE_TOKEN} is required by the "pr" commands (exit 2 when unset).

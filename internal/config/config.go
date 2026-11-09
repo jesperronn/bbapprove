@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
@@ -33,13 +34,15 @@ const (
 	DefaultType = "bitbucket"
 	// DefaultUpdateRepo is where --outdated/--update look for releases (owner/repo).
 	DefaultUpdateRepo = "jesperronn/bbapprove"
+	// DefaultDeleteSourceBranch is on: merged bot branches would otherwise pile up on the forge.
+	DefaultDeleteSourceBranch = "true"
 	// TemplateName is the committed example config; the real file is TemplateName's sibling ConfigName.
 	TemplateName = "bbapprove.config.template"
 	ConfigName   = "bbapprove.config.toml"
 )
 
 // knownKeys are the keys a config file may contain; anything else only draws a warning.
-var knownKeys = []string{"type", "repository", "user_token_name", "author_email", "disallow", "update_repo"}
+var knownKeys = []string{"type", "repository", "user_token_name", "author_email", "disallow", "update_repo", "delete_source_branch"}
 
 // fileData is the TOML file's shape.
 type fileData struct {
@@ -49,6 +52,8 @@ type fileData struct {
 	AuthorEmail   string   `toml:"author_email"`
 	Disallow      []string `toml:"disallow"`
 	UpdateRepo    string   `toml:"update_repo"`
+	// DeleteSourceBranch is a pointer so an absent key (default true) differs from an explicit false.
+	DeleteSourceBranch *bool `toml:"delete_source_branch"`
 }
 
 // Value is a resolved setting and where it came from.
@@ -73,6 +78,7 @@ type Config struct {
 	Type, Repository, TokenName, AuthorEmail Value
 	UpdateRepo                               Value // GitHub owner/repo for --outdated/--update
 	Adapter                                  Value // adapter executable
+	DeleteSourceBranch                       Value // "true" or "false": delete the PR's source branch after a merge
 	Disallow                                 []string
 	FileDisallow                             []string // the `disallow` entries from the config file alone
 	DisallowFile                             Value
@@ -158,6 +164,12 @@ func Load(in Input) (*Config, error) {
 	c.AuthorEmail = pick("", in.Env("BBAPPROVE_AUTHOR_EMAIL"), data.AuthorEmail, "")
 	c.UpdateRepo = pick("", in.Env("BBAPPROVE_UPDATE_REPO"), data.UpdateRepo, DefaultUpdateRepo)
 
+	dsb, err := resolveDeleteSourceBranch(in.Env("BBAPPROVE_DELETE_SOURCE_BRANCH"), data.DeleteSourceBranch)
+	if err != nil {
+		return nil, err
+	}
+	c.DeleteSourceBranch = dsb
+
 	if t := c.Type.Value; t == "." || t == ".." || strings.ContainsAny(t, `/\`) {
 		return nil, fmt.Errorf("invalid type %q: it must be a plain adapter name (adapters/<type>)", t)
 	}
@@ -187,6 +199,32 @@ func Load(in Input) (*Config, error) {
 		}
 	}
 	return c, nil
+}
+
+// ParseBool accepts true/false/1/0/yes/no, case-insensitively.
+func ParseBool(s string) (bool, bool) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "true", "1", "yes":
+		return true, true
+	case "false", "0", "no":
+		return false, true
+	}
+	return false, false
+}
+
+// resolveDeleteSourceBranch applies env > file > default; an invalid env value is an error.
+func resolveDeleteSourceBranch(env string, file *bool) (Value, error) {
+	if env != "" {
+		b, ok := ParseBool(env)
+		if !ok {
+			return Value{}, fmt.Errorf("invalid BBAPPROVE_DELETE_SOURCE_BRANCH %q: use true, false, 1, 0, yes or no", env)
+		}
+		return Value{strconv.FormatBool(b), FromEnv}, nil
+	}
+	if file != nil {
+		return Value{strconv.FormatBool(*file), FromFile}, nil
+	}
+	return Value{DefaultDeleteSourceBranch, FromDefault}, nil
 }
 
 func errText(err error) string {
@@ -282,11 +320,12 @@ func (c *Config) MissingFor(t style.Theme) error {
 }
 
 // ChildEnv returns environ with the resolved settings the adapter needs appended (BBAPPROVE_BASE_URL,
-// BBAPPROVE_TOKEN_NAME); later entries win. The adapter never reads TOML.
+// BBAPPROVE_TOKEN_NAME, BBAPPROVE_DELETE_SOURCE_BRANCH); later entries win. The adapter never reads TOML.
 func (c *Config) ChildEnv(environ []string) []string {
 	return append(append([]string{}, environ...),
 		"BBAPPROVE_BASE_URL="+c.Repository.Value,
-		"BBAPPROVE_TOKEN_NAME="+c.TokenName.Value)
+		"BBAPPROVE_TOKEN_NAME="+c.TokenName.Value,
+		"BBAPPROVE_DELETE_SOURCE_BRANCH="+c.DeleteSourceBranch.Value)
 }
 
 // Describe renders the effective settings and their sources. It never includes a token.
@@ -320,7 +359,7 @@ func (c *Config) SettingsThemed(t style.Theme) string {
 	var b strings.Builder
 	label := func(name string) string {
 		l := name + ":"
-		return t.Paint(style.Dim, l) + strings.Repeat(" ", max(16-len(l), 0)) + " "
+		return t.Paint(style.Dim, l) + strings.Repeat(" ", max(22-len(l), 0)) + " "
 	}
 	row := func(name string, v Value) {
 		val := v.Value
@@ -335,6 +374,7 @@ func (c *Config) SettingsThemed(t style.Theme) string {
 	row("user_token_name", c.TokenName)
 	row("author_email", c.AuthorEmail)
 	row("update_repo", c.UpdateRepo)
+	row("delete_source_branch", c.DeleteSourceBranch)
 	row("disallow_file", c.DisallowFile)
 	fmt.Fprintf(&b, "%s%s\n", label("disallow"), strings.Join(c.Disallow, ", "))
 	return b.String()

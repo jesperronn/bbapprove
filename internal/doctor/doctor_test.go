@@ -492,3 +492,15 @@ func TestExitCodeAllGood(t *testing.T) {
 		t.Fatalf("code %d\n%s", code, out)
 	}
 }
+
+func TestSettingsListDeleteSourceBranch(t *testing.T) {
+	r := newRig(t)
+	r.writeXDG(validCfg + "delete_source_branch = false\n")
+	_, out := r.doctor(nil)
+	mustContain(t, out, "delete_source_branch:  false  [file]")
+	r = newRig(t)
+	r.writeXDG(validCfg)
+	r.env = append(r.env, "BBAPPROVE_DELETE_SOURCE_BRANCH=1")
+	_, out = r.doctor(nil)
+	mustContain(t, out, "delete_source_branch:  true  [env]")
+}

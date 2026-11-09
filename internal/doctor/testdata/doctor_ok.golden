@@ -17,14 +17,15 @@ ok   in use:       $XDG/bbapprove/config.toml (via XDG config)
      file mode:    0600
 ok   parse:        valid TOML
      effective settings (source: flag, env, file or default):
-        type:            bitbucket  [default]
-        adapter:         $ROOT/adapters/bitbucket  [default]
-        repository:      https://bb.corp.test  [file]
-        user_token_name: (not set)  [unset]
-        author_email:    bot@corp.test  [file]
-        update_repo:     jesperronn/bbapprove  [default]
-        disallow_file:   $ROOT/disallow.txt  [default]
-        disallow:        foo, bar, left-pad
+        type:                  bitbucket  [default]
+        adapter:               $ROOT/adapters/bitbucket  [default]
+        repository:            https://bb.corp.test  [file]
+        user_token_name:       (not set)  [unset]
+        author_email:          bot@corp.test  [file]
+        update_repo:           jesperronn/bbapprove  [default]
+        delete_source_branch:  true  [default]
+        disallow_file:         $ROOT/disallow.txt  [default]
+        disallow:              foo, bar, left-pad
 
 adapter:
      type:         bitbucket

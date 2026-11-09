@@ -1,9 +1,10 @@
 config file:     $DIR/config.toml
-type:            bitbucket  [default]
-adapter:         $DIR/adapters/bitbucket  [default]
-repository:      https://bitbucket.example.com  [file]
-user_token_name: (not set)  [unset]
-author_email:    bot@example.com  [file]
-update_repo:     example/repo  [env]
-disallow_file:   $DIR/disallow.txt  [default]
-disallow:        a, b
+type:                  bitbucket  [default]
+adapter:               $DIR/adapters/bitbucket  [default]
+repository:            https://bitbucket.example.com  [file]
+user_token_name:       (not set)  [unset]
+author_email:          bot@example.com  [file]
+update_repo:           example/repo  [env]
+delete_source_branch:  true  [default]
+disallow_file:         $DIR/disallow.txt  [default]
+disallow:              a, b

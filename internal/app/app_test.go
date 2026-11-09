@@ -539,19 +539,20 @@ func TestPrintConfig(t *testing.T) {
 	repo := t.TempDir()
 	os.WriteFile(filepath.Join(repo, "bbapprove.config.toml"),
 		[]byte("repository = \"https://file.example.com\"\nauthor_email = \"file-bot@example.com\"\ndisallow = [\"some-library\"]\n"), 0o644)
-	code, out, errOut := runIn(t, repo, append(env, "BBAPPROVE_TOKEN=s3cret-value", "BBAPPROVE_AUTHOR_EMAIL=env-bot@example.com"),
+	code, out, errOut := runIn(t, repo, append(env, "BBAPPROVE_TOKEN=s3cret-value", "BBAPPROVE_AUTHOR_EMAIL=env-bot@example.com", "BBAPPROVE_DELETE_SOURCE_BRANCH=no"),
 		"--print-config", "--token-name", "FLAG_ITEM")
 	if code != 0 || errOut != "" {
 		t.Fatalf("code %d err %q", code, errOut)
 	}
 	for _, w := range []string{
-		"update_repo:     jesperronn/bbapprove  [default]",
+		"update_repo:           jesperronn/bbapprove  [default]",
 		"config file:     " + filepath.Join(repo, "bbapprove.config.toml"),
-		"repository:      https://file.example.com  [file]",
-		"user_token_name: FLAG_ITEM  [flag]",
-		"author_email:    env-bot@example.com  [env]",
-		"type:            bitbucket  [default]",
-		"disallow:        some-library",
+		"repository:            https://file.example.com  [file]",
+		"user_token_name:       FLAG_ITEM  [flag]",
+		"author_email:          env-bot@example.com  [env]",
+		"type:                  bitbucket  [default]",
+		"disallow:              some-library",
+		"delete_source_branch:  false  [env]",
 	} {
 		if !strings.Contains(out, w) {
 			t.Errorf("output lacks %q:\n%s", w, out)
@@ -565,7 +566,7 @@ func TestPrintConfig(t *testing.T) {
 	}
 	// it works even when required settings are missing, and together with -i
 	code, out, _ = runIn(t, t.TempDir(), env, "-i", "--print-config")
-	if code != 0 || !strings.Contains(out, "repository:      (not set)  [unset]") {
+	if code != 0 || !strings.Contains(out, "repository:            (not set)  [unset]") {
 		t.Errorf("code %d out %q", code, out)
 	}
 }
@@ -752,5 +753,44 @@ func TestIgnoredFooterShowsPath(t *testing.T) {
 	os.Remove(ip)
 	if _, out, _ = run(t, env); strings.Contains(out, "see: bbapprove doctor") {
 		t.Errorf("footer without ignored rows:\n%s", out)
+	}
+}
+
+// A merge through the app reaches the adapter with the resolved delete_source_branch value in its
+// environment (the TUI builds its client from the same ChildEnv).
+func TestMergePassesDeleteSourceBranchToAdapter(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		env  []string
+		want string
+	}{
+		{"default", nil, "true"},
+		{"env false", []string{"BBAPPROVE_DELETE_SOURCE_BRANCH=false"}, "false"},
+		{"env yes", []string{"BBAPPROVE_DELETE_SOURCE_BRANCH=YES"}, "true"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env, log := baseEnv(t)
+			body := `case "$1 $2" in
+  "pr list") printf '%s' "$FAKE_LIST" ;;
+  "pr review") ;;
+  "pr merge") echo "delete=$BBAPPROVE_DELETE_SOURCE_BRANCH" >> "$FAKE_LOG.merge" ;;
+esac`
+			list := `[{"url":"http://h/pull-requests/5","number":5,"project":"P","repo":"e","title":"chore(deps): update e","author":{"email":"` + bot + `"},"headBranch":"r"}]`
+			env = append(append(env, tc.env...), "FAKE_BODY="+body, "FAKE_LIST="+list, "BBAPPROVE_TOKEN=given")
+			if code, out, errOut := run(t, env, "--apply"); code != 0 {
+				t.Fatalf("code %d out %q err %q", code, out, errOut)
+			}
+			if got := readLog(t, log+".merge"); got != "delete="+tc.want+"\n" {
+				t.Errorf("adapter saw %q, want delete=%s", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestInvalidDeleteSourceBranchIsAConfigError(t *testing.T) {
+	env, _ := baseEnv(t)
+	code, _, errOut := run(t, append(env, "BBAPPROVE_DELETE_SOURCE_BRANCH=sometimes"))
+	if code == 0 || !strings.Contains(errOut, "BBAPPROVE_DELETE_SOURCE_BRANCH") {
+		t.Errorf("code %d err %q", code, errOut)
 	}
 }

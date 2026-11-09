@@ -285,11 +285,11 @@ func TestChildEnvAndDescribe(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := c.ChildEnv([]string{"A=1", "BBAPPROVE_BASE_URL=stale"})
-	if got := env[len(env)-2:]; got[0] != "BBAPPROVE_BASE_URL=https://file.example.com" || got[1] != "BBAPPROVE_TOKEN_NAME=FILE_ITEM" {
+	if got := env[len(env)-3:]; got[0] != "BBAPPROVE_BASE_URL=https://file.example.com" || got[1] != "BBAPPROVE_TOKEN_NAME=FILE_ITEM" || got[2] != "BBAPPROVE_DELETE_SOURCE_BRANCH=true" {
 		t.Errorf("%v", env)
 	}
 	d := c.Describe()
-	for _, w := range []string{"repository:      https://file.example.com  [file]", "user_token_name: FILE_ITEM  [file]", "[default]"} {
+	for _, w := range []string{"repository:            https://file.example.com  [file]", "user_token_name:       FILE_ITEM  [file]", "delete_source_branch:  true  [default]", "[default]"} {
 		if !strings.Contains(d, w) {
 			t.Errorf("describe lacks %q:\n%s", w, d)
 		}
@@ -314,7 +314,7 @@ func TestUpdateRepoKey(t *testing.T) {
 	if c.UpdateRepo != (Value{"env/repo", FromEnv}) {
 		t.Errorf("env: %+v", c.UpdateRepo)
 	}
-	if d := c.Describe(); !strings.Contains(d, "update_repo:     env/repo  [env]") {
+	if d := c.Describe(); !strings.Contains(d, "update_repo:           env/repo  [env]") {
 		t.Errorf("Describe lacks update_repo:\n%s", d)
 	}
 }
@@ -331,12 +331,12 @@ func TestSettingsThemed(t *testing.T) {
 	}
 	col := c.SettingsThemed(style.New(true))
 	for _, want := range []string{
-		"\x1b[2mtype:\x1b[0m            bitbucket  \x1b[2m[default]\x1b[0m\n",
+		"\x1b[2mtype:\x1b[0m                  bitbucket  \x1b[2m[default]\x1b[0m\n",
 		"/a/b  \x1b[35m[flag]\x1b[0m\n",
 		"https://x.example.com  \x1b[32m[file]\x1b[0m\n",
 		"b@example.com  \x1b[33m[env]\x1b[0m\n",
 		"(not set)  \x1b[2m[" + FromNone + "]\x1b[0m\n",
-		"\x1b[2mdisallow:\x1b[0m        a, b\n",
+		"\x1b[2mdisallow:\x1b[0m              a, b\n",
 	} {
 		if !strings.Contains(col, want) {
 			t.Errorf("missing %q in %q", want, col)
@@ -344,5 +344,59 @@ func TestSettingsThemed(t *testing.T) {
 	}
 	if got := regexp.MustCompile("\x1b\\[[0-9;]*m").ReplaceAllString(col, ""); got != plain {
 		t.Errorf("stripped colour differs:\n%s\n%s", got, plain)
+	}
+}
+
+func TestDeleteSourceBranchPrecedence(t *testing.T) {
+	cases := []struct {
+		name, file string
+		env        map[string]string
+		want, src  string
+	}{
+		{"default is true", "", nil, "true", FromDefault},
+		{"file false", "delete_source_branch = false\n", nil, "false", FromFile},
+		{"file true", "delete_source_branch = true\n", nil, "true", FromFile},
+		{"env beats file", "delete_source_branch = true\n", map[string]string{"BBAPPROVE_DELETE_SOURCE_BRANCH": "false"}, "false", FromEnv},
+		{"env true beats file false", "delete_source_branch = false\n", map[string]string{"BBAPPROVE_DELETE_SOURCE_BRANCH": "TRUE"}, "true", FromEnv},
+		{"env 0", "", map[string]string{"BBAPPROVE_DELETE_SOURCE_BRANCH": "0"}, "false", FromEnv},
+		{"env 1", "delete_source_branch = false\n", map[string]string{"BBAPPROVE_DELETE_SOURCE_BRANCH": "1"}, "true", FromEnv},
+		{"env No", "", map[string]string{"BBAPPROVE_DELETE_SOURCE_BRANCH": "No"}, "false", FromEnv},
+		{"env yes", "", map[string]string{"BBAPPROVE_DELETE_SOURCE_BRANCH": "yes"}, "true", FromEnv},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newSandbox(t)
+			if tc.file != "" {
+				s.writeRepo(t, tc.file)
+			}
+			c, err := Load(s.input(tc.env))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.DeleteSourceBranch != (Value{tc.want, tc.src}) {
+				t.Errorf("got %+v, want %s from %s", c.DeleteSourceBranch, tc.want, tc.src)
+			}
+			if len(c.Warnings) != 0 {
+				t.Errorf("a known key must not warn: %v", c.Warnings)
+			}
+			if got := c.ChildEnv(nil); got[len(got)-1] != "BBAPPROVE_DELETE_SOURCE_BRANCH="+tc.want {
+				t.Errorf("child env = %v", got)
+			}
+			if !strings.Contains(c.Settings(), "delete_source_branch:  "+tc.want+"  ["+tc.src+"]") {
+				t.Errorf("settings lack the row:\n%s", c.Settings())
+			}
+		})
+	}
+}
+
+func TestDeleteSourceBranchInvalid(t *testing.T) {
+	s := newSandbox(t)
+	_, err := Load(s.input(map[string]string{"BBAPPROVE_DELETE_SOURCE_BRANCH": "maybe"}))
+	if err == nil || !strings.Contains(err.Error(), "BBAPPROVE_DELETE_SOURCE_BRANCH") || !strings.Contains(err.Error(), `"maybe"`) {
+		t.Errorf("want a clear error, got %v", err)
+	}
+	s.writeRepo(t, `delete_source_branch = "maybe"`+"\n")
+	if _, err := Load(s.input(nil)); err == nil {
+		t.Error("a non-boolean file value must be an error")
 	}
 }

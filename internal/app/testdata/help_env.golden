@@ -7,6 +7,7 @@ Environment
   BBAPPROVE_TOKEN_NAME     1Password item name, used only when BBAPPROVE_TOKEN is unset (also --token-name; no default)
   BBAPPROVE_AUTHOR_EMAIL   author the eligibility check requires (overrides author_email)
   BBAPPROVE_UPDATE_REPO    GitHub owner/repo for --outdated and --update (default jesperronn/bbapprove)
+  BBAPPROVE_DELETE_SOURCE_BRANCH  true (default) or false: delete the source branch after a merge (overrides delete_source_branch)
   BBAPPROVE_DISALLOW       comma-separated extra disallow items
   BBAPPROVE_DISALLOW_FILE  optional extra disallow file (default disallow.txt in the repo root)
   BBAPPROVE_JOBS           parallel PR fetches and merges (default: CPU count)
@@ -17,9 +18,10 @@ Environment
   XDG_CONFIG_HOME          base of the config and ignore paths (default ~/.config)
   VISUAL, EDITOR         editor opened by the first-run setup
 
-Adapter side (read by adapters/bitbucket; the core sets the first two from the configuration)
+Adapter side (read by adapters/bitbucket; the core sets BASE_URL, TOKEN_NAME and DELETE_SOURCE_BRANCH from the configuration)
   BBAPPROVE_BASE_URL       forge base URL (required)
   BBAPPROVE_TOKEN_NAME     1Password item for "auth token"
+  BBAPPROVE_DELETE_SOURCE_BRANCH  true (default when unset) or false: delete the source branch after a merge
   BBAPPROVE_MERGE_RETRIES  merge retries when the PR version went stale (default 4)
   BBAPPROVE_RETRY_SLEEP    seconds between retries (default 2)
   BBAPPROVE_TOKEN is required by the "pr" commands (exit 2 when unset).

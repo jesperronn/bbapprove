@@ -27,3 +27,7 @@ disallow = ["some-library", "another-library"]
 # optional: GitHub owner/repo that "bbapprove --outdated" and "--update" check for releases.
 # Default: "jesperronn/bbapprove". Env: BBAPPROVE_UPDATE_REPO
 # update_repo = "jesperronn/bbapprove"
+
+# delete the PR's source branch after a successful merge (true or false). Fork PRs are never touched.
+# Default: true. Env: BBAPPROVE_DELETE_SOURCE_BRANCH (true, false, 1, 0, yes, no)
+delete_source_branch = true

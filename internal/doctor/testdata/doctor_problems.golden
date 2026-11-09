@@ -15,14 +15,15 @@ config:
         4. XDG config        $XDG/bbapprove/config.toml  [not found]
 FAIL in use:       none
      effective settings (source: flag, env, file or default):
-        type:            bitbucket  [default]
-        adapter:         $ROOT/adapters/bitbucket  [default]
-        repository:      (not set)  [unset]
-        user_token_name: (not set)  [unset]
-        author_email:    (not set)  [unset]
-        update_repo:     jesperronn/bbapprove  [default]
-        disallow_file:   $ROOT/disallow.txt  [default]
-        disallow:        
+        type:                  bitbucket  [default]
+        adapter:               $ROOT/adapters/bitbucket  [default]
+        repository:            (not set)  [unset]
+        user_token_name:       (not set)  [unset]
+        author_email:          (not set)  [unset]
+        update_repo:           jesperronn/bbapprove  [default]
+        delete_source_branch:  true  [default]
+        disallow_file:         $ROOT/disallow.txt  [default]
+        disallow:              
 
 adapter:
      type:         bitbucket

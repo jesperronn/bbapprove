@@ -42,51 +42,37 @@ CHANGELOG_AFTER='# Changelog
 
 # Fixture: a work repo on main with a local bare "origin" (real git, nothing leaves the temp dir), the real
 # bin/release and bin/release-notes, recording stubs for bin/lint and bin/test, a git wrapper that logs
-# commit/tag/push and passes through, and a gh stub. Every mutating call lands in $CALLS.
+# commit/tag/push and passes through, and a gh stub. Every mutating call lands in $CALLS ($STUB_LOG).
+# The stubs are the fixed ones in test/fixtures, linked in (never written per test). The git repos are built
+# once per suite (TPL) and copied per test; bin/release and bin/release-notes are hardlinked from the TPL copy
+# so they stay warm instead of being fresh executables each test. No test writes to them.
+STUBS=""
 setup_fixture() {
   TEST_TMP="$(mktemp -d)"
-  W="$TEST_TMP/work"; O="$TEST_TMP/origin.git"; STUBS="$TEST_TMP/stubs"; CALLS="$TEST_TMP/calls.log"
-  mkdir -p "$W/bin" "$STUBS"
-  : >"$CALLS"
-  cp "$PROJECT_ROOT/bin/release" "$PROJECT_ROOT/bin/release-notes" "$W/bin/"
-  printf '#!/usr/bin/env bash\necho "bin/lint" >>"$CALLS"\nexit "${STUB_LINT_RC:-0}"\n' >"$W/bin/lint"
-  printf '#!/usr/bin/env bash\necho "bin/test" >>"$CALLS"\nexit "${STUB_TEST_RC:-0}"\n' >"$W/bin/test"
-  chmod +x "$W"/bin/*
-  printf '%s\n' "$CHANGELOG_BEFORE" >"$W/CHANGELOG.md"
-  cat >"$STUBS/git" <<'STUB'
-#!/usr/bin/env bash
-case "${1:-}" in commit | tag | push) echo "git $*" >>"$CALLS" ;; esac
-exec "$REAL_GIT" "$@"
-STUB
-  cat >"$STUBS/gh" <<'STUB'
-#!/usr/bin/env bash
-case "${1:-} ${2:-}" in
-  "auth status") exit "${STUB_GH_AUTH_RC:-0}" ;;
-  "run list") echo 42 ;;
-  "run watch") echo "gh run watch $3" >>"$CALLS"; exit "${STUB_GH_WATCH_RC:-0}" ;;
-  "release view") echo "gh release view $3" >>"$CALLS"; echo "https://example.test/releases/$3" ;;
-esac
-exit 0
-STUB
-  chmod +x "$STUBS/git" "$STUBS/gh"
-  export CALLS REAL_GIT GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
+  W="$TEST_TMP/work"; O="$TEST_TMP/origin.git"; CALLS="$TEST_TMP/calls.log"
+  export STUB_LOG="$CALLS" STUB_GIT_REAL="$REAL_GIT" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
   export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.test GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.test
   export RELEASE_DATE=2026-02-03 RELEASE_RUN_WAIT_SECONDS=0
   unset STUB_LINT_RC STUB_TEST_RC STUB_GH_AUTH_RC STUB_GH_WATCH_RC
-  # Git repos are built once (slow) and copied per test.
   if [[ -z "$TPL" ]]; then
     TPL="$(mktemp -d)"
+    STUBS="$TPL/stubs"
+    use_stubs "$STUBS" git gh
+    mkdir -p "$TPL/work/bin"
+    cp "$PROJECT_ROOT/bin/release" "$PROJECT_ROOT/bin/release-notes" "$TPL/work/bin/"
+    use_stubs "$TPL/work/bin" recorder=lint recorder=test
+    printf '%s\n' "$CHANGELOG_BEFORE" >"$TPL/work/CHANGELOG.md"
     "$REAL_GIT" init -q --template= -b main "$TPL/work"
     "$REAL_GIT" init -q --bare --template= -b main "$TPL/origin.git"
-    cp -R "$W/bin" "$W/CHANGELOG.md" "$TPL/work/"
     "$REAL_GIT" -C "$TPL/work" add -A
     "$REAL_GIT" -C "$TPL/work" commit -q -m initial
     "$REAL_GIT" -C "$TPL/work" remote add origin "$TPL/origin.git"
     "$REAL_GIT" -C "$TPL/work" push -q -u origin main
   fi
-  rm -rf "$W"
   cp -R "$TPL/work" "$W"
   cp -R "$TPL/origin.git" "$O"
+  link_script "$TPL/work/bin/release" "$W/bin/release"
+  link_script "$TPL/work/bin/release-notes" "$W/bin/release-notes"
   "$REAL_GIT" -C "$W" remote set-url origin "$O"
   : >"$CALLS"
 }

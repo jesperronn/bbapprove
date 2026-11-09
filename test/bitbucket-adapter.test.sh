@@ -9,38 +9,29 @@ ADAPTER="$PROJECT_ROOT/adapters/bitbucket"
 source "$PROJECT_ROOT/test/lib/bash_test.sh"
 
 TEST_TMP=""
+STUB_BIN=""; OP_BIN=""; STUB_PATH=""
 cleanup_test_tmp() { [[ -n "$TEST_TMP" ]] && rm -rf "$TEST_TMP"; return 0; }
-trap 'cleanup_test_tmp' EXIT
+cleanup_suite_tmp() { cleanup_test_tmp; [[ -z "$STUB_BIN" ]] || rm -rf "$STUB_BIN" "$OP_BIN"; return 0; }
+trap 'cleanup_suite_tmp' EXIT
 
 URL="https://bitbucket.example.com/projects/PROJ/repos/repo/pull-requests/5"
 RAW='{"id":5,"version":3,"title":"chore(deps): update x to v1.0.1","author":{"user":{"emailAddress":"bot@example.com","slug":"bot"}},"fromRef":{"displayId":"renovate/x","latestCommit":"abc"},"toRef":{"repository":{"slug":"repo","project":{"key":"PROJ"}}},"participants":[],"reviewers":[{"user":{"slug":"me"},"status":"APPROVED"},{"user":{"slug":"bob"},"status":"NEEDS_WORK"}],"properties":{"qgStatus":"PASSED","commentCount":4,"openTaskCount":1}}'
 
+# The curl (and op) stubs are the fixed ones in test/fixtures, linked once per suite and driven by env:
+# STUB_LOG (per-test call log), STUB_RAW (canned PR) and the STUB_*_FAIL switches. Nothing is written per test.
+STUB_BIN=""
 setup_stub() {
-  TEST_TMP="$(mktemp -d)"; mkdir -p "$TEST_TMP/bin"
-  cat >"$TEST_TMP/bin/curl" <<'STUB'
-#!/usr/bin/env bash
-url="${!#}"
-echo "$*" >>"$STUB_LOG"
-prev=""; for a in "$@"; do [[ "$prev" == -d ]] && printf '%s' "$a" >"$STUB_LOG.body"; prev="$a"; done
-if [[ "$url" == *whoami* ]]; then printf 'me\n200'
-elif [[ "$*" == *"-X POST"* && "$url" == */comments && -n "${STUB_COMMENT_FAIL:-}" ]]; then printf '{}\n500'
-elif [[ "$url" == *"/decline"* && -n "${STUB_DECLINE_FAIL:-}" ]]; then printf '{"errors":[{"message":"PR is out of date"}]}\n409'
-elif [[ "$url" == *build-status*/commits/stats ]]; then printf '{"abc":{"successful":2,"failed":0,"inProgress":0}}\n200'
-elif [[ "$url" == *"/activities"* ]]; then printf '{"values":[{"action":"COMMENTED"},{"action":"COMMENTED"},{"action":"COMMENTED"},{"action":"OPENED"}]}\n200'
-elif [[ "$url" == *"/blocker-comments"* ]]; then printf '{"values":[{"state":"OPEN"},{"state":"RESOLVED"}]}\n200'
-elif [[ "$url" == *dashboard/pull-requests* ]]; then printf '{"isLastPage":true,"values":[%s]}\n200' "$STUB_RAW"
-elif [[ "$url" == *"/merge"* && -n "${STUB_STALE_FILE:-}" && ! -e "$STUB_STALE_FILE" ]]; then touch "$STUB_STALE_FILE"; printf '{"errors":[{"message":"out-of-date"}]}\n409'
-elif [[ "$url" == *"/merge"* && -n "${STUB_MERGE_FAIL:-}" ]]; then printf '{"errors":[{"message":"checks failed"}]}\n409'
-elif [[ "$url" == *"/approve" && -n "${STUB_APPROVE_FAIL:-}" ]]; then printf '{}\n403'
-elif [[ "$url" =~ pull-requests/[0-9]+$ ]]; then printf '%s\n200' "$STUB_RAW"
-else printf '{}\n200'; fi
-STUB
-  chmod +x "$TEST_TMP/bin/curl"
+  TEST_TMP="$(mktemp -d)"
+  if [[ -z "$STUB_BIN" ]]; then
+    STUB_BIN="$(mktemp -d)"; use_stubs "$STUB_BIN" curl
+    OP_BIN="$(mktemp -d)"; use_stubs "$OP_BIN" curl op
+  fi
   export BBAPPROVE_BASE_URL="https://bitbucket.example.com" STUB_LOG="$TEST_TMP/curl.log" STUB_RAW="$RAW" BBAPPROVE_TOKEN=t BBAPPROVE_RETRY_SLEEP=0
   : >"$STUB_LOG"
+  STUB_PATH="$STUB_BIN"
 }
 
-run_adapter() { PATH="$TEST_TMP/bin:$PATH" "$ADAPTER" "$@" 2>&1; }
+run_adapter() { PATH="$STUB_PATH:$PATH" "$ADAPTER" "$@" 2>&1; }
 
 test_pr_view_normalizes() {
   setup_stub
@@ -204,14 +195,7 @@ test_missing_base_url_exits_2() {
 # Stub op: logs its argv; OP_TOKEN_EMPTY=1 makes label=token fail, OP_ALL_FAIL=1 makes every lookup fail.
 setup_op_stub() {
   setup_stub
-  cat >"$TEST_TMP/bin/op" <<'STUB'
-#!/usr/bin/env bash
-echo "$*" >>"$STUB_LOG.op"
-[[ -z "${OP_ALL_FAIL:-}" ]] || exit 1
-if [[ "$*" == *label=token* && -n "${OP_TOKEN_EMPTY:-}" ]]; then exit 1; fi
-if [[ "$*" == *label=credential* ]]; then echo "tok-from-credential"; else echo "tok-from-op"; fi
-STUB
-  chmod +x "$TEST_TMP/bin/op"
+  STUB_PATH="$OP_BIN"
 }
 
 test_auth_token_uses_token_name_item() {

@@ -1,0 +1,184 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# release — cut a release: changelog, commit, annotated tag, push, then watch the Release workflow
+#
+# Usage: bin/release [--dry-run] [--yes] VERSION
+#   VERSION    semver without a leading v: 1.0.0 or 1.0.0-rc.3 (a "-" marks a pre-release)
+#   --dry-run  run the read-only checks and print every step it WOULD take; changes nothing
+#   --yes      do not ask before pushing
+# Steps: preconditions (on main, clean, not behind origin, tag unused, gh logged in, CHANGELOG
+# [Unreleased] not empty) -> bin/lint -> bin/test -> move [Unreleased] under "## [VERSION] - DATE"
+# -> commit "docs: changelog for VERSION" -> tag vVERSION -> confirm -> push main and the tag
+# -> gh run watch -> print the release URL.
+# Exit: 0 released (or dry run), 1 failed or declined, 2 usage error, 127 tool missing.
+# Env: RELEASE_DATE (default today), RELEASE_RUN_WAIT_SECONDS (default 5; wait between looking for the run).
+
+set -euo pipefail
+
+SELF="${BASH_SOURCE[0]}"
+while [[ -L "$SELF" ]]; do
+  target="$(readlink "$SELF")"
+  if [[ "$target" == /* ]]; then SELF="$target"; else SELF="$(dirname "$SELF")/$target"; fi
+done
+REPO="$(cd "$(dirname "$SELF")/.." && pwd -P)"
+
+usage() {
+  cat <<'USAGE'
+Usage: bin/release [--dry-run] [--yes] VERSION
+
+VERSION is semver without a leading v, e.g. 1.0.0 or 1.0.0-rc.3 (a "-" marks a pre-release).
+  --dry-run   run the read-only checks and print every step it would take; changes nothing
+  --yes       do not ask before pushing
+  -h, --help  this text
+
+Needs a clean main in sync with origin, a filled "## [Unreleased]" in CHANGELOG.md, and gh logged in.
+USAGE
+}
+
+die() { echo "release: $*" >&2; exit 1; }
+
+need_tool() {
+  local tool="$1" brew_pkg="$2" apt_pkg="${3:-$2}" hint
+  command -v "$tool" >/dev/null 2>&1 && return 0
+  if [[ "$(uname -s)" == Darwin ]]; then hint="brew install $brew_pkg"; else hint="sudo apt install $apt_pkg"; fi
+  echo "release: needs $tool ($hint)" >&2
+  exit 127
+}
+
+dry=0 yes=0 version=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h | --help) usage; exit 0 ;;
+    --dry-run) dry=1 ;;
+    --yes | -y) yes=1 ;;
+    -*) echo "release: unknown option: $1" >&2; usage >&2; exit 2 ;;
+    *)
+      [[ -z "$version" ]] || { echo "release: only one VERSION allowed" >&2; exit 2; }
+      version="$1" ;;
+  esac
+  shift
+done
+[[ -n "$version" ]] || { usage >&2; exit 2; }
+
+semver='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+if [[ ! "$version" =~ $semver ]]; then
+  echo "release: not a semver version: $version (expected e.g. 1.0.0 or 1.0.0-rc.3, no leading v)" >&2
+  exit 2
+fi
+tag="v$version"
+today="${RELEASE_DATE:-$(date +%F)}"
+
+need_tool git git
+need_tool gh gh
+cd "$REPO"
+
+# unreleased_body: the lines under "## [Unreleased]" up to the next "## [" heading.
+unreleased_body() { awk '/^## \[/ { if (on) exit; on = ($0 ~ /^## \[Unreleased\]/); next } on { print }' CHANGELOG.md; }
+
+step() { if [[ "$dry" == 1 ]]; then echo "[dry-run] would $*"; else echo "==> $*"; fi; }
+
+echo "Release $tag ($today)"
+if [[ "$version" == *-* ]]; then echo "This is a pre-release (version has a '-')."; else echo "This is a stable release."; fi
+[[ "$dry" == 1 ]] && echo "Dry run: nothing will be committed, tagged or pushed."
+
+# --- preconditions (read-only) ---
+branch="$(git rev-parse --abbrev-ref HEAD)"
+[[ "$branch" == main ]] || die "must be on main (on '$branch')"
+[[ -z "$(git status --porcelain)" ]] || die "working tree is not clean; commit or stash first"
+git fetch --quiet --no-tags origin || die "git fetch origin failed"
+counts="$(git rev-list --left-right --count main...origin/main)" || die "cannot compare main with origin/main"
+ahead="${counts%%[[:space:]]*}"; behind="${counts##*[[:space:]]}"
+[[ "$behind" == 0 ]] || die "main is $behind commit(s) behind origin/main; pull first"
+[[ "$ahead" == 0 ]] || echo "note: main is $ahead commit(s) ahead of origin/main; they will be pushed too"
+if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then die "tag $tag already exists locally"; fi
+rc=0; git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1 || rc=$?
+case "$rc" in
+  0) die "tag $tag already exists on origin" ;;
+  2) ;;
+  *) die "cannot query tags on origin" ;;
+esac
+gh auth status >/dev/null 2>&1 || die "gh is not authenticated (run: gh auth login)"
+[[ -f CHANGELOG.md ]] || die "CHANGELOG.md not found"
+grep -q '^## \[Unreleased\]' CHANGELOG.md || die "CHANGELOG.md has no '## [Unreleased]' heading"
+[[ -n "$(unreleased_body | tr -d '[:space:]')" ]] || die "'## [Unreleased]' in CHANGELOG.md is empty; nothing to release"
+echo "Preconditions ok."
+
+# --- checks ---
+if [[ "$dry" == 1 ]]; then
+  step "run bin/lint"
+  step "run bin/test"
+else
+  step "bin/lint"
+  "$REPO/bin/lint" || die "bin/lint failed"
+  step "bin/test"
+  "$REPO/bin/test" || die "bin/test failed"
+fi
+
+# --- changelog, commit, tag ---
+step "move [Unreleased] under '## [$version] - $today' in CHANGELOG.md (leaving an empty [Unreleased])"
+if [[ "$dry" == 1 ]]; then
+  echo "  new section body:"
+  unreleased_body | awk 'NF { started = 1 } started' | head -n 8 | sed 's/^/    | /'
+else
+  tmp="$(mktemp)"
+  awk -v ver="$version" -v date="$today" '
+    /^## \[Unreleased\]/ && !done { print; print ""; print "## [" ver "] - " date; done = 1; next }
+    { print }
+  ' CHANGELOG.md >"$tmp"
+  cat "$tmp" >CHANGELOG.md
+  rm -f "$tmp"
+  if ! "$REPO/bin/release-notes" "$tag" >/dev/null; then
+    git checkout -- CHANGELOG.md
+    die "bin/release-notes cannot read the new section; CHANGELOG.md restored"
+  fi
+fi
+step "git commit -m 'docs: changelog for $version' (CHANGELOG.md only)"
+if [[ "$dry" == 0 ]]; then
+  git add CHANGELOG.md
+  git commit --quiet -m "docs: changelog for $version"
+fi
+step "git tag -a $tag -m $tag"
+[[ "$dry" == 1 ]] || git tag -a "$tag" -m "$tag"
+
+# --- confirm and push ---
+echo
+echo "Plan: git push --atomic origin main $tag, then watch the Release workflow and print the release URL."
+if [[ "$dry" == 1 ]]; then
+  step "ask 'Push main and $tag to origin? [y/N]' (skipped with --yes)"
+  step "git push --atomic origin main $tag"
+  step "wait for the Release workflow run of $tag: gh run list --workflow Release --branch $tag; gh run watch RUN_ID --exit-status"
+  step "print the release URL: gh release view $tag --json url"
+  echo "Dry run finished; nothing was changed."
+  exit 0
+fi
+if [[ "$yes" == 0 ]]; then
+  printf 'Push main and %s to origin? [y/N] ' "$tag"
+  answer=""
+  read -r answer || true
+  case "$answer" in
+    y | Y | yes | YES) ;;
+    *)
+      echo "Not pushed. The changelog commit and tag $tag exist locally only."
+      echo "  push later:  git push --atomic origin main $tag"
+      echo "  undo:        git tag -d $tag && git reset --hard HEAD~1"
+      exit 1 ;;
+  esac
+fi
+step "git push --atomic origin main $tag"
+git push --atomic origin main "refs/tags/$tag"
+
+# --- watch the workflow ---
+wait_s="${RELEASE_RUN_WAIT_SECONDS:-5}"
+run_id=""
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
+  run_id="$(gh run list --workflow Release --branch "$tag" --limit 1 --json databaseId --jq '.[0].databaseId // empty' 2>/dev/null || true)"
+  [[ -n "$run_id" ]] && break
+  sleep "$wait_s"
+done
+[[ -n "$run_id" ]] || die "pushed $tag, but no Release workflow run appeared; check the Actions tab"
+step "gh run watch $run_id"
+if ! gh run watch "$run_id" --exit-status; then
+  die "the Release workflow failed (run $run_id); see: gh run view $run_id --log-failed"
+fi
+url="$(gh release view "$tag" --json url --jq .url)" || die "workflow passed but 'gh release view $tag' failed"
+echo "Released $tag: $url"

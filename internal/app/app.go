@@ -367,7 +367,7 @@ func Run(ctx context.Context, o Options) int {
 	out.line(st.Header())
 
 	var eligible []adapter.PR
-	hidden := 0
+	hidden, shown := 0, 0
 	for _, pr := range prs {
 		kind, reason := rc.Classify(ignored, pr)
 		switch kind {
@@ -380,6 +380,7 @@ func Run(ctx context.Context, o Options) int {
 			if hideIgn {
 				hidden++
 			} else {
+				shown++
 				out.line(st.Row("IGNORED", dim, pr, reason))
 			}
 		default:
@@ -387,7 +388,10 @@ func Run(ctx context.Context, o Options) int {
 		}
 	}
 	if hidden > 0 {
-		out.line(fmt.Sprintf("%d ignored (hidden)", hidden))
+		out.line(st.c(dim, fmt.Sprintf("%d ignored (hidden) via %s (see: bbapprove doctor)", hidden, ignorePath)))
+	}
+	if shown > 0 {
+		out.line(st.c(dim, fmt.Sprintf("%d ignored via %s (see: bbapprove doctor)", shown, ignorePath)))
 	}
 
 	if !apply {

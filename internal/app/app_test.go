@@ -681,3 +681,26 @@ func TestNotAPRURLHint(t *testing.T) {
 		t.Errorf("code %d err %q", code, errOut)
 	}
 }
+
+func TestIgnoredFooterShowsPath(t *testing.T) {
+	env, _ := baseEnv(t)
+	writeIgnore(t, "npm\nsome-library\n")
+	ip := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "bbapprove", "ignore")
+	env = append(env, "FAKE_LIST="+ignoreList())
+	_, out, _ := run(t, env)
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	n := len(lines)
+	if want := "3 ignored via " + ip + " (see: bbapprove doctor)"; lines[n-2] != want || !strings.HasPrefix(lines[n-1], "Dry run") {
+		t.Errorf("footer wants %q before the dry-run line:\n%s", want, out)
+	}
+	// hidden variant keeps its wording and adds the path
+	_, out, _ = run(t, env, "--hide-ignored")
+	if want := "3 ignored (hidden) via " + ip + " (see: bbapprove doctor)"; !strings.Contains(out, want) || strings.Contains(out, " ignored via ") {
+		t.Errorf("hidden footer wants %q:\n%s", want, out)
+	}
+	// nothing ignored: no footer
+	os.Remove(ip)
+	if _, out, _ = run(t, env); strings.Contains(out, "see: bbapprove doctor") {
+		t.Errorf("footer without ignored rows:\n%s", out)
+	}
+}

@@ -20,7 +20,7 @@ ok   parse:        valid TOML
         type:            bitbucket  [default]
         adapter:         $ROOT/adapters/bitbucket  [default]
         repository:      https://bb.corp.test  [file]
-        user_token_name: BITBUCKET_TOKEN  [default]
+        user_token_name: (not set)  [unset]
         author_email:    bot@corp.test  [file]
         update_repo:     jesperronn/bbapprove  [default]
         disallow_file:   $ROOT/disallow.txt  [default]
@@ -31,10 +31,8 @@ adapter:
      path:         $ROOT/adapters/bitbucket  [default]
 ok   state:        exists, executable
 
-token (never printed; in order of precedence):
-     1. --token flag        per run only; not visible to doctor
-     2. BBAPPROVE_TOKEN env not set
-     3. 1Password           item "BITBUCKET_TOKEN" via adapter (op: found at /usr/bin/op)
+token (never printed; BBAPPROVE_TOKEN wins over a 1Password item):
+ok   BBAPPROVE_TOKEN set
 
 ignore list:
      path:         $XDG/bbapprove/ignore
@@ -57,6 +55,7 @@ disallow (matching PRs are SKIPped):
 environment:
      BBAPPROVE_DISALLOW=Foo,bar
      BBAPPROVE_JOBS=3
+     BBAPPROVE_TOKEN=set (value hidden)
      NO_COLOR=1
      FORCE_COLOR not set
      XDG_CONFIG_HOME=$XDG

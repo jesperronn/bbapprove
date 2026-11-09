@@ -117,7 +117,7 @@ func TestPrecedence(t *testing.T) {
 		token  Value
 		author Value
 	}{
-		{"defaults only", "", nil, "", val("", FromNone), val(DefaultTokenName, FromDefault), val("", FromNone)},
+		{"defaults only", "", nil, "", val("", FromNone), val("", FromNone), val("", FromNone)},
 		{"file", fileA, nil, "", val("https://file.example.com", FromFile), val("FILE_ITEM", FromFile), val("file-bot@example.com", FromFile)},
 		{"env beats file", fileA, map[string]string{
 			"BBAPPROVE_REPOSITORY": "https://env.example.com", "BBAPPROVE_TOKEN_NAME": "ENV_ITEM", "BBAPPROVE_AUTHOR_EMAIL": "env-bot@example.com",
@@ -125,7 +125,7 @@ func TestPrecedence(t *testing.T) {
 		{"flag beats env and file", fileA, map[string]string{"BBAPPROVE_TOKEN_NAME": "ENV_ITEM"}, "FLAG_ITEM",
 			val("https://file.example.com", FromFile), val("FLAG_ITEM", FromFlag), val("file-bot@example.com", FromFile)},
 		{"env only", "", map[string]string{"BBAPPROVE_REPOSITORY": "https://env.example.com"}, "",
-			val("https://env.example.com", FromEnv), val(DefaultTokenName, FromDefault), val("", FromNone)},
+			val("https://env.example.com", FromEnv), val("", FromNone), val("", FromNone)},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

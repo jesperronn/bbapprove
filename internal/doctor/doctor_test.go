@@ -62,7 +62,7 @@ func newRig(t *testing.T) *rig {
 	ad := filepath.Join(r.root, "adapters", "bitbucket")
 	os.MkdirAll(filepath.Dir(ad), 0o755)
 	os.WriteFile(ad, []byte("#!/bin/sh\n"), 0o755)
-	r.env = []string{"NO_COLOR=1", "XDG_CONFIG_HOME=" + r.xdg}
+	r.env = []string{"NO_COLOR=1", "XDG_CONFIG_HOME=" + r.xdg, "BBAPPROVE_TOKEN=tok-" + canary}
 	return r
 }
 
@@ -311,31 +311,44 @@ func TestDisallowSources(t *testing.T) {
 	mustContain(t, out, "config file:", "left-pad", "env-dep", "other-dep", df+"  [env, found]", "file-dep", "--disallow:", "flag only")
 }
 
-func TestTokenSectionNeverLeaks(t *testing.T) {
+const canary = "CANARY-SECRET-123"
+
+func TestTokenSection(t *testing.T) {
 	const secret = "s3cr3t-token-VALUE-123"
 	for _, tc := range []struct {
 		name    string
+		cfg     string
 		env     []string
 		tools   map[string]string
+		exit    int
 		wants   []string
 		unwants []string
 	}{
-		{"env set, op present", []string{"BBAPPROVE_TOKEN=" + secret}, nil,
-			[]string{"BBAPPROVE_TOKEN env set", "op: found at /usr/bin/op", `item "BITBUCKET_TOKEN"`, "BBAPPROVE_TOKEN=set (value hidden)"}, []string{"NOT found"}},
-		{"env unset, op missing", nil, map[string]string{"git": "/usr/bin/git"},
-			[]string{"BBAPPROVE_TOKEN env not set", "op: NOT found on PATH", "no token source here"}, nil},
-		{"custom item name", []string{"BBAPPROVE_TOKEN_NAME=MY_ITEM"}, nil, []string{`item "MY_ITEM"`}, nil},
+		{"env token wins", validCfg, []string{"BBAPPROVE_TOKEN=" + secret, "BBAPPROVE_TOKEN_NAME=MY_ITEM"}, nil, 0,
+			[]string{"BBAPPROVE_TOKEN set", `item "MY_ITEM" [env] is ignored`, "BBAPPROVE_TOKEN=set (value hidden)"}, []string{"not looked up"}},
+		{"name from env", validCfg, []string{"BBAPPROVE_TOKEN_NAME=MY_ITEM"}, nil, 0,
+			[]string{`from 1Password item "MY_ITEM" [env] (not looked up by doctor)`}, []string{"NOT found", "BBAPPROVE_TOKEN set"}},
+		{"name from file", validCfg + "user_token_name = \"FILE_ITEM\"\n", nil, nil, 0,
+			[]string{`from 1Password item "FILE_ITEM" [file] (not looked up by doctor)`}, nil},
+		{"name but no op", validCfg, []string{"BBAPPROVE_TOKEN_NAME=MY_ITEM"}, map[string]string{"git": "/usr/bin/git"}, 0,
+			[]string{`item "MY_ITEM"`, "op (1Password CLI) NOT found on PATH"}, nil},
+		{"neither", validCfg, nil, nil, 1,
+			[]string{"FAIL no token: BBAPPROVE_TOKEN is not set and no 1Password item name is configured", "1 problem(s) found"}, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := newRig(t)
-			r.writeXDG(validCfg)
+			r.writeXDG(tc.cfg)
+			r.env = []string{"NO_COLOR=1", "XDG_CONFIG_HOME=" + r.xdg} // no token source from the rig
 			r.env = append(r.env, tc.env...)
 			if tc.tools != nil {
 				r.tools = tc.tools
 			}
-			_, out := r.doctor(nil)
+			code, out := r.doctor(nil)
+			if code != tc.exit {
+				t.Errorf("exit %d, want %d", code, tc.exit)
+			}
 			mustContain(t, out, tc.wants...)
-			mustNotContain(t, out, append(tc.unwants, secret, "s3cr3t")...)
+			mustNotContain(t, out, append(tc.unwants, secret, "s3cr3t", canary)...)
 			for _, c := range r.run.calls {
 				if strings.HasPrefix(c, "op") || strings.Contains(c, secret) {
 					t.Errorf("runner called with %q", c)

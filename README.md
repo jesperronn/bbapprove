@@ -18,7 +18,7 @@ bin/bbapprove -i                   # interactive TUI (see below)
 bin/bbapprove --help               # flags, eligibility rules, env vars
 ```
 
-Flags: `--apply`, `--hide-ignored`, `--disallow a,b` (adds to the disallow list), `--token T`, `--token-name NAME`,
+Flags: `--apply`, `--hide-ignored`, `--disallow a,b` (adds to the disallow list), `--token-name NAME`,
 `--config FILE`, `--print-config`, `--init [--force]`, `--outdated [--pre]`, `--update [--yes] [--pre]`,
 `-i/--interactive`, `-h/--help`.
 
@@ -70,7 +70,7 @@ bbapprove doctor --help
 
 Read-only diagnostics, no token and no forge access needed: version and whether a newer release exists, the
 config file in use and every candidate path with `used` / `shadowed` / `not found`, where each setting came from,
-the adapter, the token sources (never the token itself; `op` is only looked for on `PATH`, never run), the
+the adapter, the token source (a FAIL when there is none; never a value, `op` is only looked for on `PATH`, never run), the
 ignore and disallow lists, `BBAPPROVE_*` variables, and `git` / `gh` / `op`. Exit 0 when nothing FAILed, 1 otherwise;
 `--offline` skips the update check; `bbapprove doctor --help` explains each section. Typical output:
 
@@ -140,7 +140,7 @@ cp bbapprove.config.template bbapprove.config.toml
 ```toml
 type = "bitbucket"                              # forge adapter: adapters/<type>; default "bitbucket"
 repository = "https://bitbucket.example.com"    # base URL of the forge; required, no default
-user_token_name = "BITBUCKET_TOKEN"             # 1Password item (field "token"); default BITBUCKET_TOKEN
+# user_token_name = "my-1password-item"       # optional 1Password item holding the token; no default; BBAPPROVE_TOKEN wins
 author_email = "renovate-bot@example.com"       # only PRs by this bot are eligible; required, no default
 disallow = ["some-library", "another-library"]  # never auto-approve; merged with --disallow
 update_repo = "jesperronn/bbapprove"            # GitHub owner/repo for --outdated and --update; this is the default
@@ -152,7 +152,7 @@ error), `<repo root>/bbapprove.config.toml` (the parent of the binary's director
 
 **Precedence** per setting: command line > environment > config file > built-in default. The environment names are
 `BBAPPROVE_REPOSITORY`, `BBAPPROVE_TOKEN_NAME`, `BBAPPROVE_AUTHOR_EMAIL` and `BBAPPROVE_UPDATE_REPO`; the command line has `--token-name NAME`.
-Only `type`, `user_token_name` and `update_repo` have built-in defaults. `disallow` is the union of the file, `--disallow` /
+Only `type` and `update_repo` have built-in defaults (`user_token_name` has none). `disallow` is the union of the file, `--disallow` /
 `BBAPPROVE_DISALLOW` and the optional legacy `BBAPPROVE_DISALLOW_FILE` (one dependency per line; default `disallow.txt`
 in the repo root, git-ignored). `BBAPPROVE_ADAPTER` (an executable path) overrides what `type` selects.
 
@@ -164,6 +164,30 @@ Without `repository` or `author_email` bbapprove exits 1, names the missing sett
 
 **Debugging**: `bbapprove --print-config` prints the effective settings and whether each came from the flag, the
 environment, the file or a default. It never prints a token and never contacts the forge.
+
+### Token
+
+The token is resolved in this order:
+
+1. `BBAPPROVE_TOKEN`, when set and non-empty. It wins; 1Password is not consulted.
+2. Otherwise the 1Password item named by `--token-name NAME`, `BBAPPROVE_TOKEN_NAME` or `user_token_name`
+   (that precedence). bbapprove runs `op item get "<NAME>" --reveal --fields label=token` and, if that fails or is
+   empty, retries with `--fields label=credential`. There is no default item name.
+3. Otherwise every run that talks to the forge (the dry run, `--apply`, `-i`) stops at once with exit 1, before the
+   adapter is called. `--help`, `--print-config`, `--init`, `--outdated`, `--update` and `doctor` do not need a
+   token; `bbapprove doctor` flags a missing source as a problem and never looks the item up.
+
+Create a Bitbucket Server / Data Center HTTP access token (personal access token) for the account that reviews
+the PRs. The adapter reads the PR dashboard, build status and PR details, so the token needs repository read
+access, and write access to approve, merge, comment on and decline PRs (`--apply`, TUI actions).
+
+```
+export BBAPPROVE_TOKEN=...                      # shell profile or direnv (.envrc)
+export BBAPPROVE_TOKEN_NAME=my-1password-item   # or --token-name / user_token_name; needs the 1Password CLI (op)
+```
+
+There is no `--token` option: a token on a command line is visible to every user in the process list and ends up
+in shell history.
 
 ## Interactive TUI (`-i`)
 
@@ -266,10 +290,10 @@ Fixed-width columns: `STATUS`, then the check glyphs, then the PR ref and title.
 
 | Variable | Purpose |
 | --- | --- |
-| `BBAPPROVE_TOKEN` | API token (also `--token`); the adapter's `auth token` prints it when unset |
+| `BBAPPROVE_TOKEN` | API token; wins over a 1Password item (see [Token](#token)) |
 | `BBAPPROVE_CONFIG` | config file path (also `--config`); must exist |
 | `BBAPPROVE_REPOSITORY` | forge base URL (overrides `repository`) |
-| `BBAPPROVE_TOKEN_NAME` | 1Password item name (also `--token-name`; overrides `user_token_name`) |
+| `BBAPPROVE_TOKEN_NAME` | 1Password item name, used only when `BBAPPROVE_TOKEN` is unset (also `--token-name`; overrides `user_token_name`; no default) |
 | `BBAPPROVE_AUTHOR_EMAIL` | author the eligibility check requires (overrides `author_email`) |
 | `BBAPPROVE_UPDATE_REPO` | GitHub `owner/repo` for `--outdated` and `--update` (overrides `update_repo`; default `jesperronn/bbapprove`) |
 | `BBAPPROVE_DISALLOW` | comma-separated extra disallow items |
@@ -281,7 +305,7 @@ Fixed-width columns: `STATUS`, then the check glyphs, then the PR ref and title.
 | `NO_COLOR`, `FORCE_COLOR` | colour control (colour only on a TTY by default) |
 
 Adapter-side (read by `adapters/bitbucket`; the core sets the first two from the configuration):
-`BBAPPROVE_BASE_URL` (required, no default), `BBAPPROVE_TOKEN_NAME` (default `BITBUCKET_TOKEN`),
+`BBAPPROVE_BASE_URL` (required, no default), `BBAPPROVE_TOKEN` (required for `pr` commands, exit 2 when unset), `BBAPPROVE_TOKEN_NAME` (1Password item for `auth token`; no default),
 `BBAPPROVE_MERGE_RETRIES` (default 4; merge retries when the PR version went stale), `BBAPPROVE_RETRY_SLEEP`
 (default 2 seconds between retries).
 

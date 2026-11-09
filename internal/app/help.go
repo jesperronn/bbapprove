@@ -6,6 +6,7 @@ import "bbapprove/internal/style"
 const doctorUsageMarkup = `{title:bbapprove doctor — diagnose the installation and the configuration.}
 
 {h:Usage:} bbapprove {cmd:doctor} [{flag:--offline}] [{flag:--config} {val:FILE}] [{flag:--disallow} {val:a,b}]
+                         [{flag:--token-name} {val:NAME}]
        bbapprove {cmd:doctor} {flag:--help}
 
 Read-only: prints a report, changes nothing, never prints a secret, and needs no token,
@@ -15,6 +16,8 @@ forge access or config file. It also works when the configuration is broken: tha
   {flag:--offline}       skip the update check (nothing leaves this machine)
   {flag:--config} {val:FILE}   diagnose this config file ({env:BBAPPROVE_CONFIG} does the same; the flag wins)
   {flag:--disallow} {val:a,b}  add disallowed dependencies, as for a normal run
+  {flag:--token-name} {val:NAME}  1Password item that holds the token, as for a normal run ({env:BBAPPROVE_TOKEN_NAME}
+                         and user_token_name do the same); only used when {env:BBAPPROVE_TOKEN} is unset
   {flag:-h}, {flag:--help}      show this help
 
 {h:Sections:} one block each, in this order
@@ -26,7 +29,9 @@ forge access or config file. It also works when the configuration is broken: tha
                valid TOML and still holds the template's example values; then every effective
                setting with its source: {src-flag:[flag]}, {src-env:[env]}, {src-file:[file]} or {src-default:[default]}
   adapter      the forge type, the adapter path, and that it exists and is executable
-  token        the token sources in order of precedence (never the token; {cmd:op} is only looked for on PATH)
+  token        where the token comes from: {env:BBAPPROVE_TOKEN} (wins), else the 1Password item named by
+               {flag:--token-name} / {env:BBAPPROVE_TOKEN_NAME} / user_token_name; never a value, and doctor
+               does not run op. FAIL when there is neither
   ignore list  the per-user ignore file, whether it is readable (an unreadable list is a problem:
                bbapprove then refuses to run), and its entries
   disallow     the disallow lists from the config file, {env:BBAPPROVE_DISALLOW} and the disallow file

@@ -1,7 +1,7 @@
 bbapprove v1.2.3 — approve and merge Renovate PRs on Bitbucket Server.
 
-Usage: bbapprove [--apply] [--hide-ignored] [--disallow a,b] [--token T] [--token-name NAME]
-                 [--config FILE] [--print-config] [PR_URL...]
+Usage: bbapprove [--apply] [--hide-ignored] [--disallow a,b]
+                 [--token-name NAME] [--config FILE] [--print-config] [PR_URL...]
        bbapprove --init [--force] [--config FILE]
        bbapprove doctor [--offline] [--config FILE]
        bbapprove --outdated [--pre]
@@ -28,18 +28,21 @@ A PR is eligible when ALL hold:
   - not already approved by you
   - not on your ignore list (a PR on it is IGNORED whatever else applies, and never acted on)
 
-Configuration: a TOML file (see bbapprove.config.template) with type, repository, user_token_name,
-author_email, disallow. Found via --config / BBAPPROVE_CONFIG, else <repo>/bbapprove.config.toml, else
+Configuration: a TOML file (see bbapprove.config.template) with type, repository,
+author_email, disallow, update_repo, user_token_name. Found via --config / BBAPPROVE_CONFIG, else <repo>/bbapprove.config.toml, else
 $XDG_CONFIG_HOME/bbapprove/config.toml (default ~/.config/...). Precedence: command line > env > file >
 default. repository and author_email have no default. With no config file at all, an interactive run
 offers to create $XDG_CONFIG_HOME/bbapprove/config.toml from the template and open it in $VISUAL/$EDITOR;
 --init does that on request (never overwrites an existing file unless --force; --config FILE or BBAPPROVE_CONFIG picks the
 path). The template is built into the binary. --print-config shows the effective settings
-(no secrets) and where each came from. --token-name NAME overrides the 1Password item name.
+(no secrets) and where each came from.
+The API token: BBAPPROVE_TOKEN if set (wins), else the 1Password item named by --token-name NAME,
+BBAPPROVE_TOKEN_NAME or user_token_name (looked up with "op", field token, then credential; no default name).
+With neither a run that needs the forge fails at once. There is no --token option (visible in the process list).
 
 doctor prints diagnostics and needs no token or forge access: version and update status, which config
 file is in use (every candidate path and why), where each setting came from, the adapter, the token
-sources (never the token), the ignore list (path and entries: what makes a row IGNORED), the disallow
+source (never its value; op is not run), the ignore list (path and entries: what makes a row IGNORED), the disallow
 lists, BBAPPROVE_* variables and tools (git, gh, op). Read-only; --offline skips the update check.
 Exit 0 all good (warnings allowed), 1 a problem was found.
 
@@ -55,5 +58,5 @@ verified, needs gh): the running tree is never modified, the commands to switch 
 printed. Neither flag needs a config file, token or forge access; both are exclusive with --apply and PR_URLs.
 
 Env: BBAPPROVE_CONFIG, BBAPPROVE_UPDATE_REPO, BBAPPROVE_REPOSITORY, BBAPPROVE_AUTHOR_EMAIL, BBAPPROVE_TOKEN_NAME,
-     BBAPPROVE_DISALLOW, BBAPPROVE_DISALLOW_FILE, BBAPPROVE_JOBS, BBAPPROVE_ADAPTER, BBAPPROVE_TOKEN,
+     BBAPPROVE_DISALLOW, BBAPPROVE_DISALLOW_FILE, BBAPPROVE_JOBS, BBAPPROVE_ADAPTER, BBAPPROVE_TOKEN (wins over the item),
      BBAPPROVE_MOUSE, BBAPPROVE_KITTY; NO_COLOR, FORCE_COLOR.

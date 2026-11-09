@@ -1,5 +1,5 @@
 // Package doctor implements `bbapprove doctor`: a read-only report on the installation, the config files
-// in use, the ignore and disallow lists, the token sources and the external tools. It needs no forge
+// in use, the ignore and disallow lists, the token source and the external tools. It needs no forge
 // access and no token, never prints a secret and never runs `op` (it only looks for it on PATH).
 //
 // Everything that touches the process (environment, PATH, running executable, external commands) is
@@ -395,26 +395,26 @@ func (r *report) sectionAdapter(cfg *config.Config) {
 }
 
 func (r *report) sectionToken(cfg *config.Config) {
-	r.head("token (never printed; in order of precedence):")
-	r.line("", "%-22s %s", "1. --token flag", "per run only; not visible to doctor")
-	envState := "not set"
-	if r.o.env("BBAPPROVE_TOKEN") != "" {
-		envState = "set"
-	}
-	r.line("", "%-22s %s", "2. BBAPPROVE_TOKEN env", envState)
-	name := config.DefaultTokenName
+	r.head("token (never printed; BBAPPROVE_TOKEN wins over a 1Password item):")
+	name, src := "", ""
 	if cfg != nil {
-		name = cfg.TokenName.Value
+		name, src = cfg.TokenName.Value, cfg.TokenName.Source
 	}
-	opState := "op: NOT found on PATH"
-	have := false
-	if p, err := r.o.LookPath("op"); err == nil {
-		opState = "op: found at " + p
-		have = true
+	if r.o.env("BBAPPROVE_TOKEN") != "" {
+		r.line("ok", "%s set", r.p(style.Env, "BBAPPROVE_TOKEN"))
+		if name != "" {
+			r.line("", "1Password item %q [%s] is ignored while BBAPPROVE_TOKEN is set", name, src)
+		}
+		return
 	}
-	r.line("", "%-22s item %q via adapter (%s)", "3. 1Password", name, opState)
-	if envState == "not set" && !have {
-		r.line("warn", "no token source here: pass --token, set BBAPPROVE_TOKEN or install the 1Password CLI")
+	if name == "" {
+		r.line("fail", "no token: %s is not set and no 1Password item name is configured", r.p(style.Env, "BBAPPROVE_TOKEN"))
+		r.fail("no API token source", "export BBAPPROVE_TOKEN=<token>, or set BBAPPROVE_TOKEN_NAME / --token-name / user_token_name to a 1Password item")
+		return
+	}
+	r.line("ok", "from 1Password item %q [%s] (not looked up by doctor)", name, src)
+	if _, err := r.o.LookPath("op"); err != nil {
+		r.line("warn", "op (1Password CLI) NOT found on PATH; the item cannot be looked up")
 	}
 }
 

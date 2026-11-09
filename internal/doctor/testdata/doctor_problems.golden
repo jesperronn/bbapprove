@@ -18,7 +18,7 @@ FAIL in use:       none
         type:            bitbucket  [default]
         adapter:         $ROOT/adapters/bitbucket  [default]
         repository:      (not set)  [unset]
-        user_token_name: BITBUCKET_TOKEN  [default]
+        user_token_name: (not set)  [unset]
         author_email:    (not set)  [unset]
         update_repo:     jesperronn/bbapprove  [default]
         disallow_file:   $ROOT/disallow.txt  [default]
@@ -29,10 +29,8 @@ adapter:
      path:         $ROOT/adapters/bitbucket  [default]
 FAIL state:        does not exist
 
-token (never printed; in order of precedence):
-     1. --token flag        per run only; not visible to doctor
-     2. BBAPPROVE_TOKEN env not set
-     3. 1Password           item "BITBUCKET_TOKEN" via adapter (op: found at /usr/bin/op)
+token (never printed; BBAPPROVE_TOKEN wins over a 1Password item):
+FAIL no token: BBAPPROVE_TOKEN is not set and no 1Password item name is configured
 
 ignore list:
      path:         $XDG/bbapprove/ignore
@@ -64,4 +62,5 @@ tools:
 
 FAIL no config file found (searched $ROOT/bbapprove.config.toml, $XDG/bbapprove/config.toml) and repository/author_email are not both set — run: bbapprove --init   (or: cp bbapprove.config.template bbapprove.config.toml in $ROOT and edit it)
 FAIL adapter $ROOT/adapters/bitbucket does not exist — check type / BBAPPROVE_ADAPTER, or reinstall (bin/build --install)
-2 problem(s) found
+FAIL no API token source — export BBAPPROVE_TOKEN=<token>, or set BBAPPROVE_TOKEN_NAME / --token-name / user_token_name to a 1Password item
+3 problem(s) found

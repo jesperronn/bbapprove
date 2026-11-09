@@ -69,8 +69,9 @@ func Run(ctx context.Context, o RunOptions) int {
 			tokName = next()
 		case a == "--config" || strings.HasPrefix(a, "--config="):
 			cfgFile = next()
-		case a == "--token" || strings.HasPrefix(a, "--token="):
-			token = next()
+		case config.IsRemovedTokenFlag(a):
+			fmt.Fprintln(o.Stderr, config.RemovedTokenFlagHelp)
+			return 2
 		}
 	}
 	cin := config.Input{
@@ -95,6 +96,10 @@ func Run(ctx context.Context, o RunOptions) int {
 			return code
 		}
 	}
+	if token == "" && cfg.TokenName.Value == "" { // fail fast, before the adapter is touched
+		fmt.Fprintln(o.Stderr, config.TokenMissingHelp)
+		return 1
+	}
 	path := cfg.Adapter.Value
 	jobs := runtime.NumCPU()
 	if n, err := strconv.Atoi(env("BBAPPROVE_JOBS")); err == nil && n > 0 {
@@ -102,7 +107,7 @@ func Run(ctx context.Context, o RunOptions) int {
 	}
 	rc := rules.Config{AuthorEmail: cfg.AuthorEmail.Value, Disallow: cfg.Disallow}
 	client := &adapter.Client{Path: path, Token: token, Environ: cfg.ChildEnv(o.Environ)}
-	if token == "" {
+	if token == "" { // BBAPPROVE_TOKEN wins; otherwise look the named 1Password item up
 		t, err := client.AuthToken(ctx)
 		if err != nil {
 			fmt.Fprintln(o.Stderr, err)

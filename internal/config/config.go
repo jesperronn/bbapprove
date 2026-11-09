@@ -1,8 +1,8 @@
 // Package config resolves bbapprove's site-specific settings (forge type and URL, token item name,
 // bot author email, disallow list) from flags, environment, a TOML config file and built-in defaults.
 //
-// Precedence per setting: command line > environment > config file > built-in default. Only `type` and
-// `user_token_name` have built-in defaults; `repository` and `author_email` must be configured.
+// Precedence per setting: command line > environment > config file > built-in default. Only `type`
+// has a built-in default; `repository`, `author_email` and `user_token_name` must be configured (the latter only when the token is not in BBAPPROVE_TOKEN).
 package config
 
 import (
@@ -30,8 +30,7 @@ const (
 
 // Built-in defaults. There is deliberately none for repository or author_email.
 const (
-	DefaultType      = "bitbucket"
-	DefaultTokenName = "BITBUCKET_TOKEN"
+	DefaultType = "bitbucket"
 	// DefaultUpdateRepo is where --outdated/--update look for releases (owner/repo).
 	DefaultUpdateRepo = "jesperronn/bbapprove"
 	// TemplateName is the committed example config; the real file is TemplateName's sibling ConfigName.
@@ -155,7 +154,7 @@ func Load(in Input) (*Config, error) {
 	// `type` has no flag or env of its own: BBAPPROVE_ADAPTER (a path) overrides what it selects.
 	c.Type = pick("", "", data.Type, DefaultType)
 	c.Repository = pick("", in.Env("BBAPPROVE_REPOSITORY"), data.Repository, "")
-	c.TokenName = pick(in.TokenNameFlag, in.Env("BBAPPROVE_TOKEN_NAME"), data.UserTokenName, DefaultTokenName)
+	c.TokenName = pick(in.TokenNameFlag, in.Env("BBAPPROVE_TOKEN_NAME"), data.UserTokenName, "")
 	c.AuthorEmail = pick("", in.Env("BBAPPROVE_AUTHOR_EMAIL"), data.AuthorEmail, "")
 	c.UpdateRepo = pick("", in.Env("BBAPPROVE_UPDATE_REPO"), data.UpdateRepo, DefaultUpdateRepo)
 
@@ -332,4 +331,22 @@ func (c *Config) SettingsThemed(t style.Theme) string {
 	row("disallow_file", c.DisallowFile)
 	fmt.Fprintf(&b, "%s%s\n", label("disallow"), strings.Join(c.Disallow, ", "))
 	return b.String()
+}
+
+// TokenMissingHelp is printed when neither BBAPPROVE_TOKEN nor a 1Password item name is set.
+const TokenMissingHelp = `bbapprove: no API token.
+Set BBAPPROVE_TOKEN to a Bitbucket HTTP access token:
+  export BBAPPROVE_TOKEN=...
+or name a 1Password item holding it (looked up with "op", field token, then credential):
+  export BBAPPROVE_TOKEN_NAME=<item>     (or --token-name <item>, or user_token_name in the config file)
+run: bbapprove doctor`
+
+// RemovedTokenFlagHelp explains --token, which no longer exists.
+const RemovedTokenFlagHelp = `bbapprove: --token was removed (a token on the command line is visible to other users).
+Set the BBAPPROVE_TOKEN environment variable, or name a 1Password item with --token-name NAME /
+BBAPPROVE_TOKEN_NAME / user_token_name (see README, section Token); run: bbapprove doctor`
+
+// IsRemovedTokenFlag reports whether arg is the removed --token option (--token-name is valid).
+func IsRemovedTokenFlag(arg string) bool {
+	return arg == "--token" || strings.HasPrefix(arg, "--token=")
 }

@@ -201,12 +201,15 @@ test_missing_base_url_exits_2() {
   cleanup_test_tmp; TEST_TMP=""
 }
 
+# Stub op: logs its argv; OP_TOKEN_EMPTY=1 makes label=token fail, OP_ALL_FAIL=1 makes every lookup fail.
 setup_op_stub() {
   setup_stub
   cat >"$TEST_TMP/bin/op" <<'STUB'
 #!/usr/bin/env bash
 echo "$*" >>"$STUB_LOG.op"
-echo "tok-from-op"
+[[ -z "${OP_ALL_FAIL:-}" ]] || exit 1
+if [[ "$*" == *label=token* && -n "${OP_TOKEN_EMPTY:-}" ]]; then exit 1; fi
+if [[ "$*" == *label=credential* ]]; then echo "tok-from-credential"; else echo "tok-from-op"; fi
 STUB
   chmod +x "$TEST_TMP/bin/op"
 }
@@ -217,16 +220,55 @@ test_auth_token_uses_token_name_item() {
   out="$(BBAPPROVE_TOKEN="" BBAPPROVE_TOKEN_NAME="MY_ITEM" run_adapter auth token)"
   assert_contains "$out" "Waiting for 1Password: op item get MY_ITEM" "message names the configured item"
   assert_contains "$out" "tok-from-op" "token printed"
-  assert_contains "$(cat "$STUB_LOG.op")" "item get MY_ITEM --fields label=token --reveal" "op asked for the configured item"
+  assert_contains "$(cat "$STUB_LOG.op")" 'item get MY_ITEM --reveal --fields label=token' "op asked for the configured item"
+  assert_eq "$(grep -c credential "$STUB_LOG.op" || true)" "0" "no credential retry when token worked"
   cleanup_test_tmp; TEST_TMP=""
 }
 
-test_auth_token_item_defaults_to_bitbucket_token() {
+test_auth_token_falls_back_to_credential_field() {
   setup_op_stub
   local out
-  out="$(BBAPPROVE_TOKEN="" run_adapter auth token)"
-  assert_contains "$out" "Waiting for 1Password: op item get BITBUCKET_TOKEN" "default item name in the message"
-  assert_contains "$(cat "$STUB_LOG.op")" "item get BITBUCKET_TOKEN --fields" "op asked for the default item"
+  out="$(OP_TOKEN_EMPTY=1 BBAPPROVE_TOKEN="" BBAPPROVE_TOKEN_NAME="MY_ITEM" run_adapter auth token)"
+  assert_contains "$out" "tok-from-credential" "credential field used when token field fails"
+  assert_contains "$(cat "$STUB_LOG.op")" 'item get MY_ITEM --reveal --fields label=credential' "op retried with label=credential"
+  cleanup_test_tmp; TEST_TMP=""
+}
+
+test_auth_token_env_wins_and_op_not_called() {
+  setup_op_stub
+  local out
+  out="$(BBAPPROVE_TOKEN="env-secret" BBAPPROVE_TOKEN_NAME="MY_ITEM" run_adapter auth token)"
+  assert_eq "$out" "env-secret" "BBAPPROVE_TOKEN printed, no notice"
+  assert_eq "$([[ -e "$STUB_LOG.op" ]] && echo yes || echo no)" "no" "op was not called"
+  cleanup_test_tmp; TEST_TMP=""
+}
+
+test_auth_token_no_token_no_name_fails() {
+  setup_op_stub
+  local rc=0 out
+  out="$(BBAPPROVE_TOKEN="" BBAPPROVE_TOKEN_NAME="" run_adapter auth token)" || rc=$?
+  assert_eq "$rc" "1" "exit 1"
+  assert_contains "$out" "set BBAPPROVE_TOKEN, or BBAPPROVE_TOKEN_NAME" "help message"
+  assert_eq "$([[ -e "$STUB_LOG.op" ]] && echo yes || echo no)" "no" "op was not called without a name"
+  cleanup_test_tmp; TEST_TMP=""
+}
+
+test_auth_token_item_lookup_fails() {
+  setup_op_stub
+  local rc=0 out
+  out="$(OP_ALL_FAIL=1 BBAPPROVE_TOKEN="" BBAPPROVE_TOKEN_NAME="MY_ITEM" run_adapter auth token)" || rc=$?
+  assert_eq "$rc" "1" "exit 1 when neither field yields a token"
+  assert_contains "$out" "No token" "message"
+  cleanup_test_tmp; TEST_TMP=""
+}
+
+test_pr_commands_still_require_token() {
+  setup_op_stub
+  local rc=0 out
+  out="$(BBAPPROVE_TOKEN="" BBAPPROVE_TOKEN_NAME="MY_ITEM" run_adapter pr list --reviewer @me --state open)" || rc=$?
+  assert_eq "$rc" "2" "pr commands exit 2 without BBAPPROVE_TOKEN"
+  assert_eq "$out" "bitbucket adapter: BBAPPROVE_TOKEN is not set" "message"
+  assert_eq "$(cat "$STUB_LOG")" "" "no curl call without a token"
   cleanup_test_tmp; TEST_TMP=""
 }
 

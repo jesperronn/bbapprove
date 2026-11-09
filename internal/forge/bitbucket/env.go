@@ -35,6 +35,8 @@ type Env struct {
 	MergeRetries string // BBAPPROVE_MERGE_RETRIES, empty means 4
 	RetrySleep   string // BBAPPROVE_RETRY_SLEEP in seconds, empty means 2
 
+	DeleteSourceBranch string // BBAPPROVE_DELETE_SOURCE_BRANCH: true|1|yes or false|0|no, any case; empty means true
+
 	NoColor     string // NO_COLOR
 	ForceColor  string // FORCE_COLOR
 	StderrIsTTY bool   // whether stderr is a terminal (the dim 1Password notice)
@@ -60,9 +62,11 @@ func EnvFromOS() Env {
 		TokenName:    os.Getenv("BBAPPROVE_TOKEN_NAME"),
 		MergeRetries: os.Getenv("BBAPPROVE_MERGE_RETRIES"),
 		RetrySleep:   os.Getenv("BBAPPROVE_RETRY_SLEEP"),
-		NoColor:      os.Getenv("NO_COLOR"),
-		ForceColor:   os.Getenv("FORCE_COLOR"),
-		Stdin:        os.Stdin,
+
+		DeleteSourceBranch: os.Getenv("BBAPPROVE_DELETE_SOURCE_BRANCH"),
+		NoColor:            os.Getenv("NO_COLOR"),
+		ForceColor:         os.Getenv("FORCE_COLOR"),
+		Stdin:              os.Stdin,
 	}
 }
 
@@ -146,4 +150,15 @@ func nonNegative(name, val string, def int) (int, error) {
 		return 0, usagef("bitbucket adapter: %s must be a non-negative integer, got %q", name, val)
 	}
 	return n, nil
+}
+
+// deleteSourceBranch parses BBAPPROVE_DELETE_SOURCE_BRANCH; empty (unset) means true, like the bash adapter.
+func (e Env) deleteSourceBranch() (bool, error) {
+	switch strings.ToLower(e.DeleteSourceBranch) {
+	case "", "true", "1", "yes":
+		return true, nil
+	case "false", "0", "no":
+		return false, nil
+	}
+	return false, usagef("pr merge: BBAPPROVE_DELETE_SOURCE_BRANCH must be true or false, got: %s", e.DeleteSourceBranch)
 }

@@ -343,7 +343,7 @@ var charCases = []charCase{
 		eq(t, "exit", r.Exit, 0)
 		eq(t, "stderr", r.Stderr, "merge ok, but could not delete branch renovate/x (HTTP 500)\n")
 	}},
-	{name: "merge_delete_dropped_connection_warns_and_still_succeeds", args: []string{"pr", "merge", url5}, setup: func(s *bbfake.Server) {
+	{name: "merge_delete_dropped_connection_warns_and_still_succeeds", goDiff: "9", args: []string{"pr", "merge", url5}, setup: func(s *bbfake.Server) {
 		s.Fail("DELETE /branches", bbfake.Fault{Drop: true})
 	}, check: func(t *testing.T, r result) {
 		eq(t, "exit", r.Exit, 0)

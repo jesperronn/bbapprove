@@ -60,7 +60,7 @@ func run(ctx context.Context, args []string, env Env, stdout, stderr io.Writer) 
 	case "review":
 		return cmdReview(ctx, c, rest)
 	case "merge":
-		return cmdMerge(ctx, c, rest)
+		return cmdMerge(ctx, c, rest, stderr)
 	case "comment":
 		return cmdComment(ctx, c, rest, env.Stdin)
 	case "close":
@@ -146,7 +146,7 @@ func cmdReview(ctx context.Context, c *Client, args []string) error {
 	return c.Approve(ctx, args[0])
 }
 
-func cmdMerge(ctx context.Context, c *Client, args []string) error {
+func cmdMerge(ctx context.Context, c *Client, args []string, stderr io.Writer) error {
 	url, rest, err := prArg("merge", args)
 	if err != nil {
 		return err
@@ -154,7 +154,11 @@ func cmdMerge(ctx context.Context, c *Client, args []string) error {
 	if err := noExtra("merge", rest); err != nil {
 		return err
 	}
-	return c.Merge(ctx, url)
+	warns, err := c.MergeWarn(ctx, url)
+	for _, w := range warns {
+		fmt.Fprintln(stderr, w)
+	}
+	return err
 }
 
 // blank reports whether s is empty or only ASCII whitespace.

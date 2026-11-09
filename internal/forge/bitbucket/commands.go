@@ -179,12 +179,82 @@ func (c *Client) Approve(ctx context.Context, prURL string) error {
 // Merge merges the pull request. It re-reads the PR version before every attempt and retries only when the
 // server says the version is out of date (HTTP 409 mentioning out-of-date); see BBAPPROVE_MERGE_RETRIES and
 // BBAPPROVE_RETRY_SLEEP.
+//
+// After a successful merge the source branch is deleted unless BBAPPROVE_DELETE_SOURCE_BRANCH is false. A
+// deletion that fails never fails the merge; use MergeWarn to read the warning.
 func (c *Client) Merge(ctx context.Context, prURL string) error {
+	_, err := c.MergeWarn(ctx, prURL)
+	return err
+}
+
+// MergeWarn is Merge that also returns the warnings of a successful merge (a source branch that could not be
+// deleted), each one line as the CLI prints it on stderr.
+func (c *Client) MergeWarn(ctx context.Context, prURL string) ([]string, error) {
+	del, err := c.env.deleteSourceBranch()
+	if err != nil {
+		return nil, err
+	}
 	ref, err := parsePRURL(prURL)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return c.transition(ctx, ref, "merge", "merge")
+	pr, err := c.transition(ctx, ref, "merge", "merge")
+	if err != nil || !del {
+		return nil, err
+	}
+	return c.deleteBranch(ctx, pr), nil
+}
+
+// prRefs is what the merge needs to know about the PR's source and target.
+type prRefs struct {
+	fromID, fromProject, fromRepo, toProject, toRepo, toID string
+}
+
+func parseRefs(body []byte) prRefs {
+	var v struct {
+		FromRef struct {
+			ID   string `json:"id"`
+			Repo struct {
+				Slug    string `json:"slug"`
+				Project struct {
+					Key string `json:"key"`
+				} `json:"project"`
+			} `json:"repository"`
+		} `json:"fromRef"`
+		ToRef struct {
+			ID   string `json:"id"`
+			Repo struct {
+				Slug    string `json:"slug"`
+				Project struct {
+					Key string `json:"key"`
+				} `json:"project"`
+			} `json:"repository"`
+		} `json:"toRef"`
+	}
+	_ = decode("", body, &v)
+	return prRefs{v.FromRef.ID, v.FromRef.Repo.Project.Key, v.FromRef.Repo.Slug, v.ToRef.Repo.Project.Key, v.ToRef.Repo.Slug, v.ToRef.ID}
+}
+
+// deleteBranch removes the merged PR's source branch when it is a branch of the PR's own repository other than
+// the target. A branch that is already gone (404) is fine; any other failure is returned as a warning.
+func (c *Client) deleteBranch(ctx context.Context, r prRefs) []string {
+	if !strings.HasPrefix(r.fromID, "refs/heads/") || r.fromID == r.toID || r.fromProject != r.toProject || r.fromRepo != r.toRepo || r.toRepo == "" {
+		return nil
+	}
+	var b strings.Builder
+	b.WriteString(`{"name":`)
+	writeJSONString(&b, r.fromID)
+	b.WriteString(`,"dryRun":false}`)
+	resp, err := c.do(ctx, "DELETE", fmt.Sprintf("/rest/branch-utils/1.0/projects/%s/repos/%s/branches", r.toProject, r.toRepo), []byte(b.String()))
+	var warns []string
+	code := resp.code
+	if err != nil {
+		warns = append(warns, err.Error())
+		code = 0
+	} else if resp.ok() || resp.code == 404 {
+		return nil
+	}
+	return append(warns, fmt.Sprintf("merge ok, but could not delete branch %s (HTTP %03d)", strings.TrimPrefix(r.fromID, "refs/heads/"), code))
 }
 
 // Comment posts one comment.
@@ -224,56 +294,57 @@ func (c *Client) Close(ctx context.Context, prURL, comment string) error {
 			return &Error{Msg: err.Error() + "\nclose aborted: comment failed, PR not declined", Exit: 1}
 		}
 	}
-	return c.transition(ctx, ref, "close", "decline")
+	_, err = c.transition(ctx, ref, "close", "decline")
+	return err
 }
 
 // transition merges or declines (action) with the same stale-version retry loop. name prefixes the version-read
 // error.
-func (c *Client) transition(ctx context.Context, ref prRef, name, action string) error {
+func (c *Client) transition(ctx context.Context, ref prRef, name, action string) (prRefs, error) {
 	attempts, sleep, err := c.env.retryPolicy()
 	if err != nil {
-		return err
+		return prRefs{}, err
 	}
 	for attempt := 1; ; attempt++ {
-		version, err := c.readVersion(ctx, ref, name)
+		version, refs, err := c.readVersion(ctx, ref, name)
 		if err != nil {
-			return err
+			return prRefs{}, err
 		}
 		ep := fmt.Sprintf("%s/%s?version=%d", ref.path(), action, version)
 		resp, err := c.do(ctx, "POST", ep, []byte(fmt.Sprintf(`{"version":%d}`, version)))
 		if err != nil {
-			return err
+			return prRefs{}, err
 		}
 		if resp.ok() {
-			return nil
+			return refs, nil
 		}
 		if resp.code == 409 && bytes.Contains(resp.body, []byte("out-of-date")) && attempt < attempts {
 			c.env.sleep(ctx, sleep)
 			continue
 		}
-		return resp.fail(fmt.Sprintf("%s HTTP %d: %s", action, resp.code, errorMessages(resp.body)))
+		return prRefs{}, resp.fail(fmt.Sprintf("%s HTTP %d: %s", action, resp.code, errorMessages(resp.body)))
 	}
 }
 
 // readVersion fetches the PR's current version; a version read earlier goes stale when the target branch moves.
-func (c *Client) readVersion(ctx context.Context, ref prRef, name string) (int64, error) {
+func (c *Client) readVersion(ctx context.Context, ref prRef, name string) (int64, prRefs, error) {
 	resp, err := c.do(ctx, "GET", ref.path(), nil)
 	if err != nil {
-		return 0, err
+		return 0, prRefs{}, err
 	}
 	if resp.code != 200 {
-		return 0, resp.fail(fmt.Sprintf("%s: could not read PR version (HTTP %d)", name, resp.code))
+		return 0, prRefs{}, resp.fail(fmt.Sprintf("%s: could not read PR version (HTTP %d)", name, resp.code))
 	}
 	var v struct {
 		Version *int64 `json:"version"`
 	}
 	if err := decode(ref.path(), resp.body, &v); err != nil {
-		return 0, err
+		return 0, prRefs{}, err
 	}
 	if v.Version == nil {
-		return 0, failf("%s: could not read PR version (HTTP %d)", name, resp.code)
+		return 0, prRefs{}, failf("%s: could not read PR version (HTTP %d)", name, resp.code)
 	}
-	return *v.Version, nil
+	return *v.Version, parseRefs(resp.body), nil
 }
 
 // errorMessages joins the messages of Bitbucket's {"errors":[{"message":...}]} body with "; ", or "" when the

@@ -1,0 +1,15 @@
+## [2.0.0] - 2026-11-09
+
+### Changed (BREAKING)
+- **config:** rename user_token_name
+
+### Added
+- add the --outdated flag
+- **doctor:** report the token source
+
+### Changed
+- bring back the footer hint
+- **tui:** redraw only changed rows
+
+### Fixed
+- **update:** keep the old binary when the checksum differs

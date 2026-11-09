@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# changelog — derive the next version and the CHANGELOG section from conventional commits since the last tag
+#
+# Usage: bin/changelog <next|render|update|due> [flags]   (bin/changelog SUBCOMMAND -h for the flags)
+#   next    print the next version (exit 0 releasable, 3 nothing releasable)
+#   render  print the CHANGELOG section for it
+#   update  insert the section into CHANGELOG.md
+#   due     print the time left of the quiet period (exit 0 due, 4 not yet)
+# A thin wrapper: builds ./cmd/changelog to a temporary file and runs it from the repo root (so a relative --file
+# or --repo is relative to the root). It does not use `go run`, which turns every non-zero exit into 1 and would
+# hide the exit codes 3 and 4. A maintainer tool; not part of the release archives. See docs/releasing.md.
+# Env: CHANGELOG_BIN (a prebuilt tool to run instead of building one; the tests use it).
+# Exit: the tool's: 0 ok, 1 error, 2 usage error, 3 nothing releasable, 4 not yet due; 127 go missing.
+
+set -euo pipefail
+
+SELF="${BASH_SOURCE[0]}"
+while [[ -L "$SELF" ]]; do
+  target="$(readlink "$SELF")"
+  if [[ "$target" == /* ]]; then SELF="$target"; else SELF="$(dirname "$SELF")/$target"; fi
+done
+REPO="$(cd "$(dirname "$SELF")/.." && pwd -P)"
+
+if ! command -v go >/dev/null 2>&1; then
+  if [[ "$(uname -s)" == Darwin ]]; then hint="brew install go"; else hint="sudo apt install golang"; fi
+  echo "changelog: needs go ($hint)" >&2
+  exit 127
+fi
+
+cd "$REPO"
+bin="${CHANGELOG_BIN:-}"
+if [[ -z "$bin" ]]; then
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' EXIT
+  go build -o "$tmp/changelog" ./cmd/changelog
+  bin="$tmp/changelog"
+fi
+rc=0
+"$bin" "$@" || rc=$?
+exit "$rc"

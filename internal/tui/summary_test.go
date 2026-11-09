@@ -322,3 +322,27 @@ func TestRunNoChanges(t *testing.T) {
 		t.Fatalf("tail %q", out[max(0, len(out)-80):])
 	}
 }
+
+func TestMergeWarningShowsOnRowAndInSummary(t *testing.T) {
+	m, fb, _, _ := fixture(t)
+	const w = "merge ok, but could not delete branch renovate/x (HTTP 403)"
+	fb.warns = map[string]string{"https://bb/pr/1": w}
+	m.Update(tea.WindowSizeMsg{Width: 140, Height: 20}) // wide enough for the title and the note
+	drain(m, send(m, "a"))
+	row := strings.Join(lines(m), "\n")
+	if !strings.Contains(row, "MERGED") || !strings.Contains(row, "could not delete branch renovate/x (HTTP 403)") {
+		t.Fatalf("row lacks the merged status or the warning:\n%s", row)
+	}
+	got := m.Summary()
+	if !strings.Contains(got, "PRJ/repo#1 chore(deps): update dependency npm to v1.2.3 — could not delete branch renovate/x (HTTP 403)\n") || !strings.HasSuffix(got, "1 merged\n") {
+		t.Fatalf("summary:\n%s", got)
+	}
+}
+
+func TestMergeWithoutWarningIsUnchanged(t *testing.T) {
+	m, _, _, _ := fixture(t)
+	drain(m, send(m, "a"))
+	if got := m.Summary(); !strings.Contains(got, "PRJ/repo#1 chore(deps): update dependency npm to v1.2.3\n") {
+		t.Fatalf("summary:\n%s", got)
+	}
+}

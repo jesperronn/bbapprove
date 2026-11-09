@@ -57,11 +57,13 @@ func (c *Client) timeout(def time.Duration) time.Duration {
 
 // run executes the adapter with DefaultTimeout and returns trimmed stdout. On failure the error text is the adapter's stderr.
 func (c *Client) run(ctx context.Context, args ...string) (string, error) {
-	return c.runFor(ctx, DefaultTimeout, args...)
+	out, _, err := c.runFor(ctx, DefaultTimeout, args...)
+	return out, err
 }
 
-// runFor is run with an explicit per-call timeout (overridden by c.Timeout when set).
-func (c *Client) runFor(ctx context.Context, def time.Duration, args ...string) (string, error) {
+// runFor is run with an explicit per-call timeout (overridden by c.Timeout when set). It also returns the
+// trimmed stderr of a successful run, where an adapter reports a warning without failing.
+func (c *Client) runFor(ctx context.Context, def time.Duration, args ...string) (stdout, stderr string, err error) {
 	t := c.timeout(def)
 	ctx, cancel := context.WithTimeout(ctx, t)
 	defer cancel()
@@ -73,7 +75,7 @@ func (c *Client) runFor(ctx context.Context, def time.Duration, args ...string) 
 	if err := cmd.Run(); err != nil {
 		msg := strings.TrimSpace(errb.String())
 		if ctx.Err() != nil {
-			return "", fmt.Errorf("adapter %s timed out after %s", strings.Join(args[:min(2, len(args))], " "), t)
+			return "", "", fmt.Errorf("adapter %s timed out after %s", strings.Join(args[:min(2, len(args))], " "), t)
 		}
 		if msg == "" {
 			msg = strings.TrimSpace(out.String())
@@ -81,9 +83,9 @@ func (c *Client) runFor(ctx context.Context, def time.Duration, args ...string) 
 		if msg == "" {
 			msg = err.Error()
 		}
-		return "", errors.New(msg)
+		return "", "", errors.New(msg)
 	}
-	return strings.TrimSpace(out.String()), nil
+	return strings.TrimSpace(out.String()), strings.TrimSpace(errb.String()), nil
 }
 
 // AuthToken runs `auth token`.
@@ -132,8 +134,25 @@ func (c *Client) Approve(ctx context.Context, url string) error {
 
 // Merge runs `pr merge URL`.
 func (c *Client) Merge(ctx context.Context, url string) error {
-	_, err := c.runFor(ctx, MergeTimeout, "pr", "merge", url)
+	_, err := c.MergeWarn(ctx, url)
 	return err
+}
+
+// MergeWarn is Merge that also returns the adapter's warnings: whatever a successful merge wrote to stderr
+// (for example that the source branch could not be deleted), one trimmed line each. An adapter that prints
+// nothing yields none.
+func (c *Client) MergeWarn(ctx context.Context, url string) ([]string, error) {
+	_, errText, err := c.runFor(ctx, MergeTimeout, "pr", "merge", url)
+	if err != nil {
+		return nil, err
+	}
+	var warns []string
+	for _, l := range strings.Split(errText, "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			warns = append(warns, l)
+		}
+	}
+	return warns, nil
 }
 
 // Comment runs `pr comment URL --body TEXT`. The body is passed as a single argv entry (no shell).

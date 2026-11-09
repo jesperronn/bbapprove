@@ -5,6 +5,7 @@ import (
 	"context"
 	"os/exec"
 	"runtime"
+	"strings"
 
 	"bbapprove/internal/adapter"
 )
@@ -13,8 +14,9 @@ import (
 type Backend interface {
 	List(ctx context.Context) ([]adapter.PR, error)
 	// ApproveAndMerge approves then merges. The error text is the adapter stderr; when the approval
-	// succeeded but the merge failed the error is a *PartialError.
-	ApproveAndMerge(ctx context.Context, pr adapter.PR) error
+	// succeeded but the merge failed the error is a *PartialError. On success warning is what the adapter
+	// reported on stderr (one line, lines joined with "; "), "" when there was none.
+	ApproveAndMerge(ctx context.Context, pr adapter.PR) (warning string, err error)
 	// Comment posts a comment on the PR.
 	Comment(ctx context.Context, pr adapter.PR, body string) error
 	// Decline declines (closes) the PR, posting comment first when it is non-empty.
@@ -32,14 +34,15 @@ type ClientBackend struct{ Client *adapter.Client }
 
 func (b ClientBackend) List(ctx context.Context) ([]adapter.PR, error) { return b.Client.List(ctx) }
 
-func (b ClientBackend) ApproveAndMerge(ctx context.Context, pr adapter.PR) error {
+func (b ClientBackend) ApproveAndMerge(ctx context.Context, pr adapter.PR) (string, error) {
 	if err := b.Client.Approve(ctx, pr.URL); err != nil {
-		return err
+		return "", err
 	}
-	if err := b.Client.Merge(ctx, pr.URL); err != nil {
-		return &PartialError{Err: err}
+	warns, err := b.Client.MergeWarn(ctx, pr.URL)
+	if err != nil {
+		return "", &PartialError{Err: err}
 	}
-	return nil
+	return strings.Join(warns, "; "), nil
 }
 
 func (b ClientBackend) Comment(ctx context.Context, pr adapter.PR, body string) error {

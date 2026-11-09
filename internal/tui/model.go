@@ -129,8 +129,9 @@ type reloadedMsg struct {
 
 // The done messages carry the PR URL (not a row index) so a reload in between cannot misdirect them.
 type doneMsg struct {
-	url string
-	err error
+	url     string
+	err     error
+	warning string // adapter warning after a successful merge
 }
 
 type declineDoneMsg struct {
@@ -344,6 +345,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		word, code, text := wMerged, cGreen+cBold, ""
 		switch {
 		case msg.err == nil:
+			// Merged, with the adapter's note (e.g. branch not deleted) as the reason; the MERGED word already
+			// says "merge ok", so the long row only keeps the part that is news.
+			text = strings.TrimPrefix(oneLine(msg.warning), "merge ok, but ")
 		case errors.As(msg.err, &pe):
 			word, code, text = wNotMerged, cRed, oneLine(msg.err.Error())
 		default:
@@ -922,7 +926,8 @@ func (m *Model) runPending() tea.Cmd {
 		cmds = append(cmds, func() tea.Msg {
 			m.sem <- struct{}{}
 			defer func() { <-m.sem }()
-			return doneMsg{pr.URL, m.cfg.Backend.ApproveAndMerge(m.cfg.Ctx, pr)}
+			warn, err := m.cfg.Backend.ApproveAndMerge(m.cfg.Ctx, pr)
+			return doneMsg{pr.URL, err, warn}
 		})
 	}
 	m.msg = fmt.Sprintf("working on %d PR(s)…", len(m.pending))

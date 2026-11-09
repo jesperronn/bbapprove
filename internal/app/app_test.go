@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -792,5 +793,55 @@ func TestInvalidDeleteSourceBranchIsAConfigError(t *testing.T) {
 	code, _, errOut := run(t, append(env, "BBAPPROVE_DELETE_SOURCE_BRANCH=sometimes"))
 	if code == 0 || !strings.Contains(errOut, "BBAPPROVE_DELETE_SOURCE_BRANCH") {
 		t.Errorf("code %d err %q", code, errOut)
+	}
+}
+
+func TestApplyPrintsAdapterWarningAfterMergedLine(t *testing.T) {
+	const w = "merge ok, but could not delete branch renovate/e (HTTP 403)"
+	body := `case "$1 $2" in
+  "pr list") printf '%s' "$FAKE_LIST" ;;
+  "pr review") ;;
+  "pr merge") echo "` + w + `" >&2 ;;
+esac`
+	list := `[{"url":"http://h/pull-requests/5","number":5,"project":"P","repo":"e","title":"chore(deps): update e","author":{"email":"` + bot + `"},"headBranch":"r"}]`
+	without := func(env []string, drop string) []string {
+		var out []string
+		for _, e := range env {
+			if e != drop {
+				out = append(out, e)
+			}
+		}
+		return out
+	}
+	for _, tc := range []struct {
+		name   string
+		extra  []string
+		colour bool
+	}{
+		{"plain", nil, false},
+		{"force colour", []string{"FORCE_COLOR=1"}, true},
+		{"NO_COLOR wins", []string{"FORCE_COLOR=1", "NO_COLOR=1"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env, _ := baseEnv(t)
+			env = append(without(env, "NO_COLOR=1"), "FAKE_BODY="+body, "FAKE_LIST="+list, "BBAPPROVE_TOKEN=given")
+			env = append(env, tc.extra...)
+			code, out, errOut := run(t, env, "--apply")
+			if code != 0 || errOut != "" {
+				t.Fatalf("code %d err %q", code, errOut)
+			}
+			if strings.Count(out, w) != 1 {
+				t.Fatalf("the warning must appear once:\n%q", out)
+			}
+			if strings.Contains(out, "\x1b") != tc.colour {
+				t.Errorf("colour = %v, output %q", tc.colour, out)
+			}
+			plain := regexp.MustCompile("\x1b\\[[0-9;]*m").ReplaceAllString(out, "")
+			ls := strings.Split(strings.TrimRight(plain, "\n"), "\n")
+			n := len(ls)
+			if !strings.HasPrefix(ls[n-2], "MERGED") || ls[n-1] != "  ! "+w {
+				t.Errorf("the warning must directly follow the MERGED line:\n%s", plain)
+			}
+		})
 	}
 }

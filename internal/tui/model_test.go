@@ -27,8 +27,9 @@ type fakeBackend struct {
 	inflight int32
 	maxSeen  int32
 	errs     map[string]error
-	declined []call // Decline calls: url + comment
-	comments []call // Comment calls: url + body
+	warns    map[string]string // ApproveAndMerge warnings by url
+	declined []call            // Decline calls: url + comment
+	comments []call            // Comment calls: url + body
 }
 
 type call struct{ url, text string }
@@ -48,7 +49,7 @@ func (f *fakeBackend) Decline(_ context.Context, pr adapter.PR, comment string) 
 }
 
 func (f *fakeBackend) List(context.Context) ([]adapter.PR, error) { return f.prs, nil }
-func (f *fakeBackend) ApproveAndMerge(_ context.Context, pr adapter.PR) error {
+func (f *fakeBackend) ApproveAndMerge(_ context.Context, pr adapter.PR) (string, error) {
 	n := atomic.AddInt32(&f.inflight, 1)
 	for {
 		o := atomic.LoadInt32(&f.maxSeen)
@@ -60,7 +61,7 @@ func (f *fakeBackend) ApproveAndMerge(_ context.Context, pr adapter.PR) error {
 	f.mu.Lock()
 	f.called = append(f.called, pr.URL)
 	f.mu.Unlock()
-	return f.errs[pr.URL]
+	return f.warns[pr.URL], f.errs[pr.URL]
 }
 
 const bot = "bot@example.com"

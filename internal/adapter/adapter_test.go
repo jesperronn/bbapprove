@@ -215,3 +215,24 @@ func TestAuthToken(t *testing.T) {
 		t.Error("an empty token must be an error")
 	}
 }
+
+func TestMergeWarnReturnsStderrOfASuccessfulMerge(t *testing.T) {
+	c := fakeAdapter(t, `printf 'first warning\n\n  second warning  \n' >&2; exit 0`)
+	warns, err := c.MergeWarn(context.Background(), "https://bb/pr/9")
+	if err != nil || !reflect.DeepEqual(warns, []string{"first warning", "second warning"}) {
+		t.Fatalf("warns %q err %v", warns, err)
+	}
+	if err := c.Merge(context.Background(), "https://bb/pr/9"); err != nil {
+		t.Fatalf("Merge must ignore warnings: %v", err)
+	}
+}
+
+func TestMergeWarnSilentAdapterAndFailure(t *testing.T) {
+	if warns, err := fakeAdapter(t, `exit 0`).MergeWarn(context.Background(), "u"); err != nil || len(warns) != 0 {
+		t.Fatalf("silent adapter: %q %v", warns, err)
+	}
+	warns, err := fakeAdapter(t, `echo "a warning" >&2; echo "merge HTTP 409" >&2; exit 1`).MergeWarn(context.Background(), "u")
+	if err == nil || len(warns) != 0 || !strings.Contains(err.Error(), "merge HTTP 409") {
+		t.Fatalf("failure must be an error without warnings: %q %v", warns, err)
+	}
+}

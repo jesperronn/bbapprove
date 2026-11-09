@@ -424,10 +424,15 @@ func act(ctx context.Context, c *adapter.Client, st Style, pr adapter.PR) string
 	if err := c.Approve(ctx, pr.URL); err != nil {
 		return st.rowFull("FAIL", red, pr, oneLine(err.Error()))
 	}
-	if err := c.Merge(ctx, pr.URL); err != nil {
+	warns, err := c.MergeWarn(ctx, pr.URL)
+	if err != nil {
 		return st.rowFull("NOT MERGED", red, pr, oneLine(err.Error()))
 	}
-	return st.rowFull("MERGED", green+bold, pr, "")
+	line := st.rowFull("MERGED", green+bold, pr, "")
+	for _, w := range warns { // the merge went through; what the adapter had to say follows its line
+		line += "\n" + st.c(yellow, "  ! "+oneLine(w))
+	}
+	return line
 }
 
 func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }

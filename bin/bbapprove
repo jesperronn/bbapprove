@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
-# bbapprove — launcher for the Go binary bin/bbapprove-go. Rebuilds it when missing or older than
-# the Go sources, then execs it with every argument unchanged.
+# bbapprove — launcher: rebuilds bin/bbapprove-go when stale, then runs it (the command users install)
+#
+# Rebuilds the Go binary when missing or older than the Go sources, then execs it with every
+# argument unchanged.
 
 set -euo pipefail
 

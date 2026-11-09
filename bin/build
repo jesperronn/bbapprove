@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
-# build — build the bbapprove Go binary with a version embedded from git, optionally run the
-# checks first and/or install the launcher. See --help.
+# build — build the bbapprove Go binary with the git version embedded (--test checks first, --install links it)
+#
+# See --help. bin/install is the documented way to install.
 
 set -euo pipefail
 

@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# install — build bbapprove and link the launcher into a bin directory (default ~/.local/bin)
+#
+# Usage: bin/install [--prefix DIR] [--force]
+#   --prefix DIR  install directory (default $HOME/.local/bin; created if needed)
+#   --force       replace an existing file that is not our symlink
+# Delegates to `bin/build --install`, so the logic lives in one place.
+# Exit: 0 ok, 1 failed, 2 usage error, 127 Go missing.
+
+set -euo pipefail
+
+SELF="${BASH_SOURCE[0]}"
+while [[ -L "$SELF" ]]; do
+  target="$(readlink "$SELF")"
+  if [[ "$target" == /* ]]; then SELF="$target"; else SELF="$(dirname "$SELF")/$target"; fi
+done
+REPO="$(cd "$(dirname "$SELF")/.." && pwd -P)"
+
+usage() {
+  cat <<'USAGE'
+Usage: bin/install [--prefix DIR] [--force]
+
+Builds bbapprove and symlinks the launcher (bin/bbapprove) to DIR/bbapprove.
+  --prefix DIR   install directory (default $HOME/.local/bin; created if needed)
+  --force        replace an existing file that is not our symlink
+  -h, --help     this text
+USAGE
+}
+
+args=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h | --help) usage; exit 0 ;;
+    --force) args+=(--force) ;;
+    --prefix)
+      [[ $# -ge 2 ]] || { echo "install: --prefix needs a directory" >&2; usage >&2; exit 2; }
+      args+=(--prefix "$2"); shift ;;
+    *) echo "install: unknown option: $1" >&2; usage >&2; exit 2 ;;
+  esac
+  shift
+done
+
+if ! command -v go >/dev/null 2>&1; then
+  echo "install: needs Go to build (macOS: brew install go; Debian/Ubuntu: sudo apt install golang-go)" >&2
+  exit 127
+fi
+exec "$REPO/bin/build" --install ${args[@]+"${args[@]}"}

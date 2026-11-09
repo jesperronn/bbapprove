@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# setup — first-time setup for contributors: verify tools, download Go modules, build (idempotent)
+#
+# Usage: bin/setup [--check]
+#   --check   only verify the tools (no download, no build); exit 1 when a required tool is missing
+# Safe to re-run. Does not touch any config file or your PATH.
+# Exit: 0 ok, 1 something required is missing or failed, 2 usage error.
+
+set -euo pipefail
+
+SELF="${BASH_SOURCE[0]}"
+while [[ -L "$SELF" ]]; do
+  target="$(readlink "$SELF")"
+  if [[ "$target" == /* ]]; then SELF="$target"; else SELF="$(dirname "$SELF")/$target"; fi
+done
+REPO="$(cd "$(dirname "$SELF")/.." && pwd -P)"
+
+usage() {
+  cat <<'USAGE'
+Usage: bin/setup [--check]
+
+Verifies go (at least the version in go.mod), git, jq, shellcheck and rg (required) and gh, podman
+(optional), then runs `go mod download` and bin/build. Safe to re-run.
+  --check      only verify the tools; exit 1 when a required one is missing
+  -h, --help   this text
+USAGE
+}
+
+check_only=0
+case "${1:-}" in
+  "") ;;
+  --check) check_only=1 ;;
+  -h | --help) usage; exit 0 ;;
+  *) echo "setup: unknown option: $1" >&2; usage >&2; exit 2 ;;
+esac
+
+# install_hint TOOL: the package-manager command for this OS.
+install_hint() {
+  local brew_pkg="$1" apt_pkg="${2:-$1}"
+  if [[ "$(uname -s)" == Darwin ]]; then
+    echo "brew install $brew_pkg"
+  else
+    echo "sudo apt install $apt_pkg"
+  fi
+}
+
+missing=0
+# check_tool TOOL REQUIRED(1|0) BREW_PKG [APT_PKG]
+check_tool() {
+  local tool="$1" required="$2" brew_pkg="$3" apt_pkg="${4:-$3}"
+  if command -v "$tool" >/dev/null 2>&1; then
+    printf '  ok       %s\n' "$tool"
+  elif [[ "$required" == 1 ]]; then
+    printf '  MISSING  %s   -> %s\n' "$tool" "$(install_hint "$brew_pkg" "$apt_pkg")"
+    missing=1
+  else
+    printf '  optional %s not found (%s)\n' "$tool" "$(install_hint "$brew_pkg" "$apt_pkg")"
+  fi
+}
+
+# Minimum Go version from the "go X.Y[.Z]" line of go.mod.
+go_wanted="$(awk '$1 == "go" { print $2; exit }' "$REPO/go.mod" 2>/dev/null || true)"
+
+echo "Checking tools:"
+check_tool go 1 go golang-go
+check_tool git 1 git
+check_tool jq 1 jq
+check_tool shellcheck 1 shellcheck
+check_tool rg 1 ripgrep ripgrep
+check_tool gh 0 gh
+check_tool podman 0 podman
+
+if command -v go >/dev/null 2>&1 && [[ -n "$go_wanted" ]]; then
+  go_have="$(go env GOVERSION 2>/dev/null || true)"
+  go_have="${go_have#go}"
+  if [[ -n "$go_have" && "$(printf '%s\n%s\n' "$go_wanted" "$go_have" | sort -V | head -n 1)" != "$go_wanted" ]]; then
+    printf '  TOO OLD  go %s found, go.mod needs %s or newer   -> %s\n' "$go_have" "$go_wanted" "$(install_hint go golang-go)"
+    missing=1
+  else
+    printf '  ok       go %s (go.mod needs %s)\n' "${go_have:-?}" "$go_wanted"
+  fi
+fi
+
+if [[ "$missing" == 1 ]]; then
+  echo "setup: required tools are missing; install them and re-run bin/setup" >&2
+  exit 1
+fi
+if [[ "$check_only" == 1 ]]; then
+  echo "All required tools are present."
+  exit 0
+fi
+
+echo
+echo "Downloading Go modules..."
+(cd "$REPO" && go mod download)
+echo "Building..."
+"$REPO/bin/build"
+
+cat <<'NEXT'
+
+Setup done. Next steps:
+  bin/test      run the Go and shell test suites (bin/lint checks style)
+  bin/install   link bbapprove into ~/.local/bin
+  bin/help      list every command
+NEXT

@@ -17,7 +17,7 @@ import (
 
 const (
 	instantHints = "a approve  d decline  c comment  i ignore  x mark  o open  ? help  q quit"
-	batchHints   = "A approve marked  D decline marked  C comment marked  ctrl+a mark all  x mark  ? help  q quit"
+	batchHints   = "A approve marked  D decline marked  C comment marked  ctrl+a mark all  x mark  o open  ? help  q quit"
 )
 
 // Events as a terminal with the kitty keyboard protocol (all enhancements on) reports them.
@@ -355,7 +355,7 @@ func TestShiftThroughRealProgram(t *testing.T) {
 	feed("\x1b[57441;1:3u") // Left Shift release
 	wait("instant hints again", func() bool {
 		s := plain(out.String())
-		return strings.LastIndex(s, "o open") > strings.LastIndex(s, "decline marked")
+		return strings.LastIndex(s, "i ignore") > strings.LastIndex(s, "decline marked")
 	})
 	feed("c") // comment prompt (kitty: plain key = CSI 99u)
 	wait("comment prompt", has("comment on 1 PR(s)"))

@@ -302,9 +302,10 @@ func (m *Model) helpArea() []string {
 		"↑/↓ j/k move   x/space mark   ctrl+a mark all eligible   u clear marks   r reload   . or h ignored",
 		"a approve+merge  d decline  c comment  i ignore  o open: instant, on the cursor row only",
 		"A D C: approve (eligible only) / decline / comment ALL MARKED rows; no marks = nothing; marks",
-		"are cleared afterwards. Mouse: click row = cursor, left edge = mark, wheel = scroll, hover.",
+		"are cleared afterwards. Mouse: click row = cursor, left edge = mark, click the URL at the bottom = open,",
+		"wheel = scroll, hover.",
 		"Hints: instant  a approve  d decline  c comment  i ignore  x mark  o open  ? help  q quit",
-		"Hints: batch    A approve marked  D decline marked  C comment marked  ctrl+a mark all  x mark",
+		"Hints: batch    A approve marked  D decline marked  C comment marked  ctrl+a mark all  x mark  o open",
 		"The hint line shows the batch set while Shift is held (terminals with the kitty keyboard protocol).",
 		"Mouse capture disables native text selection and cmd-click on links; hold Shift to bypass it",
 		"(Ghostty, iTerm2, kitty). Off with --no-mouse or BBAPPROVE_MOUSE=0.",
@@ -545,19 +546,24 @@ func (m *Model) key(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case ".", "h":
 		m.showIgnored = !m.showIgnored
 	case "o":
-		if i, ok := m.current(); ok {
-			if err := m.cfg.Opener(m.rows[i].pr.URL); err != nil {
-				m.msg = "open failed: " + oneLine(err.Error())
-			} else {
-				m.msg = "opened " + m.rows[i].pr.URL
-			}
-		}
+		m.openCurrent()
 	case "?":
 		m.showHelp = !m.showHelp
 	}
 	m.pruneMarks()
 	m.clamp()
 	return m, cmd
+}
+
+// openCurrent opens the cursor row's URL through the Opener (the `o` key and a click on the footer URL).
+func (m *Model) openCurrent() {
+	if i, ok := m.current(); ok {
+		if err := m.cfg.Opener(m.rows[i].pr.URL); err != nil {
+			m.msg = "open failed: " + oneLine(err.Error())
+		} else {
+			m.msg = "opened " + m.rows[i].pr.URL
+		}
+	}
 }
 
 func (m *Model) toggleMark(i int) {
@@ -651,6 +657,12 @@ func (m *Model) mouse(e tea.MouseMsg) {
 		}
 	case tea.MouseClickMsg:
 		if e.Button != tea.MouseLeft {
+			return
+		}
+		if e.Y == m.height-2 { // footer line 1: the URL and its hint are a link
+			if w := m.urlHitWidth(); w > 0 && e.X >= 0 && e.X < w {
+				m.openCurrent()
+			}
 			return
 		}
 		n := m.rowAt(e.Y)
@@ -1005,22 +1017,97 @@ func (m *Model) visibleInput(room int) string {
 	return string(r)
 }
 
-// statusLine is footer line 1: message / prompt / cursor URL on the left, dim version on the right.
-// The left side is truncated so the version always stays visible.
-func (m *Model) statusLine() string {
-	right := ""
+// openHintWidth is the fixed width of the dim hint after the footer URL ("  o open").
+const openHintWidth = 8
+
+func openHint() string { return "  " + cBold + "o" + cReset + cDim + " open" + cReset }
+
+// middleEllipsis shortens a URL to w columns keeping the start and the tail (the PR number):
+// https://host/…/pull-requests/4961.
+func middleEllipsis(u string, w int) string {
+	total := ansi.StringWidth(u)
+	if total <= w {
+		return u
+	}
+	if w <= 1 {
+		return strings.Repeat("…", w)
+	}
+	tailW := 0
+	if i := strings.LastIndex(u, "/"); i > 0 {
+		if j := strings.LastIndex(u[:i], "/"); j >= 0 {
+			tailW = ansi.StringWidth(u[j:])
+		}
+	}
+	const minHead = 8 // "https://"
+	if tailW > w-1-minHead {
+		tailW = w - 1 - minHead
+	}
+	if tailW < 1 {
+		tailW = (w - 1) / 2
+	}
+	headW := w - 1 - tailW
+	return ansi.Truncate(u, headW, "") + "…" + ansi.TruncateLeft(u, total-tailW, "")
+}
+
+// urlSlot is the default content of footer line 1: the cursor row's URL (an OSC 8 hyperlink to the
+// full URL, middle-ellipsized to fit) plus the "o open" hint, avail columns at most (avail <= 0 means
+// unlimited). It returns "" and 0 when there is no URL to show.
+func (m *Model) urlSlot(avail int) (string, int) {
+	i, ok := m.current()
+	if !ok || m.rows[i].pr.URL == "" {
+		return "", 0
+	}
+	u := m.rows[i].pr.URL
+	shown := u
+	if avail > 0 {
+		shown = middleEllipsis(u, max(avail-openHintWidth, 1))
+	}
+	out := cDim + "\x1b]8;;" + u + "\x1b\\" + shown + osc8Close + cReset
+	w := ansi.StringWidth(shown)
+	if avail <= 0 || avail >= w+openHintWidth {
+		out += openHint()
+		w += openHintWidth
+	}
+	return out, w
+}
+
+// footerAvail is the width of footer line 1's left side and the version shown on its right.
+func (m *Model) footerAvail() (avail int, right string) {
 	if m.cfg.Version != "" {
 		right = "bbapprove " + m.cfg.Version
 	}
 	rw := ansi.StringWidth(right)
-	avail := m.width
+	avail = m.width
 	if m.width > 0 {
-		if m.width-rw-1 >= 8 {
+		// The "o open" hint and the URL's start outrank the version on narrow screens.
+		minLeft := 8
+		if m.mode == modeList && m.msg == "" {
+			minLeft = openHintWidth + 12
+		}
+		if m.width-rw-1 >= minLeft {
 			avail = m.width - rw - 1
 		} else {
-			right, rw = "", 0
+			right = ""
 		}
 	}
+	return avail, right
+}
+
+// urlHitWidth is how many columns of footer line 1 (from the left) open the URL on click; 0 when
+// the line does not show the URL.
+func (m *Model) urlHitWidth() int {
+	if m.mode != modeList || m.msg != "" {
+		return 0
+	}
+	avail, _ := m.footerAvail()
+	_, w := m.urlSlot(avail)
+	return w
+}
+
+// statusLine is footer line 1: message / prompt / cursor URL with an "o open" hint on the left, dim
+// version on the right. The version is dropped before the hint; the URL is cut in the middle.
+func (m *Model) statusLine() string {
+	avail, right := m.footerAvail()
 	var left string
 	switch {
 	case m.mode == modeConfirm:
@@ -1037,9 +1124,11 @@ func (m *Model) statusLine() string {
 	case m.msg != "":
 		left = cBold + m.msg + cReset
 	default:
-		if i, ok := m.current(); ok && m.rows[i].pr.URL != "" {
-			left = cDim + m.rows[i].pr.URL + cReset
+		left, _ = m.urlSlot(avail)
+		if avail <= 0 {
+			return left + "  " + cDim + right + cReset
 		}
+		return joinStatus(left, avail, right)
 	}
 	if avail <= 0 {
 		return left + "  " + cDim + right + cReset
@@ -1047,8 +1136,11 @@ func (m *Model) statusLine() string {
 	if ansi.StringWidth(left) > avail {
 		left = ansi.Truncate(left, avail, "…") + cReset
 	}
-	pad := avail - ansi.StringWidth(left)
-	out := left + strings.Repeat(" ", pad)
+	return joinStatus(left, avail, right)
+}
+
+func joinStatus(left string, avail int, right string) string {
+	out := left + strings.Repeat(" ", max(avail-ansi.StringWidth(left), 0))
 	if right != "" {
 		out += " " + cDim + right + cReset
 	}
@@ -1064,7 +1156,7 @@ var hintItems = [][2]string{
 
 var shiftHintItems = [][2]string{
 	{"A", "approve marked"}, {"D", "decline marked"}, {"C", "comment marked"},
-	{"ctrl+a", "mark all"}, {"x", "mark"}, {"?", "help"}, {"q", "quit"},
+	{"ctrl+a", "mark all"}, {"x", "mark"}, {"o", "open"}, {"?", "help"}, {"q", "quit"},
 }
 
 // hintLine is footer line 2: counts first when they fit, then as many key hints as fit; hints are
@@ -1096,9 +1188,32 @@ func (m *Model) hintLine(nVisible int) string {
 	if m.width <= 0 || ansi.StringWidth(counts)+2+ansi.StringWidth(first) <= m.width {
 		add(counts, cDim+counts+cReset)
 	}
-	for _, h := range items {
-		if !add(h[0]+" "+h[1], cBold+h[0]+cReset+cDim+" "+h[1]+cReset) {
+	// Drop priority: "o open" survives longest, then the rest in listed order (so "? help" and
+	// "q quit" go first). Kept items are shown in listed order.
+	order := []int{}
+	for i, h := range items {
+		if h[0] == "o" {
+			order = append([]int{i}, order...)
+		} else {
+			order = append(order, i)
+		}
+	}
+	keep := map[int]bool{}
+	used := w
+	for _, i := range order {
+		need := ansi.StringWidth(items[i][0] + " " + items[i][1])
+		if used > 0 {
+			need += 2
+		}
+		if m.width > 0 && used+need > m.width {
 			break
+		}
+		used += need
+		keep[i] = true
+	}
+	for i, h := range items {
+		if keep[i] {
+			add(h[0]+" "+h[1], cBold+h[0]+cReset+cDim+" "+h[1]+cReset)
 		}
 	}
 	return b.String()

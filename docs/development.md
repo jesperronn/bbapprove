@@ -9,6 +9,8 @@ bin/test --no-go 2>&1 | grep -E 'FAIL|TEST SUMMARY'
 bin/test --timings                # after the run: slowest suites, Go packages and Go tests, total time
 ```
 
+`bin/lint-commits [--title TEXT] [--body-file FILE] [RANGE]` checks commit messages (default `origin/main..HEAD`) and PR text against the message policy in AGENTS.md; run it before pushing.
+
 The launcher `bin/bbapprove` rebuilds `bin/bbapprove-go` whenever `go.mod`, `go.sum` or any `cmd/`/`internal/` `.go` file is newer than it, so edit, run `bin/bbapprove`, repeat. Without Go and without a binary it exits 127.
 `bin/install` (or `bin/build --install`) links the launcher, not the Go binary, into the prefix (default `~/.local/bin`) because the launcher resolves `adapters/` and `bbapprove.config.toml` relative to the repo and rebuilds on change. An existing link to this launcher is left alone, any other file at the target is refused unless `--force`, and the build warns when another `bbapprove` earlier on `PATH` shadows the link.
 

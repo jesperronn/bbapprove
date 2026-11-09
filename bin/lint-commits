@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# lint-commits — check commit messages and PR text against the message policy in AGENTS.md
+#
+# Usage: bin/lint-commits [--title TEXT] [--body-file FILE] [RANGE]
+#   RANGE            commits to check; default origin/main..HEAD (main..HEAD when there is no
+#                    origin/main). An empty range is fine. Merge commits are skipped.
+#                    With --title or --body-file and no RANGE, only that text is checked.
+#   --title TEXT     check TEXT with the subject rules (a PR title)
+#   --body-file FILE check FILE with the body rules (a PR description); - reads stdin
+#   -h, --help       show this help
+#
+# Mechanical rules only: conventional subject of at most 70 characters without a trailing period;
+# no label headings (What, Why, Summary, ...) and no "this PR" in a body; no list of bare file paths.
+# Imperative mood, change plus reason and unverified claims are for the author to judge.
+#
+# Exit: 0 clean, 1 violations (one line each on stderr), 2 usage error.
+
+set -euo pipefail
+
+usage() {
+  cat <<'EOF_USAGE'
+Usage: bin/lint-commits [--title TEXT] [--body-file FILE] [RANGE]
+
+Checks commit messages against the message policy in AGENTS.md (mechanical rules only).
+
+  RANGE             default origin/main..HEAD (main..HEAD without origin/main)
+  --title TEXT      check TEXT as a subject (a PR title)
+  --body-file FILE  check FILE as a body (a PR description); - reads stdin
+  -h, --help        show this help
+
+Exit: 0 clean, 1 violations, 2 usage error.
+EOF_USAGE
+}
+
+die_usage() { echo "lint-commits: $1" >&2; usage >&2; exit 2; }
+
+title=""
+have_title=0
+body_file=""
+have_body=0
+range=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h | --help) usage; exit 0 ;;
+    --title)
+      [[ $# -ge 2 ]] || die_usage "--title needs a value"
+      title="$2"; have_title=1; shift ;;
+    --body-file)
+      [[ $# -ge 2 ]] || die_usage "--body-file needs a value"
+      body_file="$2"; have_body=1; shift ;;
+    -*) die_usage "unknown option: $1" ;;
+    *)
+      [[ -z "$range" ]] || die_usage "only one RANGE is allowed"
+      range="$1" ;;
+  esac
+  shift
+done
+
+TYPES='feat|fix|chore|docs|test|refactor|perf|ci|build|style|revert'
+WORDS='what|why|summary|overview|changes|details|testing|verification|notes|background|context|description'
+SUBJECT_RE="^($TYPES)(\\([^)]+\\))?!?: [^[:space:]]"
+HEADING_RE="^[[:space:]]*(#+[[:space:]]*)?(\\*\\*)?($WORDS)(\\*\\*)?:?(\\*\\*)?[[:space:]]*\$"
+INLINE_RE="^[[:space:]]*\\*\\*($WORDS):?\\*\\*:?"
+THISPR_RE="(^|[^[:alnum:]])this (pr|pull request)([^[:alnum:]]|\$)"
+# shellcheck disable=SC2016  # the backticks are literal
+FILEBULLET_RE='^[[:space:]]*[-*+][[:space:]]+`[^` ]*[./][^` ]*`[[:space:]]*$'
+
+violations=0
+violation() { # ID RULE TEXT
+  printf '%s: %s: %s\n' "$1" "$2" "$3" >&2
+  violations=$((violations + 1))
+}
+
+check_subject() { # ID SUBJECT
+  local id="$1" s="$2"
+  if ! [[ "$s" =~ $SUBJECT_RE ]]; then
+    violation "$id" "subject is not 'type(scope): description' (types: ${TYPES//|/, })" "$s"
+  fi
+  if [[ ${#s} -gt 70 ]]; then
+    violation "$id" "subject is ${#s} characters, the limit is 70" "$s"
+  fi
+  if [[ "$s" == *. ]]; then
+    violation "$id" "subject ends with a period" "$s"
+  fi
+}
+
+check_body() { # ID BODY
+  local id="$1" body="$2" line lower run=0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    lower="${line,,}"
+    if [[ "$lower" =~ $HEADING_RE ]]; then
+      violation "$id" "label heading (write the sentence instead)" "$line"
+    elif [[ "$lower" =~ $INLINE_RE ]]; then
+      violation "$id" "inline label at line start (write the sentence instead)" "$line"
+    fi
+    if [[ "$lower" =~ $THISPR_RE ]]; then
+      violation "$id" "says 'this PR' (describe the change, not the container)" "$line"
+    fi
+    if [[ "$line" =~ $FILEBULLET_RE ]]; then
+      run=$((run + 1))
+      if [[ $run -eq 3 ]]; then
+        violation "$id" "list of file paths (the diff shows the files)" "$line"
+      fi
+    else
+      run=0
+    fi
+  done <<<"$body"
+}
+
+if [[ $have_title -eq 1 ]]; then
+  check_subject title "$title"
+fi
+
+if [[ $have_body -eq 1 ]]; then
+  if [[ "$body_file" == "-" ]]; then
+    body_text="$(cat)"
+  elif [[ -f "$body_file" ]]; then
+    body_text="$(<"$body_file")"
+  else
+    die_usage "no such file: $body_file"
+  fi
+  check_body body "$body_text"
+fi
+
+if [[ -n "$range" || ( $have_title -eq 0 && $have_body -eq 0 ) ]]; then
+  if [[ -z "$range" ]]; then
+    if git rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
+      range="origin/main..HEAD"
+    elif git rev-parse --verify --quiet main >/dev/null 2>&1; then
+      range="main..HEAD"
+    else
+      die_usage "no RANGE given and neither origin/main nor main exists"
+    fi
+  fi
+  if ! hashes="$(git rev-list --no-merges --reverse "$range" 2>&1)"; then
+    die_usage "bad range '$range': $hashes"
+  fi
+  while IFS= read -r hash; do
+    [[ -n "$hash" ]] || continue
+    short="$(git rev-parse --short "$hash")"
+    check_subject "$short" "$(git log -1 --format=%s "$hash")"
+    check_body "$short" "$(git log -1 --format=%b "$hash")"
+  done <<<"$hashes"
+fi
+
+if [[ $violations -gt 0 ]]; then
+  echo "lint-commits: $violations violation(s)" >&2
+  exit 1
+fi
+exit 0

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"bbapprove/internal/style"
 	"bbapprove/internal/update"
 )
 
@@ -426,8 +427,9 @@ func TestIgnoreListFromEnvironXDG(t *testing.T) {
 }
 
 func TestHelpMentionsIgnoreAndStatus(t *testing.T) {
-	for _, w := range []string{"--hide-ignored", "ignore list", "IGNORED", "h or .", "COMMENTING…", "N ignored (hidden)"} {
-		if !strings.Contains(usage("x"), w) {
+	rules, _ := topicUsageFor(style.Theme{}, "rules")
+	for _, w := range []string{"--hide-ignored", "ignore list", "IGNORED", "COMMENTING…", "N ignored (hidden)"} {
+		if !strings.Contains(rules, w) {
 			t.Errorf("help lacks %q", w)
 		}
 	}
@@ -662,7 +664,13 @@ func TestUpdateNonTTYNeedsYes(t *testing.T) {
 }
 
 func TestHelpMentionsUpdateFlags(t *testing.T) {
-	_, out, _ := run(t, nil, "--help")
+	_, top, _ := run(t, nil, "--help")
+	_, out, _ := run(t, nil, "help", "update")
+	for _, w := range []string{"--outdated [--pre]", "--update [--yes] [--pre]"} {
+		if !strings.Contains(top, w) {
+			t.Errorf("top-level help lacks %q", w)
+		}
+	}
 	for _, w := range []string{"--outdated [--pre]", "--update [--yes] [--pre]", "BBAPPROVE_UPDATE_REPO", "never checks by itself"} {
 		if !strings.Contains(out, w) {
 			t.Errorf("help lacks %q", w)

@@ -40,7 +40,11 @@ func TestHelpMarkupIsWellFormed(t *testing.T) {
 	for _, c := range style.Classes() {
 		known[c] = true
 	}
-	for name, m := range map[string]string{"top-level": helpTitle("v1") + usageMarkup, "doctor": doctorUsageMarkup} {
+	markups := map[string]string{"top-level": helpTitle("v1") + usageMarkup + topicsMarkup()}
+	for _, h := range helpTopics {
+		markups[h.name] = h.markup
+	}
+	for name, m := range markups {
 		if err := style.Check(m); err != nil {
 			t.Errorf("%s help markup: %v", name, err)
 		}
@@ -69,15 +73,12 @@ func TestColouredTopLevelHelp(t *testing.T) {
 	}
 	mustHave(t, "help", out, map[string]string{
 		"heading":  "\x1b[1;36mUsage:\x1b[0m",
-		"heading2": "\x1b[1;36mEnv:\x1b[0m",
+		"heading2": "\x1b[1;36mTopics:\x1b[0m",
 		"cmd":      "bbapprove \x1b[1;35mdoctor\x1b[0m [",
 		"flag":     "[\x1b[32m--apply\x1b[0m]",
-		"flag -i":  "\x1b[32m-i\x1b[0m opens an interactive TUI",
+		"flag -i":  "\x1b[32m-i\x1b[0m                 interactive TUI",
 		"val":      "\x1b[32m--config\x1b[0m \x1b[94mFILE\x1b[0m",
-		"env":      "\x1b[33mBBAPPROVE_JOBS\x1b[0m",
-		"env2":     "\x1b[33mNO_COLOR\x1b[0m",
-		"path":     "\x1b[36m~/.config/bbapprove/ignore\x1b[0m",
-		"dim":      "\x1b[2m(no secrets)\x1b[0m",
+		"topic":    "  \x1b[1;35mconfig\x1b[0m",
 	})
 }
 
@@ -115,15 +116,36 @@ func TestDoctorHelpNeedsNothing(t *testing.T) {
 			t.Errorf("%v: bad doctor help", args)
 		}
 	}
-	for _, args := range [][]string{{"--help"}, {"help"}, {"--help", "doctor"}} {
+	for _, args := range [][]string{{"--help"}, {"--help", "doctor"}} {
 		if code, out, _ := helpRun(t, false, nil, args...); code != 0 || out != top {
 			t.Errorf("%v: expected the top-level help (code %d)", args, code)
 		}
 	}
 }
 
+func TestHelpTopics(t *testing.T) {
+	for _, h := range helpTopics {
+		code, out, errOut := helpRun(t, false, nil, "help", h.name)
+		want, _ := topicUsageFor(style.Theme{}, h.name)
+		if code != 0 || errOut != "" || out != want || !strings.HasPrefix(out, "bbapprove ") {
+			t.Errorf("help %s: code %d err %q", h.name, code, errOut)
+		}
+		if _, col, _ := helpRun(t, true, nil, "help", h.name); stripSGR(col) != out || !strings.Contains(col, "\x1b[1m") {
+			t.Errorf("help %s: colour output differs from plain", h.name)
+		}
+	}
+	code, out, _ := helpRun(t, false, nil, "help")
+	if code != 0 || out != topicListFor(style.Theme{}, "v1.2.3") {
+		t.Errorf("help alone must list the topics (code %d)", code)
+	}
+	code, out, errOut := helpRun(t, false, nil, "help", "nope")
+	if code != 2 || out != "" || !strings.HasPrefix(errOut, "Unknown help topic: nope\n") || !strings.Contains(errOut, "config") {
+		t.Errorf("unknown topic: code %d out %q err %q", code, out, errOut)
+	}
+}
+
 func TestHelpColourSwitches(t *testing.T) {
-	for _, args := range [][]string{{"--help"}, {"doctor", "--help"}, {"help", "doctor"}} {
+	for _, args := range [][]string{{"--help"}, {"doctor", "--help"}, {"help", "doctor"}, {"help", "config"}} {
 		if _, out, _ := helpRun(t, false, nil, args...); strings.Contains(out, "\x1b") {
 			t.Errorf("%v: escapes on a pipe", args)
 		}

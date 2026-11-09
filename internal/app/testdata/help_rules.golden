@@ -1,0 +1,26 @@
+bbapprove help rules — which PRs are eligible and how every row is labelled.
+
+Eligible when ALL hold:
+  - author email is the configured author_email (config file or BBAPPROVE_AUTHOR_EMAIL; no default)
+  - title starts with "chore(deps):" or "fix(deps):"
+  - title does not mention a disallowed dependency (case-insensitive substring; config "disallow",
+    --disallow, BBAPPROVE_DISALLOW, BBAPPROVE_DISALLOW_FILE); see help config
+  - update is minor/patch/digest (a title ending "to vN", or a branch renovate/major-*, counts as major;
+    this heuristic is not reliable yet, see TODO.md)
+  - not already approved by you
+  - not on your ignore list
+Anything else is reported as SKIP with the reason. Nothing is changed without --apply.
+
+Ignore list: a personal file, $XDG_CONFIG_HOME/bbapprove/ignore (default ~/.config/bbapprove/ignore),
+one dependency per line, # comments allowed. It is separate from the config's disallow list: disallow is a
+hard block shown as SKIP; ignored PRs are shown dim as IGNORED ("on your ignore list: ENTRY") and are never
+approved, merged, declined or commented, in a dry run and with --apply. In the TUI, ignored rows are
+hidden on demand and i edits the list. A title matching an entry (case-insensitive substring) is IGNORED
+whatever else applies; removing the entry restores the PR's own SKIP reason. A missing file is an empty list;
+a file that exists but cannot be read stops the run (exit 1) rather than risk acting on an ignored PR.
+--hide-ignored leaves ignored rows out of the table. The footer names the file:
+"N ignored via FILE (see: bbapprove doctor)", or "N ignored (hidden) via FILE" with --hide-ignored.
+
+STATUS column: blank = eligible and untouched; SKIP (reason after the title); IGNORED; in flight
+APPROVING… DECLINING… COMMENTING…; done MERGED DECLINED COMMENTED; failures NOT MERGED (approved, merge
+failed) and FAIL. A later action on a row replaces its word. A comment never makes a row ineligible.

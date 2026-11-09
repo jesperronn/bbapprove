@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"bbapprove/internal/style"
 )
 
 var updateGolden = flag.Bool("update", false, "rewrite the golden files in testdata/")
@@ -57,4 +59,15 @@ func TestGoldenPlainPrintConfig(t *testing.T) {
 
 func TestGoldenPlainDoctorHelp(t *testing.T) {
 	checkGolden(t, "doctor_help.golden", doctorUsage())
+}
+
+func TestGoldenPlainHelpTopics(t *testing.T) {
+	checkGolden(t, "help_topics.golden", topicListFor(style.Theme{}, "v1.2.3"))
+	for _, h := range helpTopics {
+		got, ok := topicUsageFor(style.Theme{}, h.name)
+		if !ok {
+			t.Fatalf("topic %s not found", h.name)
+		}
+		checkGolden(t, "help_"+h.name+".golden", got)
+	}
 }

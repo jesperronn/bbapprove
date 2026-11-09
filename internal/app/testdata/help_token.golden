@@ -1,0 +1,15 @@
+bbapprove help token — where the API token comes from.
+
+Resolved in this order:
+  1. BBAPPROVE_TOKEN, when set and non-empty. It wins; 1Password is not consulted.
+  2. The 1Password item named by --token-name NAME, BBAPPROVE_TOKEN_NAME or user_token_name (that precedence),
+     looked up with: op item get NAME --reveal --fields label=token, then label=credential if that fails
+     or is empty. There is no default item name.
+  3. Neither: every run that talks to the forge (dry run, --apply, -i) stops at once with exit 1, before the
+     adapter is called. --help, --print-config, --init, --outdated, --update and doctor need no token;
+     doctor flags a missing source as a problem and never looks the item up.
+
+Create a Bitbucket Server / Data Center HTTP access token for the account that reviews the PRs: repository read
+access (dashboard, build status, PR details) plus write access to approve, merge, comment on and decline.
+
+There is no --token option: a token on the command line is visible in the process list and shell history.

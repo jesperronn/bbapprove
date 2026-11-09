@@ -93,6 +93,26 @@ func stdScenario() *bbfake.Scenario {
 	}
 }
 
+// deletes returns the DELETE requests the adapter sent.
+func deletes(r result) []bbfake.Request {
+	var out []bbfake.Request
+	for _, q := range r.Requests {
+		if q.Method == "DELETE" {
+			out = append(out, q)
+		}
+	}
+	return out
+}
+
+func wantDeletes(n int) func(t *testing.T, r result) {
+	return func(t *testing.T, r result) {
+		t.Helper()
+		eq(t, "exit", r.Exit, 0)
+		eq(t, "stderr", r.Stderr, "")
+		eq(t, "DELETE count", len(deletes(r)), n)
+	}
+}
+
 func pr5(sc *bbfake.Scenario) *bbfake.PR { return sc.PRs[0] }
 
 func listScenario(sc *bbfake.Scenario) {
@@ -257,6 +277,83 @@ var charCases = []charCase{
 		setup: func(s *bbfake.Server) {
 			s.Fail("GET /pull-requests/5", bbfake.Fault{Delay: 10 * time.Second, Status: 200, Body: "{}"})
 		}},
+
+	// ---- pr merge: deleting the source branch ----
+	{name: "merge_deletes_source_branch_by_default", args: []string{"pr", "merge", url5}, check: func(t *testing.T, r result) {
+		eq(t, "stdout", r.raw, "")
+		eq(t, "stderr", r.Stderr, "")
+		d := deletes(r)
+		if len(d) != 1 {
+			t.Fatalf("want exactly one DELETE, got %d", len(d))
+		}
+		eq(t, "path", d[0].Path, "/rest/branch-utils/1.0/projects/PROJ/repos/repo/branches")
+		eq(t, "body", d[0].Body, `{"name":"refs/heads/renovate/x","dryRun":false}`)
+		eq(t, "authorization", d[0].Authorization, "Bearer <CANARY>")
+		eq(t, "content type", d[0].ContentType, "application/json")
+		eq(t, "the DELETE comes after the merge POST", r.Requests[len(r.Requests)-2].Method, "POST")
+	}},
+	{name: "merge_deletes_when_env_true", args: []string{"pr", "merge", url5}, env: map[string]string{"BBAPPROVE_DELETE_SOURCE_BRANCH": "true"}, check: wantDeletes(1)},
+	{name: "merge_deletes_when_env_yes_any_case", args: []string{"pr", "merge", url5}, env: map[string]string{"BBAPPROVE_DELETE_SOURCE_BRANCH": "YES"}, check: wantDeletes(1)},
+	{name: "merge_keeps_branch_when_env_false", args: []string{"pr", "merge", url5}, env: map[string]string{"BBAPPROVE_DELETE_SOURCE_BRANCH": "false"}, check: wantDeletes(0)},
+	{name: "merge_keeps_branch_when_env_0", args: []string{"pr", "merge", url5}, env: map[string]string{"BBAPPROVE_DELETE_SOURCE_BRANCH": "0"}, check: wantDeletes(0)},
+	{name: "merge_delete_setting_invalid_is_usage_error_before_merging", args: []string{"pr", "merge", url5}, env: map[string]string{"BBAPPROVE_DELETE_SOURCE_BRANCH": "sometimes"}, check: func(t *testing.T, r result) {
+		eq(t, "exit", r.Exit, 2)
+		eq(t, "requests", len(r.Requests), 0)
+	}},
+	{name: "merge_fork_pr_does_not_delete", args: []string{"pr", "merge", url5}, sc: func(sc *bbfake.Scenario) {
+		pr5(sc).ForkProject, pr5(sc).ForkRepo = "~FORKER", "repo"
+	}, check: wantDeletes(0)},
+	{name: "merge_source_branch_in_same_project_other_repo_does_not_delete", args: []string{"pr", "merge", url5}, sc: func(sc *bbfake.Scenario) {
+		pr5(sc).ForkProject, pr5(sc).ForkRepo = "PROJ", "repo-fork"
+	}, check: wantDeletes(0)},
+	{name: "merge_source_is_not_a_branch_does_not_delete", args: []string{"pr", "merge", url5}, sc: func(sc *bbfake.Scenario) {
+		pr5(sc).FromRefID = "refs/tags/v1"
+	}, check: wantDeletes(0)},
+	{name: "merge_source_equals_target_does_not_delete", args: []string{"pr", "merge", url5}, sc: func(sc *bbfake.Scenario) {
+		pr5(sc).Branch = "main"
+	}, check: wantDeletes(0)},
+	{name: "merge_delete_404_already_gone_is_silent", args: []string{"pr", "merge", url5}, sc: func(sc *bbfake.Scenario) { pr5(sc).BranchGone = true }, check: func(t *testing.T, r result) {
+		eq(t, "exit", r.Exit, 0)
+		eq(t, "stderr", r.Stderr, "")
+		eq(t, "stdout", r.raw, "")
+		eq(t, "DELETE count", len(deletes(r)), 1)
+	}},
+	{name: "merge_delete_200_is_success", args: []string{"pr", "merge", url5}, setup: func(s *bbfake.Server) {
+		s.Fail("DELETE /branches", bbfake.Fault{Status: 200, Body: "{}"})
+	}, check: func(t *testing.T, r result) { eq(t, "stderr", r.Stderr, ""); eq(t, "exit", r.Exit, 0) }},
+	{name: "merge_delete_403_warns_and_still_succeeds", args: []string{"pr", "merge", url5}, setup: func(s *bbfake.Server) {
+		s.Fail("DELETE /branches", bbfake.Fault{Status: 403, Body: `{"errors":[{"message":"no permission"}]}`})
+	}, check: func(t *testing.T, r result) {
+		eq(t, "exit", r.Exit, 0)
+		eq(t, "stdout", r.raw, "")
+		eq(t, "stderr", r.Stderr, "merge ok, but could not delete branch renovate/x (HTTP 403)\n")
+	}},
+	{name: "merge_delete_500_warns_and_still_succeeds", args: []string{"pr", "merge", url5}, setup: func(s *bbfake.Server) {
+		s.Fail("DELETE /branches", bbfake.Fault{Status: 500, Body: "oops"})
+	}, check: func(t *testing.T, r result) {
+		eq(t, "exit", r.Exit, 0)
+		eq(t, "stderr", r.Stderr, "merge ok, but could not delete branch renovate/x (HTTP 500)\n")
+	}},
+	{name: "merge_delete_dropped_connection_warns_and_still_succeeds", args: []string{"pr", "merge", url5}, setup: func(s *bbfake.Server) {
+		s.Fail("DELETE /branches", bbfake.Fault{Drop: true})
+	}, check: func(t *testing.T, r result) {
+		eq(t, "exit", r.Exit, 0)
+		if !strings.HasSuffix(r.Stderr, "merge ok, but could not delete branch renovate/x (HTTP 000)\n") {
+			t.Errorf("stderr = %q", r.Stderr) // curl's own error line comes first
+		}
+	}},
+	{name: "merge_veto_does_not_delete", args: []string{"pr", "merge", url5}, sc: func(sc *bbfake.Scenario) {
+		pr5(sc).MergeVetoes = []string{"Needs 1 more approval"}
+	}, check: func(t *testing.T, r result) { eq(t, "exit", r.Exit, 1); eq(t, "DELETE count", len(deletes(r)), 0) }},
+	{name: "merge_out_of_date_exhausted_does_not_delete", args: []string{"pr", "merge", url5}, sc: func(sc *bbfake.Scenario) { pr5(sc).StaleMerges = 99 }, check: func(t *testing.T, r result) {
+		eq(t, "exit", r.Exit, 1)
+		eq(t, "DELETE count", len(deletes(r)), 0)
+	}},
+	{name: "merge_retry_then_success_deletes_exactly_once", args: []string{"pr", "merge", url5}, sc: func(sc *bbfake.Scenario) { pr5(sc).StaleMerges = 2 }, check: func(t *testing.T, r result) {
+		eq(t, "exit", r.Exit, 0)
+		eq(t, "DELETE count", len(deletes(r)), 1)
+		eq(t, "the DELETE is the last request", r.Requests[len(r.Requests)-1].Method, "DELETE")
+	}},
 
 	// ---- pr comment ----
 	{name: "comment_body", args: []string{"pr", "comment", url5, "--body", "LGTM"}, check: func(t *testing.T, r result) { eq(t, "stdout", r.raw, "") }},

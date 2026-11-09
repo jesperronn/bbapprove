@@ -1,0 +1,27 @@
+{
+  "args": [
+    "pr",
+    "merge",
+    "{BASE}/projects/PROJ/repos/repo/pull-requests/5"
+  ],
+  "exit": 1,
+  "stdout": "",
+  "stderr": "merge HTTP 409: Needs 1 more approval\n",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/rest/api/1.0/projects/PROJ/repos/repo/pull-requests/5",
+      "authorization": "Bearer <CANARY>",
+      "accept": "application/json"
+    },
+    {
+      "method": "POST",
+      "path": "/rest/api/1.0/projects/PROJ/repos/repo/pull-requests/5/merge",
+      "query": "version=3",
+      "body": "{\"version\":3}",
+      "authorization": "Bearer <CANARY>",
+      "accept": "application/json",
+      "contentType": "application/json"
+    }
+  ]
+}

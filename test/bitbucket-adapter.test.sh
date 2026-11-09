@@ -15,7 +15,7 @@ cleanup_suite_tmp() { cleanup_test_tmp; [[ -z "$STUB_BIN" ]] || rm -rf "$STUB_BI
 trap 'cleanup_suite_tmp' EXIT
 
 URL="https://bitbucket.example.com/projects/PROJ/repos/repo/pull-requests/5"
-RAW='{"id":5,"version":3,"title":"chore(deps): update x to v1.0.1","author":{"user":{"emailAddress":"bot@example.com","slug":"bot"}},"fromRef":{"displayId":"renovate/x","latestCommit":"abc"},"toRef":{"repository":{"slug":"repo","project":{"key":"PROJ"}}},"participants":[],"reviewers":[{"user":{"slug":"me"},"status":"APPROVED"},{"user":{"slug":"bob"},"status":"NEEDS_WORK"}],"properties":{"qgStatus":"PASSED","commentCount":4,"openTaskCount":1}}'
+RAW='{"id":5,"version":3,"title":"chore(deps): update x to v1.0.1","author":{"user":{"emailAddress":"bot@example.com","slug":"bot"}},"fromRef":{"id":"refs/heads/renovate/x","displayId":"renovate/x","latestCommit":"abc","repository":{"slug":"repo","project":{"key":"PROJ"}}},"toRef":{"id":"refs/heads/main","repository":{"slug":"repo","project":{"key":"PROJ"}}},"participants":[],"reviewers":[{"user":{"slug":"me"},"status":"APPROVED"},{"user":{"slug":"bob"},"status":"NEEDS_WORK"}],"properties":{"qgStatus":"PASSED","commentCount":4,"openTaskCount":1}}'
 
 # The curl (and op) stubs are the fixed ones in test/fixtures, linked once per suite and driven by env:
 # STUB_LOG (per-test call log), STUB_RAW (canned PR) and the STUB_*_FAIL switches. Nothing is written per test.
@@ -73,6 +73,22 @@ test_review_and_merge() {
   run_adapter pr merge "$URL" >/dev/null
   assert_contains "$(cat "$STUB_LOG")" "pull-requests/5/approve" "approve called"
   assert_contains "$(cat "$STUB_LOG")" "pull-requests/5/merge?version=3" "merge uses fresh version"
+  cleanup_test_tmp; TEST_TMP=""
+}
+
+test_merge_deletes_source_branch() {
+  setup_stub
+  run_adapter pr merge "$URL" >/dev/null
+  assert_contains "$(cat "$STUB_LOG")" "-X DELETE" "merge deletes the source branch by default"
+  assert_contains "$(cat "$STUB_LOG")" "/rest/branch-utils/1.0/projects/PROJ/repos/repo/branches" "branch-utils endpoint"
+  assert_eq "$(jq -c '.' "$STUB_LOG.body")" '{"name":"refs/heads/renovate/x","dryRun":false}' "delete body names the source ref"
+  : >"$STUB_LOG"
+  BBAPPROVE_DELETE_SOURCE_BRANCH=false run_adapter pr merge "$URL" >/dev/null
+  assert_not_contains "$(cat "$STUB_LOG")" "DELETE" "BBAPPROVE_DELETE_SOURCE_BRANCH=false keeps the branch"
+  local out rc=0
+  out="$(STUB_DELETE_FAIL=1 run_adapter pr merge "$URL")" || rc=$?
+  assert_eq "$rc" "0" "a failed branch deletion does not fail the merge"
+  assert_contains "$out" "merge ok, but could not delete branch renovate/x (HTTP 500)" "deletion failure is a warning"
   cleanup_test_tmp; TEST_TMP=""
 }
 

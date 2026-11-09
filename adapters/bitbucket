@@ -6,14 +6,16 @@
 #   bitbucket pr list --reviewer @me --state open   JSON array of normalized PRs
 #   bitbucket pr view URL                       one normalized PR as compact JSON
 #   bitbucket pr review URL --approve           approve
-#   bitbucket pr merge URL                      merge (retries when the PR version went stale)
+#   bitbucket pr merge URL                      merge (retries when the PR version went stale), then delete the source branch
+#                                               unless BBAPPROVE_DELETE_SOURCE_BRANCH=false (fork PRs and non-branch refs are never touched;
+#                                               a failed deletion only warns on stderr, the merge still succeeds)
 #   bitbucket pr comment URL --body TEXT        post a comment (or --body-file FILE)
 #   bitbucket pr close URL [--comment TEXT]     decline the PR; --comment is posted first, and a failed comment aborts the decline
 #
 # Normalized PR: {url, number, project, repo, title, author:{email,login}, headBranch, approvedByMe,
 #   build: passed|failed|running|none, qualityGate: passed|failed|unknown,
 #   approvals, needsWork (reviewer counts), commentCount, openTasks}
-# Errors: message on stderr, non-zero exit. Env: BBAPPROVE_BASE_URL (required, no default), BBAPPROVE_TOKEN (required by every pr command; exit 2 when unset), BBAPPROVE_TOKEN_NAME (1Password item for `auth token`, no default), BBAPPROVE_MERGE_RETRIES, BBAPPROVE_RETRY_SLEEP.
+# Errors: message on stderr, non-zero exit. Env: BBAPPROVE_BASE_URL (required, no default), BBAPPROVE_TOKEN (required by every pr command; exit 2 when unset), BBAPPROVE_TOKEN_NAME (1Password item for `auth token`, no default), BBAPPROVE_MERGE_RETRIES, BBAPPROVE_RETRY_SLEEP, BBAPPROVE_DELETE_SOURCE_BRANCH (true|false, default true).
 
 set -euo pipefail
 
@@ -22,6 +24,7 @@ TOKEN_NAME="${BBAPPROVE_TOKEN_NAME:-}"
 TOKEN="${BBAPPROVE_TOKEN:-}"
 MERGE_RETRIES="${BBAPPROVE_MERGE_RETRIES:-4}"
 RETRY_SLEEP="${BBAPPROVE_RETRY_SLEEP:-2}"
+DELETE_SOURCE_BRANCH="${BBAPPROVE_DELETE_SOURCE_BRANCH:-true}"
 CURL_CONNECT_TIMEOUT=2.7   # seconds
 CURL_MAX_TIME=3.5          # seconds, per curl call
 
@@ -143,20 +146,48 @@ cmd_pr_review() { # URL --approve
   [[ "$LAST_CODE" == 2* ]] || { err "approve HTTP $LAST_CODE"; return 1; }
 }
 
+# delete_source_branch SOURCE_REF_ID: remove the merged PR's source branch. Never fails the caller: a deletion
+# that did not work (other than "already gone") only draws a warning, because the merge itself has succeeded.
+delete_source_branch() {
+  local ref="$1" payload
+  payload="$(jq -nc --arg n "$ref" '{name: $n, dryRun: false}')"
+  api DELETE "/rest/branch-utils/1.0/projects/$2/repos/$3/branches" "$payload" || true
+  [[ "$LAST_CODE" == 2* || "$LAST_CODE" == 404 ]] && return 0
+  err "merge ok, but could not delete branch ${ref#refs/heads/} (HTTP $LAST_CODE)"
+  return 0
+}
+
 cmd_pr_merge() { # URL
-  local key repo id parts base attempt=0 fresh
+  local key repo id parts base attempt=0 fresh want
+  want="$(tr '[:upper:]' '[:lower:]' <<<"$DELETE_SOURCE_BRANCH")"
+  case "$want" in
+    true|1|yes) want=1 ;;
+    false|0|no) want=0 ;;
+    *) err "pr merge: BBAPPROVE_DELETE_SOURCE_BRANCH must be true or false, got: $DELETE_SOURCE_BRANCH"; return 2 ;;
+  esac
   parts="$(parse_pr_url "$1")" || return 2
   read -r key repo id <<<"$parts"
   base="/rest/api/1.0/projects/$key/repos/$repo/pull-requests/$id"
   # Re-fetch the version right before merging: earlier merges in the same repo move the
   # target branch and bump the PR version, so a version read earlier goes stale.
+  local refs from_ref from_key from_repo to_key to_repo to_ref
   while :; do
     attempt=$((attempt + 1))
     api GET "$base" || true
     fresh="$(jq -r '.version // empty' <<<"$API_BODY" 2>/dev/null || true)"
     [[ -n "$fresh" ]] || { err "merge: could not read PR version (HTTP $LAST_CODE)"; return 1; }
+    # Source and target of the PR as of this attempt, read before the merge POST overwrites API_BODY.
+    refs="$(jq -r '[.fromRef.id // "", .fromRef.repository.project.key // "", .fromRef.repository.slug // "",
+      .toRef.repository.project.key // "", .toRef.repository.slug // "", .toRef.id // ""] | join("\u001f")' <<<"$API_BODY" 2>/dev/null || true)"
+    IFS=$'\x1f' read -r from_ref from_key from_repo to_key to_repo to_ref <<<"$refs" || true
     api POST "$base/merge?version=$fresh" "{\"version\":$fresh}" || true
-    [[ "$LAST_CODE" == 2* ]] && return 0
+    if [[ "$LAST_CODE" == 2* ]]; then
+      # Only a branch of the PR's own repository, and not the target itself; a fork's branch is not ours to delete.
+      if (( want )) && [[ "$from_ref" == refs/heads/* && "$from_ref" != "$to_ref" && "$from_key" == "$to_key" && "$from_repo" == "$to_repo" && -n "$to_repo" ]]; then
+        delete_source_branch "$from_ref" "$to_key" "$to_repo"
+      fi
+      return 0
+    fi
     if [[ "$LAST_CODE" == 409 && "$API_BODY" == *"out-of-date"* ]] && (( attempt < MERGE_RETRIES )); then
       sleep "$RETRY_SLEEP"; continue
     fi

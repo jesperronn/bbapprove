@@ -2,7 +2,8 @@
 // shipped binary imports it.
 //
 // It implements exactly the endpoints adapters/bitbucket uses (whoami, the reviewer dashboard, pull request
-// view, activities, blocker comments, batched build-status stats, approve, merge, decline, comments), over
+// view, activities, blocker comments, batched build-status stats, approve, merge, decline, comments, branch
+// deletion through branch-utils), over
 // net/http/httptest, with code-configurable scenario data. Every request is recorded (method, path, query,
 // body, headers) so tests can assert on what the adapter sent, and failures can be injected per endpoint
 // (HTTP errors, dropped connections, slow answers). It never touches the network beyond loopback.
@@ -45,6 +46,13 @@ type PR struct {
 	Reviewers     []Person
 	Participants  []Person
 	State         string // OPEN (default), MERGED, DECLINED
+
+	// Source and target refs. FromRefID overrides the source ref id (default refs/heads/<Branch>), e.g. a tag;
+	// Target is the target branch name (default main). ForkProject/ForkRepo, when set, make the source branch
+	// live in that other repository (a fork PR). BranchGone makes the branch-utils DELETE answer 404.
+	FromRefID, Target     string
+	ForkProject, ForkRepo string
+	BranchGone            bool
 
 	// Dashboard properties. QGStatus "" omits qgStatus.
 	QGStatus     string
@@ -117,6 +125,7 @@ type Server struct {
 	reqs     []Request
 	faults   []*faultEntry
 	comments map[int][]string // PR id -> comments posted
+	deleted  []string         // "PROJECT/repo:ref" of every branch the DELETE endpoint removed
 	nextCmt  int
 }
 
@@ -200,6 +209,7 @@ var (
 	dashboard   = "/rest/api/1.0/dashboard/pull-requests"
 	whoamiPath  = "/plugins/servlet/applinks/whoami"
 	buildsStats = "/rest/build-status/1.0/commits/stats"
+	branchPath  = regexp.MustCompile(`^/rest/branch-utils/1\.0/projects/([^/]+)/repos/([^/]+)/branches$`)
 )
 
 func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
@@ -252,6 +262,8 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		s.serveDashboard(w, r)
 	case r.Method == "POST" && path == buildsStats:
 		s.serveStats(w, body)
+	case r.Method == "DELETE" && branchPath.MatchString(path):
+		s.deleteBranch(w, branchPath.FindStringSubmatch(path), body)
 	default:
 		m := prPath.FindStringSubmatch(path)
 		if m == nil {
@@ -308,6 +320,47 @@ func (s *Server) servePR(w http.ResponseWriter, r *http.Request, pr *PR, sub str
 		writeErrors(w, 404, "No such resource: "+r.Method+" "+r.URL.Path)
 	}
 }
+
+// deleteBranch implements DELETE branch-utils/.../branches: body {"name": ref, "dryRun": bool}. It answers 204
+// when the branch existed and 404 when it is gone (a PR with BranchGone, or a branch already deleted).
+func (s *Server) deleteBranch(w http.ResponseWriter, m []string, body []byte) {
+	var in struct {
+		Name   string `json:"name"`
+		DryRun bool   `json:"dryRun"`
+	}
+	if err := json.Unmarshal(body, &in); err != nil || in.Name == "" {
+		writeErrors(w, 400, "Malformed JSON body")
+		return
+	}
+	key := m[1] + "/" + m[2] + ":" + in.Name
+	gone := false
+	for _, d := range s.deleted {
+		gone = gone || d == key
+	}
+	for _, p := range s.sc.PRs {
+		pp, pr := p.sourceRepo()
+		if pp == m[1] && pr == m[2] && p.fromRefID() == in.Name && p.BranchGone {
+			gone = true
+		}
+	}
+	if gone {
+		writeErrors(w, 404, "Branch "+in.Name+" does not exist in "+m[1]+"/"+m[2]+".")
+		return
+	}
+	if !in.DryRun {
+		s.deleted = append(s.deleted, key)
+	}
+	w.WriteHeader(204)
+}
+
+func (p *PR) sourceRepo() (project, repo string) {
+	if p.ForkRepo != "" {
+		return p.ForkProject, p.ForkRepo
+	}
+	return p.Project, p.Repo
+}
+
+func (p *PR) fromRefID() string { return nonEmpty(p.FromRefID, "refs/heads/"+p.Branch) }
 
 func (s *Server) approve(pr *PR) {
 	for i := range pr.Reviewers {
@@ -403,7 +456,9 @@ func people(ps []Person, role string) []any {
 
 // prJSON renders the raw Bitbucket PR object. withProps adds the dashboard's "properties".
 func prJSON(sc *Scenario, p *PR, withProps bool) map[string]any {
-	from := map[string]any{"id": "refs/heads/" + p.Branch, "displayId": p.Branch}
+	from := map[string]any{"id": p.fromRefID(), "displayId": p.Branch}
+	fp, fr := p.sourceRepo()
+	from["repository"] = map[string]any{"slug": fr, "project": map[string]any{"key": fp}}
 	if p.Commit != "" {
 		from["latestCommit"] = p.Commit
 	}
@@ -412,7 +467,7 @@ func prJSON(sc *Scenario, p *PR, withProps bool) map[string]any {
 		"id": p.ID, "version": p.Version, "title": p.Title, "state": nonEmpty(p.State, "OPEN"),
 		"author":       map[string]any{"user": map[string]any{"slug": p.AuthorSlug, "emailAddress": p.AuthorEmail}, "role": "AUTHOR"},
 		"fromRef":      from,
-		"toRef":        map[string]any{"id": "refs/heads/main", "displayId": "main", "repository": repo},
+		"toRef":        map[string]any{"id": "refs/heads/" + nonEmpty(p.Target, "main"), "displayId": nonEmpty(p.Target, "main"), "repository": repo},
 		"reviewers":    people(p.Reviewers, "REVIEWER"),
 		"participants": people(p.Participants, "PARTICIPANT"),
 	}

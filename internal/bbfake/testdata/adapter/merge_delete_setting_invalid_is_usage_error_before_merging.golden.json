@@ -1,0 +1,11 @@
+{
+  "args": [
+    "pr",
+    "merge",
+    "{BASE}/projects/PROJ/repos/repo/pull-requests/5"
+  ],
+  "exit": 2,
+  "stdout": "",
+  "stderr": "pr merge: BBAPPROVE_DELETE_SOURCE_BRANCH must be true or false, got: sometimes\n",
+  "requests": null
+}

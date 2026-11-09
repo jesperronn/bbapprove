@@ -52,6 +52,14 @@
       "authorization": "Bearer <CANARY>",
       "accept": "application/json",
       "contentType": "application/json"
+    },
+    {
+      "method": "DELETE",
+      "path": "/rest/branch-utils/1.0/projects/PROJ/repos/repo/branches",
+      "body": "{\"name\":\"refs/heads/renovate/x\",\"dryRun\":false}",
+      "authorization": "Bearer <CANARY>",
+      "accept": "application/json",
+      "contentType": "application/json"
     }
   ]
 }

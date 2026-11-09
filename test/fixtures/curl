@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # curl stub for the Bitbucket adapter: logs argv to $STUB_LOG (and the -d body to $STUB_LOG.body), answers from $STUB_RAW.
-# Failure switches: STUB_COMMENT_FAIL, STUB_DECLINE_FAIL, STUB_MERGE_FAIL, STUB_APPROVE_FAIL, STUB_STALE_FILE.
+# Failure switches: STUB_COMMENT_FAIL, STUB_DECLINE_FAIL, STUB_MERGE_FAIL, STUB_APPROVE_FAIL, STUB_DELETE_FAIL, STUB_STALE_FILE.
 url="${!#}"
 echo "$*" >>"$STUB_LOG"
 prev=""; for a in "$@"; do [[ "$prev" == -d ]] && printf '%s' "$a" >"$STUB_LOG.body"; prev="$a"; done
@@ -13,6 +13,7 @@ elif [[ "$url" == *"/blocker-comments"* ]]; then printf '{"values":[{"state":"OP
 elif [[ "$url" == *dashboard/pull-requests* ]]; then printf '{"isLastPage":true,"values":[%s]}\n200' "$STUB_RAW"
 elif [[ "$url" == *"/merge"* && -n "${STUB_STALE_FILE:-}" && ! -e "$STUB_STALE_FILE" ]]; then touch "$STUB_STALE_FILE"; printf '{"errors":[{"message":"out-of-date"}]}\n409'
 elif [[ "$url" == *"/merge"* && -n "${STUB_MERGE_FAIL:-}" ]]; then printf '{"errors":[{"message":"checks failed"}]}\n409'
+elif [[ "$*" == *"-X DELETE"* && -n "${STUB_DELETE_FAIL:-}" ]]; then printf '{}\n500'
 elif [[ "$url" == *"/approve" && -n "${STUB_APPROVE_FAIL:-}" ]]; then printf '{}\n403'
 elif [[ "$url" =~ pull-requests/[0-9]+$ ]]; then printf '%s\n200' "$STUB_RAW"
 else printf '{}\n200'; fi

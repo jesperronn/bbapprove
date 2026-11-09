@@ -54,3 +54,7 @@ func printConfigRun(t *testing.T, env []string) string {
 func TestGoldenPlainPrintConfig(t *testing.T) {
 	checkGolden(t, "print_config.golden", printConfigRun(t, []string{"NO_COLOR=1"}))
 }
+
+func TestGoldenPlainDoctorHelp(t *testing.T) {
+	checkGolden(t, "doctor_help.golden", doctorUsage())
+}

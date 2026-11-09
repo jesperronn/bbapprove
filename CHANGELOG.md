@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Coloured `--help`, `bbapprove doctor` and `--print-config` (terminal only; `NO_COLOR` disables, `FORCE_COLOR=1`
+  forces; piped output is unchanged plain text). New `bbapprove doctor --help` (also `bbapprove help doctor`).
 - `bbapprove doctor [--offline] [--config FILE]`: read-only diagnostics (version and update status, every config
   file candidate and which one is used, setting sources, adapter, token sources without the token, ignore and
   disallow lists, `BBAPPROVE_*` variables, `git`/`gh`/`op`). Exit 1 when a problem is found. A non-URL argument

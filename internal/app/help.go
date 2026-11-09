@@ -1,6 +1,226 @@
 package app
 
-import "bbapprove/internal/style"
+import (
+	"strings"
+
+	"bbapprove/internal/style"
+)
+
+// helpTopic is one page of `bbapprove help TOPIC`, written in the markup of package style.
+type helpTopic struct{ name, summary, markup string }
+
+// helpTopics lists every topic in the order `bbapprove help` shows them. The README must point at each
+// one (see docs_test.go), so a new topic cannot be forgotten there.
+var helpTopics = []helpTopic{
+	{"rules", "which PRs are eligible, the ignore list, the STATUS column", rulesMarkup},
+	{"tui", "the interactive TUI: columns, status bar, exit summary, mouse", tuiMarkup},
+	{"config", "config file lookup, precedence, first run, --init, --print-config", configMarkup},
+	{"token", "where the API token comes from", tokenMarkup},
+	{"update", "--outdated and --update", updateMarkup},
+	{"env", "environment variables and exit codes", envMarkup},
+	{"doctor", "bbapprove doctor, the diagnostics report", doctorUsageMarkup},
+}
+
+// topicsMarkup is the "Topics:" block shared by the top-level help and `bbapprove help`.
+func topicsMarkup() string {
+	var b strings.Builder
+	b.WriteString("{h:Topics:} bbapprove {cmd:help} {val:TOPIC}\n")
+	for _, t := range helpTopics {
+		pad := strings.Repeat(" ", 8-len(t.name))
+		b.WriteString("  {cmd:" + t.name + "}" + pad + t.summary + "\n")
+	}
+	return b.String()
+}
+
+// topicUsageFor renders one topic with the given theme.
+func topicUsageFor(t style.Theme, name string) (string, bool) {
+	for _, h := range helpTopics {
+		if h.name == name {
+			return t.MustRender(h.markup), true
+		}
+	}
+	return "", false
+}
+
+// topicListFor renders the title and the topic list: `bbapprove help` without a topic.
+func topicListFor(t style.Theme, version string) string {
+	return t.MustRender(helpTitle(version) + "\n" + topicsMarkup())
+}
+
+const rulesMarkup = `{title:bbapprove help rules — which PRs are eligible and how every row is labelled.}
+
+{h:Eligible} when ALL hold:
+  - author email is the configured {val:author_email} (config file or {env:BBAPPROVE_AUTHOR_EMAIL}; no default)
+  - title starts with "chore(deps):" or "fix(deps):"
+  - title does not mention a disallowed dependency (case-insensitive substring; config "disallow",
+    {flag:--disallow}, {env:BBAPPROVE_DISALLOW}, {env:BBAPPROVE_DISALLOW_FILE}); see {cmd:help} config
+  - update is minor/patch/digest (a title ending "to vN", or a branch renovate/major-*, counts as major;
+    this heuristic is not reliable yet, see TODO.md)
+  - not already approved by you
+  - not on your ignore list
+Anything else is reported as SKIP with the reason. Nothing is changed without {flag:--apply}.
+
+{h:Ignore list:} a personal file, {path:$XDG_CONFIG_HOME/bbapprove/ignore} (default {path:~/.config/bbapprove/ignore}),
+one dependency per line, # comments allowed. It is separate from the config's disallow list: disallow is a
+hard block shown as SKIP; ignored PRs are shown dim as IGNORED ("on your ignore list: ENTRY") and are never
+approved, merged, declined or commented, in a dry run and with {flag:--apply}. In the TUI, ignored rows are
+hidden on demand and i edits the list. A title matching an entry (case-insensitive substring) is IGNORED
+whatever else applies; removing the entry restores the PR's own SKIP reason. A missing file is an empty list;
+a file that exists but cannot be read stops the run (exit 1) rather than risk acting on an ignored PR.
+{flag:--hide-ignored} leaves ignored rows out of the table. The footer names the file:
+"N ignored via FILE (see: bbapprove doctor)", or "N ignored (hidden) via FILE" with {flag:--hide-ignored}.
+
+{h:STATUS column:} blank = eligible and untouched; SKIP (reason after the title); IGNORED; in flight
+APPROVING… DECLINING… COMMENTING…; done MERGED DECLINED COMMENTED; failures NOT MERGED (approved, merge
+failed) and FAIL. A later action on a row replaces its word. A comment never makes a row ineligible.
+`
+
+const tuiMarkup = `{title:bbapprove help tui — the interactive TUI (-i).}
+
+Keys: ? in the TUI, or the README. Lowercase keys act on the cursor row, uppercase keys on the marked rows.
+The TUI stays open after every action; only q / ctrl+c quits. {flag:--no-mouse} or {env:BBAPPROVE_MOUSE}=0 turns mouse capture off.
+
+{h:Columns:} STATUS (see {cmd:help} rules), then
+  🔨 build        ✓ passed, ✗ failed, … running, ? unknown or none
+  🔎 SonarQube    ✓ quality gate passed, ✗ failed, ? unknown
+  👍 approval     ✓ approved (by someone), ✗ needs work (a reviewer requested changes), – no reviews yet
+  💬              comment count (tasks excluded)
+  ✅              open tasks
+  PROJECT/repo#id the PR reference, then the title
+
+{h:Look:} the cursor row has a subtle full-width background and the › marker; marked rows show a bold yellow ▌ bar;
+the mouse-hovered row a fainter background. With {env:NO_COLOR} only the markers remain.
+
+{h:Status bar:} two lines that never wrap. Line 1 is the transient message or active prompt, otherwise the cursor
+row's PR URL (where o goes) with the version dim at the right; on narrow terminals the URL is shortened in the
+middle (https://host/…/pull-requests/4961) so the PR number and the "o open" hint stay visible. Line 2 is
+"N PRs, M marked" and as many key hints as fit.
+
+{h:Hints follow the Shift key:} by default line 2 shows the instant keys:
+  a approve  d decline  c comment  i ignore  x mark  o open  ? help  q quit
+While you HOLD Shift it switches to the batch keys, and releasing Shift restores the instant set:
+  A approve marked  D decline marked  C comment marked  ctrl+a mark all  x mark  o open  ? help  q quit
+Neither set wraps: trailing items are dropped to fit, and "o open" is the last one dropped before "? help" and
+"q quit". The ? screen always lists both sets. This needs a terminal that speaks the kitty keyboard protocol
+(Ghostty, kitty, recent iTerm2, WezTerm, foot, Alacritty): bbapprove requests the enhancements (key release
+events, all keys as escape codes with associated text and alternate keys) and detects support from the
+terminal's reply. In any other terminal (Terminal.app, tmux without passthrough, ...) the hints stay on the
+instant set and every key works the same. The Shift state is also cleared when the window loses focus or a key
+arrives without Shift, in case a release is lost. {env:BBAPPROVE_KITTY}=0 stops bbapprove requesting the
+enhancements (the hints never change; Bubble Tea still asks for basic key disambiguation).
+
+{h:Exit summary:} on q / ctrl+c the TUI prints what was done this session to the scrollback: a table in the CLI
+format with only the actions taken (MERGED, NOT MERGED, DECLINED, COMMENTED, FAIL, IGNORED / UN-IGNORED), then a
+tally such as "3 merged, 1 declined, 1 failed" (zero counts omitted), or "No changes made." Actions still
+running are listed as WORKING… and the tally ends "(still running)": quitting does not wait for them. One line
+per PR and kind of action. Cut to the terminal width on a TTY, never truncated when piped.
+
+{h:Mouse:} on by default: click a row to move the cursor, click the first three columns to toggle its mark,
+wheel scrolls 3 rows, hover highlights. Click the PR URL in the footer (or the "o open" hint) to open it, the same as
+pressing o. Clicks elsewhere outside the rows are ignored, and the mouse is ignored while a text prompt is open.
+Capturing the mouse disables the terminal's native text selection and cmd-click on links; hold Shift to bypass it
+in most terminals (Ghostty, iTerm2, kitty).
+`
+
+const configMarkup = `{title:bbapprove help config — the config file and where each setting comes from.}
+
+A TOML file; {path:bbapprove.config.template} lists every key (type, repository, author_email, disallow, update_repo,
+user_token_name) with comments. Nothing site- or person-specific is built in. {flag:--print-config} shows the
+effective settings and which of flag, env, file or default each came from (never a secret).
+
+{h:Lookup:} the first that exists wins: {flag:--config} {val:FILE}, {env:BBAPPROVE_CONFIG} (both must exist), {path:<repo>/bbapprove.config.toml}
+(the parent of the binary's directory, like adapters/; git-ignored), then {path:$XDG_CONFIG_HOME/bbapprove/config.toml}
+(default {path:~/.config/bbapprove/config.toml}).
+
+{h:Precedence} per setting: command line > environment > file > built-in default. Environment names:
+{env:BBAPPROVE_REPOSITORY}, {env:BBAPPROVE_AUTHOR_EMAIL}, {env:BBAPPROVE_TOKEN_NAME}, {env:BBAPPROVE_UPDATE_REPO}. Only
+type ("bitbucket") and update_repo have defaults; repository and author_email are required and bbapprove exits 1
+naming the missing one and the paths searched. disallow is the union of the file, {flag:--disallow} /
+{env:BBAPPROVE_DISALLOW} (comma-separated) and the optional {env:BBAPPROVE_DISALLOW_FILE} (one dependency per line;
+default {path:disallow.txt} in the repo root, git-ignored). {env:BBAPPROVE_ADAPTER} (an executable path) overrides what type selects.
+Unknown keys only warn; malformed TOML stops the run and names the file and line.
+
+{h:First run:} with no config file, a run on a terminal offers to create {path:$XDG_CONFIG_HOME/bbapprove/config.toml}
+(mode 0600, never overwrites) from the template built into the binary, opens it in {env:$VISUAL}/{env:$EDITOR}, re-prompts
+while the example values are unchanged (at most 3 rounds), then continues with your original command. In CI or
+pipes nothing is written; the error shows the mkdir and cp commands to run.
+{flag:--init} does the same on request: it writes to {flag:--config} {val:FILE}, else {env:BBAPPROVE_CONFIG}, else the default path, and
+refuses to replace an existing file unless {flag:--force}.
+`
+
+const tokenMarkup = `{title:bbapprove help token — where the API token comes from.}
+
+Resolved in this order:
+  1. {env:BBAPPROVE_TOKEN}, when set and non-empty. It wins; 1Password is not consulted.
+  2. The 1Password item named by {flag:--token-name} {val:NAME}, {env:BBAPPROVE_TOKEN_NAME} or user_token_name (that precedence),
+     looked up with: op item get NAME --reveal --fields label=token, then label=credential if that fails
+     or is empty. There is no default item name.
+  3. Neither: every run that talks to the forge (dry run, {flag:--apply}, {flag:-i}) stops at once with exit 1, before the
+     adapter is called. {flag:--help}, {flag:--print-config}, {flag:--init}, {flag:--outdated}, {flag:--update} and {cmd:doctor} need no token;
+     doctor flags a missing source as a problem and never looks the item up.
+
+Create a Bitbucket Server / Data Center HTTP access token for the account that reviews the PRs: repository read
+access (dashboard, build status, PR details) plus write access to approve, merge, comment on and decline.
+
+There is no {flag:--token} option: a token on the command line is visible in the process list and shell history.
+`
+
+const updateMarkup = `{title:bbapprove help update — check for and install a newer release.}
+
+bbapprove never checks by itself. Neither flag needs a config file, token or forge access; both are exclusive
+with {flag:--apply} and PR URLs.
+
+{flag:--outdated} [{flag:--pre}]  read-only check. Exit 0 up to date, 1 outdated, 2 could not check.
+  Asks "gh release list" for the newest release; in a git checkout without gh it falls back to
+  "git ls-remote --tags origin". A pre-release build compares against the newest release including
+  pre-releases; a stable build against the newest stable one unless {flag:--pre}. The repository defaults to
+  jesperronn/bbapprove; override with update_repo or {env:BBAPPROVE_UPDATE_REPO}.
+{flag:--update} [{flag:--yes}] [{flag:--pre}]  runs the same check, prints a plan and asks "Proceed? [y/N]" (default no).
+  {flag:--yes} skips the question; without a terminal it refuses to change anything unless you pass {flag:--yes}.
+  Git checkout: git fetch --tags, git pull --ff-only, bin/build; needs a clean tree on main that can be
+  fast-forwarded, otherwise nothing is changed.
+  Release archive: the new release is unpacked next to the current install as bbapprove-<tag>-<os>-<arch>
+  after its SHA-256 is verified against the release's SHA256SUMS (needs gh). The running tree is never
+  modified and nothing is switched automatically: the command prints how to switch and how to roll back
+  (ln -sfn lines when your bbapprove is a symlink). Your config in {path:$XDG_CONFIG_HOME/bbapprove/config.toml} is shared
+  by both trees.
+
+SHA256SUMS comes from the same release as the archive, so the check protects against corruption and partial
+downloads, not a compromised release. Provenance and attestation checks are future work (see TODO.md).
+`
+
+const envMarkup = `{title:bbapprove help env — environment variables and exit codes.}
+
+{h:Environment}
+  {env:BBAPPROVE_TOKEN}          API token; wins over a 1Password item ({cmd:help} token)
+  {env:BBAPPROVE_CONFIG}         config file path (also {flag:--config}); must exist
+  {env:BBAPPROVE_REPOSITORY}     forge base URL (overrides repository)
+  {env:BBAPPROVE_TOKEN_NAME}     1Password item name, used only when {env:BBAPPROVE_TOKEN} is unset (also {flag:--token-name}; no default)
+  {env:BBAPPROVE_AUTHOR_EMAIL}   author the eligibility check requires (overrides author_email)
+  {env:BBAPPROVE_UPDATE_REPO}    GitHub owner/repo for {flag:--outdated} and {flag:--update} (default jesperronn/bbapprove)
+  {env:BBAPPROVE_DISALLOW}       comma-separated extra disallow items
+  {env:BBAPPROVE_DISALLOW_FILE}  optional extra disallow file (default disallow.txt in the repo root)
+  {env:BBAPPROVE_JOBS}           parallel PR fetches and merges (default: CPU count)
+  {env:BBAPPROVE_ADAPTER}        forge adapter executable (default adapters/bitbucket)
+  {env:BBAPPROVE_MOUSE}          0 turns TUI mouse capture off (same as {flag:--no-mouse})
+  {env:BBAPPROVE_KITTY}          0 stops the TUI requesting the kitty keyboard protocol
+  {env:NO_COLOR}, {env:FORCE_COLOR}  colour only on a terminal; NO_COLOR turns it off and wins, FORCE_COLOR=1 forces it on
+  {env:XDG_CONFIG_HOME}          base of the config and ignore paths (default ~/.config)
+  {env:VISUAL}, {env:EDITOR}         editor opened by the first-run setup
+
+{h:Adapter side} (read by adapters/bitbucket; the core sets the first two from the configuration)
+  {env:BBAPPROVE_BASE_URL}       forge base URL (required)
+  {env:BBAPPROVE_TOKEN_NAME}     1Password item for "auth token"
+  {env:BBAPPROVE_MERGE_RETRIES}  merge retries when the PR version went stale (default 4)
+  {env:BBAPPROVE_RETRY_SLEEP}    seconds between retries (default 2)
+  {env:BBAPPROVE_TOKEN} is required by the "pr" commands (exit 2 when unset).
+
+{h:Exit codes}
+  0  ok (doctor: warnings allowed; --outdated: up to date)
+  1  a failure (doctor: a problem was found; --outdated: a newer release exists)
+  2  bad usage (--outdated: could not check)
+  127  (launcher) Go is missing and no binary is built
+`
 
 // doctorUsageMarkup is the help for `bbapprove doctor`, in the markup of package style.
 const doctorUsageMarkup = `{title:bbapprove doctor — diagnose the installation and the configuration.}

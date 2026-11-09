@@ -1,0 +1,24 @@
+bbapprove help config — the config file and where each setting comes from.
+
+A TOML file; bbapprove.config.template lists every key (type, repository, author_email, disallow, update_repo,
+user_token_name) with comments. Nothing site- or person-specific is built in. --print-config shows the
+effective settings and which of flag, env, file or default each came from (never a secret).
+
+Lookup: the first that exists wins: --config FILE, BBAPPROVE_CONFIG (both must exist), <repo>/bbapprove.config.toml
+(the parent of the binary's directory, like adapters/; git-ignored), then $XDG_CONFIG_HOME/bbapprove/config.toml
+(default ~/.config/bbapprove/config.toml).
+
+Precedence per setting: command line > environment > file > built-in default. Environment names:
+BBAPPROVE_REPOSITORY, BBAPPROVE_AUTHOR_EMAIL, BBAPPROVE_TOKEN_NAME, BBAPPROVE_UPDATE_REPO. Only
+type ("bitbucket") and update_repo have defaults; repository and author_email are required and bbapprove exits 1
+naming the missing one and the paths searched. disallow is the union of the file, --disallow /
+BBAPPROVE_DISALLOW (comma-separated) and the optional BBAPPROVE_DISALLOW_FILE (one dependency per line;
+default disallow.txt in the repo root, git-ignored). BBAPPROVE_ADAPTER (an executable path) overrides what type selects.
+Unknown keys only warn; malformed TOML stops the run and names the file and line.
+
+First run: with no config file, a run on a terminal offers to create $XDG_CONFIG_HOME/bbapprove/config.toml
+(mode 0600, never overwrites) from the template built into the binary, opens it in $VISUAL/$EDITOR, re-prompts
+while the example values are unchanged (at most 3 rounds), then continues with your original command. In CI or
+pipes nothing is written; the error shows the mkdir and cp commands to run.
+--init does the same on request: it writes to --config FILE, else BBAPPROVE_CONFIG, else the default path, and
+refuses to replace an existing file unless --force.

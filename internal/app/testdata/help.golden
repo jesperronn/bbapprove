@@ -1,62 +1,35 @@
 bbapprove v1.2.3 — approve and merge Renovate PRs on Bitbucket Server.
 
-Usage: bbapprove [--apply] [--hide-ignored] [--disallow a,b]
-                 [--token-name NAME] [--config FILE] [--print-config] [PR_URL...]
+Usage: bbapprove [--apply] [--hide-ignored] [--disallow a,b] [--token-name NAME]
+                 [--config FILE] [--print-config] [-i] [--no-mouse] [PR_URL...]
        bbapprove --init [--force] [--config FILE]
        bbapprove doctor [--offline] [--config FILE]
        bbapprove --outdated [--pre]
        bbapprove --update [--yes] [--pre]
 
-With no PR_URL, every open PR where you are a reviewer is considered.
-Without --apply nothing is changed; eligibility is only reported.
-Your per-user ignore list ($XDG_CONFIG_HOME/bbapprove/ignore, default ~/.config/bbapprove/ignore) is
-honoured: a PR whose title matches an entry is shown dim as IGNORED and is never approved, merged,
-declined or commented, with or without --apply. --hide-ignored leaves those rows out of the table
-(the footer then says "N ignored (hidden)").
-The STATUS column is blank for an eligible, untouched PR; otherwise SKIP, IGNORED, or the result of
-an action (APPROVING… MERGED, NOT MERGED, DECLINING… DECLINED, COMMENTING… COMMENTED, FAIL).
--i opens an interactive TUI: x/space mark, ctrl+a mark all eligible, a approve+merge, d decline,
-c comment (cursor row); A/D/C act on the marked rows; i ignore dependency, h or . show/hide ignored
-rows, r reload, o open, ? help, q quit (prints a summary of what was done). --no-mouse (or
-BBAPPROVE_MOUSE=0) turns mouse capture off.
+Dry run by default: with no PR_URL every open PR where you are a reviewer is listed and only
+eligibility is reported. Nothing changes without --apply.
 
-A PR is eligible when ALL hold:
-  - author email is the configured author_email (config file, BBAPPROVE_AUTHOR_EMAIL; no default)
-  - title starts with "chore(deps):" or "fix(deps):"
-  - title does not mention a disallowed dependency (config "disallow", --disallow)
-  - update is minor/patch/digest (title "to vN" only, or branch renovate/major-*, is major)
-  - not already approved by you
-  - not on your ignore list (a PR on it is IGNORED whatever else applies, and never acted on)
+Options:
+  --apply            approve, then merge, the eligible PRs
+  --hide-ignored     leave ignored PRs out of the table
+  --disallow a,b     also skip PRs whose title mentions these dependencies
+  --token-name NAME  1Password item that holds the API token
+  --config FILE      use this config file
+  --print-config     show the effective settings and where each came from (no secrets)
+  --init             create the config file from the template (--force replaces one)
+  -i                 interactive TUI (--no-mouse turns mouse capture off)
+  --outdated         check whether a newer release exists (--pre includes pre-releases)
+  --update           update after showing a plan (--yes skips the question)
+  -V, --version      print the version
+  -h, --help         this help
+  doctor             diagnose the installation and the configuration
 
-Configuration: a TOML file (see bbapprove.config.template) with type, repository,
-author_email, disallow, update_repo, user_token_name. Found via --config / BBAPPROVE_CONFIG, else <repo>/bbapprove.config.toml, else
-$XDG_CONFIG_HOME/bbapprove/config.toml (default ~/.config/...). Precedence: command line > env > file >
-default. repository and author_email have no default. With no config file at all, an interactive run
-offers to create $XDG_CONFIG_HOME/bbapprove/config.toml from the template and open it in $VISUAL/$EDITOR;
---init does that on request (never overwrites an existing file unless --force; --config FILE or BBAPPROVE_CONFIG picks the
-path). The template is built into the binary. --print-config shows the effective settings
-(no secrets) and where each came from.
-The API token: BBAPPROVE_TOKEN if set (wins), else the 1Password item named by --token-name NAME,
-BBAPPROVE_TOKEN_NAME or user_token_name (looked up with "op", field token, then credential; no default name).
-With neither a run that needs the forge fails at once. There is no --token option (visible in the process list).
-
-doctor prints diagnostics and needs no token or forge access: version and update status, which config
-file is in use (every candidate path and why), where each setting came from, the adapter, the token
-source (never its value; op is not run), the ignore list (path and entries: what makes a row IGNORED), the disallow
-lists, BBAPPROVE_* variables and tools (git, gh, op). Read-only; --offline skips the update check.
-Exit 0 all good (warnings allowed), 1 a problem was found.
-
---outdated checks (read-only) whether a newer release exists: it asks "gh release list" for
-jesperronn/bbapprove (override: update_repo in the config, BBAPPROVE_UPDATE_REPO) and, in a git
-checkout without gh, "git ls-remote --tags origin". A pre-release build compares against the newest
-release including pre-releases; a stable build against the newest stable one unless --pre. Exit 0 up to
-date, 1 outdated, 2 could not check. bbapprove never checks by itself. --update does the same check,
-prints a plan and asks "Proceed? [y/N]" (--yes skips the prompt; without a terminal it needs --yes).
-A checkout is updated in place (git fetch --tags, git pull --ff-only, bin/build; needs a clean tree on
-main). Any other install gets the new release unpacked next to it (bbapprove-<tag>-<os>-<arch>, SHA-256
-verified, needs gh): the running tree is never modified, the commands to switch and to roll back are
-printed. Neither flag needs a config file, token or forge access; both are exclusive with --apply and PR_URLs.
-
-Env: BBAPPROVE_CONFIG, BBAPPROVE_UPDATE_REPO, BBAPPROVE_REPOSITORY, BBAPPROVE_AUTHOR_EMAIL, BBAPPROVE_TOKEN_NAME,
-     BBAPPROVE_DISALLOW, BBAPPROVE_DISALLOW_FILE, BBAPPROVE_JOBS, BBAPPROVE_ADAPTER, BBAPPROVE_TOKEN (wins over the item),
-     BBAPPROVE_MOUSE, BBAPPROVE_KITTY; NO_COLOR, FORCE_COLOR.
+Topics: bbapprove help TOPIC
+  rules   which PRs are eligible, the ignore list, the STATUS column
+  tui     the interactive TUI: columns, status bar, exit summary, mouse
+  config  config file lookup, precedence, first run, --init, --print-config
+  token   where the API token comes from
+  update  --outdated and --update
+  env     environment variables and exit codes
+  doctor  bbapprove doctor, the diagnostics report

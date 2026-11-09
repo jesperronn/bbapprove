@@ -344,7 +344,7 @@ run: bbapprove doctor`
 // RemovedTokenFlagHelp explains --token, which no longer exists.
 const RemovedTokenFlagHelp = `bbapprove: --token was removed (a token on the command line is visible to other users).
 Set the BBAPPROVE_TOKEN environment variable, or name a 1Password item with --token-name NAME /
-BBAPPROVE_TOKEN_NAME / user_token_name (see README, section Token); run: bbapprove doctor`
+BBAPPROVE_TOKEN_NAME / user_token_name (see: bbapprove help token); run: bbapprove doctor`
 
 // IsRemovedTokenFlag reports whether arg is the removed --token option (--token-name is valid).
 func IsRemovedTokenFlag(arg string) bool {

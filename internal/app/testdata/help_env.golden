@@ -1,0 +1,31 @@
+bbapprove help env — environment variables and exit codes.
+
+Environment
+  BBAPPROVE_TOKEN          API token; wins over a 1Password item (help token)
+  BBAPPROVE_CONFIG         config file path (also --config); must exist
+  BBAPPROVE_REPOSITORY     forge base URL (overrides repository)
+  BBAPPROVE_TOKEN_NAME     1Password item name, used only when BBAPPROVE_TOKEN is unset (also --token-name; no default)
+  BBAPPROVE_AUTHOR_EMAIL   author the eligibility check requires (overrides author_email)
+  BBAPPROVE_UPDATE_REPO    GitHub owner/repo for --outdated and --update (default jesperronn/bbapprove)
+  BBAPPROVE_DISALLOW       comma-separated extra disallow items
+  BBAPPROVE_DISALLOW_FILE  optional extra disallow file (default disallow.txt in the repo root)
+  BBAPPROVE_JOBS           parallel PR fetches and merges (default: CPU count)
+  BBAPPROVE_ADAPTER        forge adapter executable (default adapters/bitbucket)
+  BBAPPROVE_MOUSE          0 turns TUI mouse capture off (same as --no-mouse)
+  BBAPPROVE_KITTY          0 stops the TUI requesting the kitty keyboard protocol
+  NO_COLOR, FORCE_COLOR  colour only on a terminal; NO_COLOR turns it off and wins, FORCE_COLOR=1 forces it on
+  XDG_CONFIG_HOME          base of the config and ignore paths (default ~/.config)
+  VISUAL, EDITOR         editor opened by the first-run setup
+
+Adapter side (read by adapters/bitbucket; the core sets the first two from the configuration)
+  BBAPPROVE_BASE_URL       forge base URL (required)
+  BBAPPROVE_TOKEN_NAME     1Password item for "auth token"
+  BBAPPROVE_MERGE_RETRIES  merge retries when the PR version went stale (default 4)
+  BBAPPROVE_RETRY_SLEEP    seconds between retries (default 2)
+  BBAPPROVE_TOKEN is required by the "pr" commands (exit 2 when unset).
+
+Exit codes
+  0  ok (doctor: warnings allowed; --outdated: up to date)
+  1  a failure (doctor: a problem was found; --outdated: a newer release exists)
+  2  bad usage (--outdated: could not check)
+  127  (launcher) Go is missing and no binary is built

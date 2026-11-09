@@ -6,6 +6,7 @@ Run `bin/help` for the commands; every one takes `--help`. Start with `bin/setup
 bin/test test/release.test.sh     # one shell suite
 bin/test ./internal/tui           # one Go package
 bin/test --no-go 2>&1 | grep -E 'FAIL|TEST SUMMARY'
+bin/test --timings                # after the run: slowest suites, Go packages and Go tests, total time
 ```
 
 The launcher `bin/bbapprove` rebuilds `bin/bbapprove-go` whenever `go.mod`, `go.sum` or any `cmd/`/`internal/` `.go` file is newer than it, so edit, run `bin/bbapprove`, repeat. Without Go and without a binary it exits 127.

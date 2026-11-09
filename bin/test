@@ -2,11 +2,12 @@
 # shellcheck shell=bash
 # test — run the bbapprove test suites: Go packages and the bash suites under test/.
 #
-# Usage: bin/test [--verbose] [--no-go] [--no-shell] [TARGET...]
+# Usage: bin/test [--verbose] [--timings] [--no-go] [--no-shell] [TARGET...]
 #   no TARGET    go test ./... -count=1 -race, then every test/*.test.sh via bash
 #   TARGET       a *.test.sh file runs that suite; anything else is a Go package pattern
 #                relative to the project root, e.g. ./internal/tui
 #   --verbose    pass --verbose to the shell suites and -v to go test
+#   --timings    after the run, print the slowest suites, Go packages and Go tests and the total time
 #   --no-go      skip the Go tests
 #   --no-shell   skip the shell suites
 #
@@ -18,11 +19,12 @@ shopt -s nullglob
 
 usage() {
   cat <<'EOF'
-Usage: bin/test [--verbose] [--no-go] [--no-shell] [TARGET...]
+Usage: bin/test [--verbose] [--timings] [--no-go] [--no-shell] [TARGET...]
 
   (no TARGET)  go test ./... -count=1 -race, then every test/*.test.sh
   TARGET       a *.test.sh file (runs that suite) or a Go package pattern such as ./internal/tui
   --verbose    pass --verbose to shell suites and -v to go test
+  --timings    after the run, print suites, Go packages and the slowest Go tests, slowest first, and the total time
   --no-go      skip the Go tests
   --no-shell   skip the shell suites
   -h, --help   show this help
@@ -34,6 +36,7 @@ EOF
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 
 verbose=0
+timings=0
 run_go=1
 run_shell=1
 targets=()
@@ -41,6 +44,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     -h|--help) usage; exit 0 ;;
     --verbose|-v) verbose=1 ;;
+    --timings) timings=1 ;;
     --no-go) run_go=0 ;;
     --no-shell) run_shell=0 ;;
     -*) echo "test: unknown option: $1" >&2; usage >&2; exit 2 ;;
@@ -95,23 +99,131 @@ fi
 cd "$PROJECT_ROOT"
 
 failed=()
+shell_times=()  # "MILLISECONDS NAME" per shell suite (only filled with --timings)
+go_pkg_times=() # "SECONDS PACKAGE"
+go_test_times=() # "SECONDS PACKAGE.TEST"
+TIMINGS_N="${TEST_TIMINGS_TOP:-10}"
+
+# now_ms: milliseconds since the epoch. EPOCHREALTIME (bash 5) is used when present; the radix
+# character follows the locale, so both "." and "," are stripped. Falls back to whole seconds.
+now_ms() {
+  if [[ -n "${EPOCHREALTIME:-}" ]]; then
+    local t="${EPOCHREALTIME/[.,]/}"
+    echo $((10#$t / 1000))
+  else
+    echo $(($(date +%s) * 1000))
+  fi
+}
+
+# fmt_ms MS: "12.34s".
+fmt_ms() { printf '%d.%02ds' $(($1 / 1000)) $((($1 % 1000) / 10)); }
 
 # run_suite NAME COMMAND...: print a header, run the command, record NAME on failure.
 run_suite() {
-  local name="$1"
+  local name="$1" start rc=0
   shift
   echo "==> $name"
-  if "$@"; then
+  start="$(now_ms)"
+  "$@" || rc=$?
+  if [[ "$name" == *.test.sh ]]; then shell_times+=("$(($(now_ms) - start)) $name"); fi
+  if [[ $rc -eq 0 ]]; then
     return 0
   fi
   failed+=("$name")
   return 0
 }
 
+# json_unescape: decode the JSON string escapes go test -json uses in an "Output" value, into $unescaped.
+# shellcheck disable=SC2329 # used by run_go_json
+json_unescape() {
+  local s="$1"
+  s="${s//\\\\/$'\001'}"
+  s="${s//\\\"/\"}"
+  printf -v unescaped '%b' "$s"
+  unescaped="${unescaped//$'\001'/\\}"
+}
+
+# run_go_json PKG: like `go test PKG`, but with -json; the output is re-rendered as plain test output
+# (a test's own output only with --verbose or when its package failed) and per-package and per-test
+# times are recorded for the --timings report. Returns go test's exit status.
+# shellcheck disable=SC2329 # invoked through run_suite
+run_go_json() {
+  local pkg="$1" jd line rc=0 action package test elapsed unescaped safe
+  local -a args=("$pkg" "${go_args[@]}" -json)
+  jd="$(mktemp -d)"
+  go test "${args[@]}" >"$jd/json" || rc=$?
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ "$line" != '{'* ]]; then
+      printf '%s\n' "$line"
+      continue
+    fi
+    action="" package="" test="" elapsed="" unescaped=""
+    [[ "$line" =~ \"Action\":\"([a-z]+)\" ]] && action="${BASH_REMATCH[1]}"
+    [[ "$line" =~ \"Package\":\"([^\"]+)\" ]] && package="${BASH_REMATCH[1]}"
+    [[ "$line" =~ \"Test\":\"([^\"]+)\" ]] && test="${BASH_REMATCH[1]}"
+    [[ "$line" =~ \"Elapsed\":([0-9.]+) ]] && elapsed="${BASH_REMATCH[1]}"
+    safe="${package//[^A-Za-z0-9]/_}"
+    case "$action" in
+      output)
+        if [[ "$line" == *,\"OutputType\":* ]]; then line="${line%%,\"OutputType\":*}}"; fi
+        [[ "$line" =~ \"Output\":\"(.*)\"\}$ ]] || continue
+        json_unescape "${BASH_REMATCH[1]}"
+        if [[ -z "$test" || $verbose -eq 1 ]]; then
+          printf '%s' "$unescaped"
+        else
+          printf '%s' "$unescaped" >>"$jd/$safe"
+        fi
+        ;;
+      pass|fail)
+        if [[ -z "$test" ]]; then
+          if [[ -n "$elapsed" ]]; then go_pkg_times+=("$elapsed $package"); fi
+          if [[ "$action" == fail && -f "$jd/$safe" ]]; then cat "$jd/$safe"; fi
+        elif [[ -n "$elapsed" ]]; then
+          go_test_times+=("$elapsed $package.$test")
+        fi
+        ;;
+    esac
+  done <"$jd/json"
+  rm -rf "$jd"
+  return "$rc"
+}
+
+# report_timings TOTAL_MS: the --timings report.
+report_timings() {
+  local total="$1" ms name secs bold="" reset=""
+  if [[ -z "${NO_COLOR:-}" && -t 1 ]]; then bold=$'\033[1m'; reset=$'\033[0m'; fi
+  echo
+  echo "${bold}==> TIMINGS${reset}"
+  if [[ ${#shell_times[@]} -gt 0 ]]; then
+    echo "${bold}Shell suites, slowest first${reset}"
+    while read -r ms name; do
+      printf '  %9s  %s\n' "$(fmt_ms "$ms")" "$name"
+    done < <(printf '%s\n' "${shell_times[@]}" | LC_ALL=C sort -rn)
+  fi
+  if [[ ${#go_pkg_times[@]} -gt 0 ]]; then
+    echo "${bold}Go packages, slowest first${reset}"
+    while read -r secs name; do
+      LC_ALL=C printf '  %8.2fs  %s\n' "$secs" "$name"
+    done < <(printf '%s\n' "${go_pkg_times[@]}" | LC_ALL=C sort -rn)
+  fi
+  if [[ ${#go_test_times[@]} -gt 0 ]]; then
+    echo "${bold}Slowest Go tests (top $TIMINGS_N)${reset}"
+    while read -r secs name; do
+      LC_ALL=C printf '  %8.2fs  %s\n' "$secs" "$name"
+    done < <(printf '%s\n' "${go_test_times[@]}" | LC_ALL=C sort -rn | head -n "$TIMINGS_N")
+  fi
+  echo "Total wall time: $(fmt_ms "$total")"
+}
+
+run_start="$(now_ms)"
 go_args=(-count=1 -race)
 if [[ $verbose -eq 1 ]]; then go_args+=(-v); fi
 for pkg in ${go_suites[@]+"${go_suites[@]}"}; do
-  run_suite "go:$pkg" go test "$pkg" "${go_args[@]}"
+  if [[ $timings -eq 1 ]]; then
+    run_suite "go:$pkg" run_go_json "$pkg"
+  else
+    run_suite "go:$pkg" go test "$pkg" "${go_args[@]}"
+  fi
 done
 
 shell_args=()
@@ -119,6 +231,8 @@ if [[ $verbose -eq 1 ]]; then shell_args+=(--verbose); fi
 for suite in ${shell_suites[@]+"${shell_suites[@]}"}; do
   run_suite "$(basename "$suite")" bash "$suite" ${shell_args[@]+"${shell_args[@]}"}
 done
+
+if [[ $timings -eq 1 ]]; then report_timings $(($(now_ms) - run_start)); fi
 
 if [[ ${#failed[@]} -eq 0 ]]; then
   echo "TEST SUMMARY: all passed"

@@ -5,6 +5,9 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Maintainers: `bin/test --timings` prints the slowest shell suites, Go packages and Go tests and the total run time.
+
 ## [1.0.0] - 2026-11-09
 
 ### Changed (BREAKING)

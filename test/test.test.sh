@@ -29,6 +29,7 @@ setup_fixture() {
     cat >"$PROJ/test/$suite.test.sh" <<'SUITE'
 #!/usr/bin/env bash
 echo "suite $(basename "$0")${*:+ $*}" >>"$TESTSH_TEST_LOG"
+if [[ "$(basename "$0")" == "b.test.sh" ]]; then sleep "${FAKE_SLOW_B:-0}"; fi
 if [[ "$(basename "$0")" == "${FAKE_FAIL_SUITE:-}" ]]; then
   exit 1
 fi
@@ -38,6 +39,18 @@ SUITE
   cat >"$TEST_TMP/stubs/go" <<'STUB'
 #!/usr/bin/env bash
 echo "go $*" >>"$TESTSH_TEST_LOG"
+case " $* " in
+  *" -json "*)
+    echo '{"Action":"output","Package":"x/slow","Test":"TestA","Output":"hidden \\"chatter\\"\n"}'
+    echo '{"Action":"pass","Package":"x/slow","Test":"TestA","Elapsed":0.25}'
+    echo '{"Action":"pass","Package":"x/slow","Test":"TestB","Elapsed":1.5}'
+    echo '{"Action":"output","Package":"x/slow","Output":"ok  \tx/slow\t1.8s\n"}'
+    echo '{"Action":"pass","Package":"x/slow","Elapsed":1.8}'
+    echo '{"Action":"pass","Package":"x/fast","Test":"TestC","Elapsed":0.01}'
+    echo '{"Action":"output","Package":"x/fast","Output":"PASS\n","OutputType":"frame"}'
+    echo '{"Action":"pass","Package":"x/fast","Elapsed":0.02}'
+    ;;
+esac
 exit "${STUB_GO_RC:-0}"
 STUB
   chmod +x "$TEST_TMP/stubs/go"
@@ -45,7 +58,7 @@ STUB
   export TESTSH_TEST_LOG="$TEST_TMP/calls.log"
   : >"$TESTSH_TEST_LOG"
   export PATH="$TEST_TMP/stubs:$ORIG_PATH"
-  unset STUB_GO_RC FAKE_FAIL_SUITE
+  unset STUB_GO_RC FAKE_FAIL_SUITE FAKE_SLOW_B TEST_TIMINGS_TOP
 }
 
 # run_testsh ARGS...: run bin/test from the fixture project; sets TESTSH_OUT and TESTSH_STATUS.
@@ -164,6 +177,94 @@ test_unknown_option_exits_2() {
   run_testsh --bogus
   assert_status 2 "$TESTSH_STATUS" "unknown option exits 2"
   assert_contains "$TESTSH_OUT" "test: unknown option: --bogus" "unknown option is reported"
+  cleanup_test_tmp
+}
+
+line_no() { grep -n -m1 -F -- "$2" <<<"$1" | cut -d: -f1 || true; }
+
+test_timings_absent_without_flag() {
+  setup_fixture
+  run_testsh
+  assert_not_contains "$TESTSH_OUT" "TIMINGS" "no report without --timings"
+  assert_not_contains "$TESTSH_OUT" "Total wall time" "no total without --timings"
+  cleanup_test_tmp
+}
+
+test_timings_report_lists_suites_packages_tests() {
+  setup_fixture
+  export NO_COLOR=1
+  run_testsh --timings
+  assert_status 0 "$TESTSH_STATUS" "--timings keeps exit 0"
+  assert_contains "$(<"$TESTSH_TEST_LOG")" "go test ./... -count=1 -race -json" "--timings runs go test with -json"
+  assert_contains "$TESTSH_OUT" "==> TIMINGS" "report header"
+  assert_contains "$TESTSH_OUT" "Shell suites, slowest first" "shell section"
+  assert_contains "$TESTSH_OUT" "Go packages, slowest first" "package section"
+  assert_contains "$TESTSH_OUT" "Slowest Go tests (top 10)" "tests section"
+  assert_contains "$TESTSH_OUT" "Total wall time:" "total wall time"
+  assert_contains "$TESTSH_OUT" "ok  	x/slow	1.8s" "package output lines are still printed"
+  assert_not_contains "$TESTSH_OUT" "hidden" "passing test output stays hidden without --verbose"
+  assert_not_contains "$TESTSH_OUT" '{"Action"' "raw JSON is not shown"
+  assert_contains "$TESTSH_OUT" "TEST SUMMARY: all passed" "summary still printed"
+  unset NO_COLOR
+  cleanup_test_tmp
+}
+
+test_timings_orders_slowest_first() {
+  setup_fixture
+  export FAKE_SLOW_B=0.3
+  run_testsh --timings
+  local out="$TESTSH_OUT"
+  assert_contains "$out" "  b.test.sh" "slow suite listed"
+  # In the report the slow suite precedes the fast ones.
+  local rep="${out#*==> TIMINGS}"
+  local lb la
+  lb="$(line_no "$rep" "  b.test.sh")"; la="$(line_no "$rep" "  a.test.sh")"
+  [[ -n "$lb" && -n "$la" && "$lb" -lt "$la" ]] || test_fail "suite b (slow) listed before a" "$rep"
+  test_pass "suites sorted slowest first"
+  lb="$(line_no "$rep" "x/slow")"; la="$(line_no "$rep" "x/fast")"
+  [[ -n "$lb" && -n "$la" && "$lb" -lt "$la" ]] || test_fail "package x/slow listed before x/fast" "$rep"
+  test_pass "packages sorted slowest first"
+  lb="$(line_no "$rep" "x/slow.TestB")"; la="$(line_no "$rep" "x/slow.TestA")"
+  [[ -n "$lb" && -n "$la" && "$lb" -lt "$la" ]] || test_fail "TestB (1.5s) listed before TestA (0.25s)" "$rep"
+  test_pass "tests sorted slowest first"
+  cleanup_test_tmp
+}
+
+test_timings_limits_slowest_tests() {
+  setup_fixture
+  export TEST_TIMINGS_TOP=1
+  run_testsh --timings
+  assert_contains "$TESTSH_OUT" "x/slow.TestB" "the slowest test is shown"
+  assert_not_contains "$TESTSH_OUT" "x/fast.TestC" "tests beyond the limit are cut"
+  cleanup_test_tmp
+}
+
+test_timings_with_no_go() {
+  setup_fixture
+  run_testsh --timings --no-go
+  assert_status 0 "$TESTSH_STATUS" "--timings --no-go exits 0"
+  assert_contains "$TESTSH_OUT" "Shell suites, slowest first" "shell section still shown"
+  assert_not_contains "$TESTSH_OUT" "Go packages" "no go section without go"
+  assert_contains "$TESTSH_OUT" "Total wall time:" "total shown"
+  cleanup_test_tmp
+}
+
+test_timings_with_no_shell() {
+  setup_fixture
+  run_testsh --timings --no-shell
+  assert_status 0 "$TESTSH_STATUS" "--timings --no-shell exits 0"
+  assert_not_contains "$TESTSH_OUT" "Shell suites" "no shell section without shell suites"
+  assert_contains "$TESTSH_OUT" "Go packages, slowest first" "go section shown"
+  cleanup_test_tmp
+}
+
+test_timings_with_target_and_failure_exit() {
+  setup_fixture
+  export FAKE_FAIL_SUITE=b.test.sh
+  run_testsh --timings test/b.test.sh
+  assert_status 1 "$TESTSH_STATUS" "--timings keeps the failing exit code"
+  assert_contains "$TESTSH_OUT" "b.test.sh" "target suite timed"
+  assert_not_contains "$TESTSH_OUT" "a.test.sh" "other suites not run"
   cleanup_test_tmp
 }
 

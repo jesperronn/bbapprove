@@ -15,9 +15,12 @@
   - Check the vitest and spotless bumps that were reported eligible in the first dry run.
 - [x] **CI, release and dependency updates**: GitHub Actions CI, tag-driven release and Dependabot (`.github/`).
   - [ ] Build provenance attestations (`actions/attest-build-provenance`): needs a plan that supports attestations for private repos.
-  - [ ] Verify the first release run end to end (`v*` tag on GitHub) and add a Windows build only if someone needs it.
+  - [ ] Verify the first release run end to end (`v*` tag on GitHub) and add a Windows build only if someone needs it. (`bin/release` now drives the tag and push.)
 - [ ] **Search / filter in the TUI (1.1)**: `/` filters the list as you type (plain case-insensitive substring terms,
   AND-ed; `!term` excludes) over status, `PROJECT/repo#id`, title and skip reason. Enter keeps the filter, Esc clears it,
   footer shows `filter: <text> (shown/total)`. `ctrl+a` marks eligible visible rows; `A`/`D`/`C` act only on marked rows
   that are visible (hidden marks stay, footer shows how many are hidden). Later: fuzzy matching and field prefixes
   (`repo:`, `status:`, `build:failed`).
+- [x] **Standard scripts**: `bin/setup`, `bin/test`, `bin/lint`, `bin/build`, `bin/install`, `bin/release`, `bin/help`.
+- [x] **Maintainer docs**: `AGENTS.md` and `docs/` (development, architecture, releasing, CI).
+- [x] **First-run helper**: create the config from the embedded template (`--init`, interactive offer).

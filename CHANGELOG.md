@@ -5,6 +5,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- First-run config creation: without a config file, `bbapprove` on a terminal offers to create
+  `~/.config/bbapprove/config.toml` (mode 0600, never overwrites) from the template built into the binary, opens it
+  in `$VISUAL`/`$EDITOR` and re-prompts while the example values are unchanged. In CI or pipes nothing is written.
+- `bbapprove --init [--force] [--config FILE]` creates the config on request.
+- `bin/setup`, `bin/install`, `bin/help` and `bin/release` (changelog, tag, push, watch the release workflow).
+- Maintainer docs under `docs/` (development, architecture, releasing, CI) and `AGENTS.md`.
+
+### Changed
+- `bin/runtests` was renamed to `bin/test`.
+
 ## [1.0.0-rc.2] - 2026-11-09
 
 ### Fixed

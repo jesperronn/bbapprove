@@ -19,7 +19,7 @@ bin/bbapprove --help               # flags, eligibility rules, env vars
 ```
 
 Flags: `--apply`, `--hide-ignored`, `--disallow a,b` (adds to the disallow list), `--token T`, `--token-name NAME`,
-`--config FILE`, `--print-config`, `-i/--interactive`, `-h/--help`.
+`--config FILE`, `--print-config`, `--init [--force]`, `-i/--interactive`, `-h/--help`.
 
 Eligible, all of:
 - author is the configured `author_email` (no default, see Configuration)
@@ -45,9 +45,25 @@ otherwise be `SKIP` (author, subject, disallow, major, already approved), and an
 on. Removing the entry restores the PR's own `SKIP` reason. The CLI and the TUI share one classification
 function (`rules.Classify`).
 
+## First run
+
+With no config file, `bbapprove` on a terminal offers to create `$XDG_CONFIG_HOME/bbapprove/config.toml` (default
+`~/.config/bbapprove/config.toml`, mode 0600, never overwrites) from the template built into the binary, opens it in
+`$VISUAL`/`$EDITOR`, re-prompts while the example values are unchanged (at most 3 rounds), then continues with your
+original command once the config is valid. In CI or pipes nothing is written; the error shows the exact
+`mkdir -p ... && cp bbapprove.config.template ...` command to run.
+
+```
+bbapprove --init [--force] [--config FILE]   # the same on request; --force replaces an existing file
+bbapprove --print-config                     # effective settings; says how to create a config when none exists
+```
+
+`--init` writes to `--config FILE`, else `$BBAPPROVE_CONFIG`, else the default path above.
+
 ## Configuration
 
-Nothing site- or person-specific is built in. Copy the committed template and edit it; the real file is git-ignored:
+Nothing site- or person-specific is built in. The easiest start is the first-run flow above; by hand, copy the
+committed template and edit it (the repo-root `bbapprove.config.toml` is git-ignored):
 
 ```
 cp bbapprove.config.template bbapprove.config.toml
@@ -75,8 +91,7 @@ Unknown keys only print a warning (typo catching); malformed TOML stops the run 
 The bash adapter never reads TOML: the Go core hands it the resolved values as `BBAPPROVE_BASE_URL` and
 `BBAPPROVE_TOKEN_NAME`.
 
-**First run**: without `repository` or `author_email` bbapprove exits 1, names the missing setting, lists the
-paths it searched and tells you to run the `cp` above.
+Without `repository` or `author_email` bbapprove exits 1, names the missing setting and lists the paths it searched.
 
 **Debugging**: `bbapprove --print-config` prints the effective settings and whether each came from the flag, the
 environment, the file or a default. It never prints a token and never contacts the forge.
@@ -218,6 +233,7 @@ A GitHub/GitLab adapter only needs to implement these commands and emit this sha
 
 Packages: `internal/adapter` (subprocess client), `internal/rules` (eligibility), `internal/app` (CLI and
 dry run/apply), `internal/tui` (Bubble Tea interface), `internal/ignore` (per-user ignore list).
+More in [docs/architecture.md](docs/architecture.md).
 
 ## Build, install, version
 
@@ -235,27 +251,22 @@ bbapprove --version            # prints "bbapprove <version>"; -V works too
 the repo (adapters/ and bbapprove.config.toml are resolved relative to it) and rebuilds when the sources change.
 The prefix defaults to `$HOME/.local/bin` (created if missing). An existing link to this launcher is left
 alone; any other file at the target is refused unless `--force`. After installing, `bin/build` warns when
-`command -v bbapprove` resolves elsewhere. Note the dotfiles wrapper `dotfiles/bin/bbapprove` (see
-Environment) may come earlier on PATH and shadow the installed link; the warning names the winner.
+`command -v bbapprove` resolves elsewhere. Another `bbapprove` earlier on PATH would shadow the
+installed link; the warning names the winner.
 
 Versioning comes from git: `git describe --tags --always --dirty` (for example `v1.0.0-rc.1`,
 `v1.0.0-rc.1-3-gabc1234`, `v1.0.0-rc.1-dirty`), injected with `-ldflags "-X main.version=..."` and shown
 exactly as git prints it. Without git a build reports `dev`; `BBAPPROVE_VERSION` overrides the value (tests,
 release builds). The version also appears on the first line of `--help` and dim in the TUI footer.
 
-Cut a release locally: update CHANGELOG.md, commit, then
-
-```
-git tag -a v1.0.0 -m "bbapprove 1.0.0"
-bin/build --test --install
-```
+Maintainers cut releases with `bin/release X.Y.Z`; see [docs/releasing.md](docs/releasing.md).
 
 ## CI and releases
 
-GitHub Actions (`.github/workflows/`):
+GitHub Actions (`.github/workflows/`; details in [docs/ci.md](docs/ci.md)):
 
 - **CI** (`ci.yml`) runs on pushes to `main`, pull requests and manually. On `ubuntu-latest` and `macos-latest` it
-  runs `bin/lint` and `bin/runtests` (Go tests with `-race` plus the shell suites), with Go taken from `go.mod`.
+  runs `bin/lint` and `bin/test` (Go tests with `-race` plus the shell suites), with Go taken from `go.mod`.
   The shell suites need bash 4+ and ripgrep, so the macOS job installs Homebrew bash, ripgrep and shellcheck.
 - **Release** (`release.yml`) runs when a `v*` tag is pushed: it reruns CI, cross-builds with `bin/build`
   (darwin arm64/amd64, linux amd64/arm64), uploads one `.tar.gz` per platform plus `SHA256SUMS`, and publishes the
@@ -265,14 +276,6 @@ GitHub Actions (`.github/workflows/`):
   minor and patch updates, titled `chore(deps): ...` and labelled `dependencies`, so bbapprove's own eligibility
   rule recognises them. Majors arrive as separate PRs for a human. Actions are pinned by commit SHA; Dependabot
   keeps them current.
-
-To cut a release: rename `## [Unreleased]` in CHANGELOG.md to `## [x.y.z] - YYYY-MM-DD` (add a fresh empty
-`## [Unreleased]`), commit, then
-
-```
-git tag -a vX.Y.Z -m "bbapprove X.Y.Z"
-git push origin main vX.Y.Z
-```
 
 Install from a release archive: each `bbapprove-<tag>-<os>-<arch>.tar.gz` is a self-contained tree
 (`bin/bbapprove` launcher, `bin/bbapprove-go` binary, `adapters/bitbucket`, `bbapprove.config.template`, docs). Verify it
@@ -285,14 +288,22 @@ ln -s ~/.local/share/bbapprove-v1.0.0-darwin-arm64/bin/bbapprove ~/.local/bin/bb
 
 The binary finds `adapters/` and `bbapprove.config.toml` relative to its own directory's parent, so keep the tree intact. After extracting, create your config: `cp bbapprove.config.template bbapprove.config.toml` in the extracted directory (or put it in `~/.config/bbapprove/config.toml`).
 
-## Test and lint
+## Maintainer scripts
 
-```
-go vet ./... && go test ./... -race          # Go unit tests
-bash test/bitbucket-adapter.test.sh          # adapter against a stubbed curl
-bash test/bbapprove-launcher.test.sh         # launcher: rebuild rules, arg passing, symlinks, missing go
-bash test/build.test.sh                      # bin/build: version embedding, --install, --test, missing go
-bash test/release-notes.test.sh              # bin/release-notes: CHANGELOG section extraction
-shellcheck bin/bbapprove bin/build adapters/bitbucket test/*.sh
-gofmt -l .                                   # should print nothing
-```
+Every script takes `--help`; `bin/help` lists them. Details in [docs/development.md](docs/development.md).
+
+| Script | Purpose |
+| --- | --- |
+| `bin/setup` | check tools, download modules, build (once per clone) |
+| `bin/test` | Go and shell test suites (`--verbose`, `--no-go`, `--no-shell`, or a target) |
+| `bin/lint` | gofmt, go vet, shellcheck (`--autofix`, or pass paths) |
+| `bin/build` | build `bin/bbapprove-go` with the version embedded |
+| `bin/install` | build and link the launcher into `~/.local/bin` |
+| `bin/release X.Y.Z` | changelog, tag, push, watch the release workflow (`--dry-run` first) |
+| `bin/release-notes TAG` | print the CHANGELOG section for a tag |
+
+## Contributing
+
+Start with [AGENTS.md](AGENTS.md) (rules, definition of done) and the maintainer docs in [docs/](docs/README.md):
+[development](docs/development.md), [architecture](docs/architecture.md), [releasing](docs/releasing.md), [CI](docs/ci.md).
+Open work is in [TODO.md](TODO.md).

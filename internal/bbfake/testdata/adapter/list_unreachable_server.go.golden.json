@@ -1,0 +1,14 @@
+{
+  "args": [
+    "pr",
+    "list",
+    "--reviewer",
+    "@me",
+    "--state",
+    "open"
+  ],
+  "exit": 1,
+  "stdout": "",
+  "stderr": "GET /rest/api/1.0/dashboard/pull-requests: connection failed\n",
+  "requests": null
+}

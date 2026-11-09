@@ -2,7 +2,11 @@
   "args": [
     "(CURL_MAX_TIME=0.3)",
     "pr",
-    "list"
+    "list",
+    "--reviewer",
+    "@me",
+    "--state",
+    "open"
   ],
   "exit": 1,
   "stdout": "",

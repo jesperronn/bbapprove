@@ -1,0 +1,10 @@
+{
+  "args": [
+    "pr",
+    "comment"
+  ],
+  "exit": 2,
+  "stdout": "",
+  "stderr": "pr comment: missing PR URL\n",
+  "requests": null
+}

@@ -1,0 +1,10 @@
+{
+  "args": [
+    "pr",
+    "view"
+  ],
+  "exit": 2,
+  "stdout": "",
+  "stderr": "pr view: missing PR URL\n",
+  "requests": null
+}

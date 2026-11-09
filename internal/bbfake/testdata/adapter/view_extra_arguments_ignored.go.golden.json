@@ -1,0 +1,13 @@
+{
+  "args": [
+    "pr",
+    "view",
+    "{BASE}/projects/PROJ/repos/repo/pull-requests/5",
+    "--json",
+    "x"
+  ],
+  "exit": 2,
+  "stdout": "",
+  "stderr": "pr view: unknown argument: --json\n",
+  "requests": null
+}

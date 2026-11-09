@@ -1,7 +1,11 @@
 {
   "args": [
     "pr",
-    "list"
+    "list",
+    "--reviewer",
+    "@me",
+    "--state",
+    "open"
   ],
   "exit": -1,
   "stdout": "",

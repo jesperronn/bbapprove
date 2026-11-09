@@ -1,0 +1,12 @@
+{
+  "args": [
+    "pr",
+    "view",
+    "{BASE}/projects/PROJ/repos/repo/pull-requests/5",
+    "extra"
+  ],
+  "exit": 2,
+  "stdout": "",
+  "stderr": "pr view: unknown argument: extra\n",
+  "requests": null
+}

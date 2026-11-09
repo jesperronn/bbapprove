@@ -1,0 +1,10 @@
+{
+  "args": [
+    "pr",
+    "close"
+  ],
+  "exit": 2,
+  "stdout": "",
+  "stderr": "pr close: missing PR URL\n",
+  "requests": null
+}

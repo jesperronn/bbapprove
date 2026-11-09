@@ -1,0 +1,13 @@
+{
+  "args": [
+    "pr",
+    "review",
+    "{BASE}/projects/PROJ/repos/repo/pull-requests/5",
+    "--approve",
+    "extra"
+  ],
+  "exit": 2,
+  "stdout": "",
+  "stderr": "pr review: unknown argument: extra\n",
+  "requests": null
+}

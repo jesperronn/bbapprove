@@ -1,0 +1,12 @@
+{
+  "args": [
+    "auth",
+    "token",
+    "extra",
+    "args"
+  ],
+  "exit": 2,
+  "stdout": "",
+  "stderr": "auth token: unknown argument: extra\n",
+  "requests": null
+}

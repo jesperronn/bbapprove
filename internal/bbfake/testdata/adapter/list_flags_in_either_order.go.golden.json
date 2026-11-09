@@ -1,0 +1,57 @@
+{
+  "args": [
+    "pr",
+    "list",
+    "--state",
+    "open",
+    "--reviewer",
+    "@me"
+  ],
+  "exit": 0,
+  "stdout": "[{\"url\":\"<BASE>/projects/PROJ/repos/repo/pull-requests/5\",\"number\":5,\"project\":\"PROJ\",\"repo\":\"repo\",\"title\":\"chore(deps): update x to v1.0.1\",\"author\":{\"email\":\"renovate-bot@example.com\",\"login\":\"renovate-bot\"},\"headBranch\":\"renovate/x\",\"approvedByMe\":true,\"build\":\"passed\",\"qualityGate\":\"passed\",\"approvals\":1,\"needsWork\":1,\"commentCount\":4,\"openTasks\":1}]\n",
+  "stdoutJSON": [
+    {
+      "approvals": 1,
+      "approvedByMe": true,
+      "author": {
+        "email": "renovate-bot@example.com",
+        "login": "renovate-bot"
+      },
+      "build": "passed",
+      "commentCount": 4,
+      "headBranch": "renovate/x",
+      "needsWork": 1,
+      "number": 5,
+      "openTasks": 1,
+      "project": "PROJ",
+      "qualityGate": "passed",
+      "repo": "repo",
+      "title": "chore(deps): update x to v1.0.1",
+      "url": "<BASE>/projects/PROJ/repos/repo/pull-requests/5"
+    }
+  ],
+  "stderr": "",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/plugins/servlet/applinks/whoami",
+      "authorization": "Bearer <CANARY>",
+      "accept": "application/json"
+    },
+    {
+      "method": "GET",
+      "path": "/rest/api/1.0/dashboard/pull-requests",
+      "query": "role=REVIEWER&state=OPEN&limit=100&start=0&withProperties=true&withAttributes=true",
+      "authorization": "Bearer <CANARY>",
+      "accept": "application/json"
+    },
+    {
+      "method": "POST",
+      "path": "/rest/build-status/1.0/commits/stats",
+      "body": "[\"abc\"]",
+      "authorization": "Bearer <CANARY>",
+      "accept": "application/json",
+      "contentType": "application/json"
+    }
+  ]
+}

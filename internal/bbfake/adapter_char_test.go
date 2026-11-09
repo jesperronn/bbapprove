@@ -1,8 +1,11 @@
 package bbfake_test
 
 // Characterization tests: run the REAL adapters/bitbucket bash script against the fake Bitbucket Server and pin
-// its observable behaviour (exit code, stdout, stderr, and the requests it sends) in golden files. They exist
-// so a later native Go port of the adapter can be proven identical by pointing the same cases at it.
+// its observable behaviour (exit code, stdout, stderr, and the requests it sends) in golden files. The same
+// cases run a second time against the native Go adapter (cmd/bbapprove-bitbucket, built once in TestMain): it
+// must produce the bash golden exactly, except where a case carries goDiff. Such a case has its own
+// <name>.go.golden.json beside the bash one, so every deliberate difference is explicit and reviewable
+// (docs/architecture.md lists them by number). Cases with goOnly exercise Go-only behaviour.
 // Refresh goldens with: go test ./internal/bbfake -run Char -update
 
 import (
@@ -52,6 +55,9 @@ func toolDir(t *testing.T) (bash, dir string) {
 	return bash, dir
 }
 
+// listArgs is the one command line `pr list` accepts.
+var listArgs = []string{"pr", "list", "--reviewer", "@me", "--state", "open"}
+
 type charCase struct {
 	name       string
 	args       []string                     // {BASE} and {TMP} are substituted
@@ -63,7 +69,10 @@ type charCase struct {
 	op         bool                         // put a stub `op` on PATH
 	maxTime    string                       // run a copy of the script with CURL_MAX_TIME replaced
 	closed     bool                         // shut the server down before running (connection refused)
-	maskStderr bool                         // stderr is tool-version specific (jq): pin only the exit code
+	maskStderr bool                         // bash only: stderr is tool-version specific (jq), pin only the exit code
+	stdin      string                       // fed to the adapter's stdin
+	goDiff     string                       // the Go adapter deliberately differs: decision numbers, and a .go.golden.json exists
+	goOnly     bool                         // only the Go adapter runs this case (it has no bash behaviour to pin)
 	check      func(t *testing.T, r result) // extra semantic assertions
 }
 
@@ -172,30 +181,30 @@ var charCases = []charCase{
 		}
 	}},
 	{name: "list_empty", args: []string{"pr", "list", "--reviewer", "@me", "--state", "open"}, sc: func(sc *bbfake.Scenario) { sc.PRs = nil }},
-	{name: "list_ignores_its_arguments", args: []string{"pr", "list", "--reviewer", "someone-else", "--state", "merged", "extra"}},
-	{name: "list_whoami_404_means_not_approved", args: []string{"pr", "list"}, setup: func(s *bbfake.Server) { s.Fail("GET /whoami", bbfake.Fault{Status: 404, Body: "{}"}) }},
-	{name: "list_whoami_empty_body", args: []string{"pr", "list"}, sc: func(sc *bbfake.Scenario) { sc.Me = "" }},
-	{name: "list_whoami_trimmed", args: []string{"pr", "list"}, setup: func(s *bbfake.Server) {
+	{name: "list_ignores_its_arguments", goDiff: "3", args: []string{"pr", "list", "--reviewer", "someone-else", "--state", "merged", "extra"}},
+	{name: "list_whoami_404_means_not_approved", args: listArgs, setup: func(s *bbfake.Server) { s.Fail("GET /whoami", bbfake.Fault{Status: 404, Body: "{}"}) }},
+	{name: "list_whoami_empty_body", args: listArgs, sc: func(sc *bbfake.Scenario) { sc.Me = "" }},
+	{name: "list_whoami_trimmed", args: listArgs, setup: func(s *bbfake.Server) {
 		s.Fail("GET /whoami", bbfake.Fault{Status: 200, Body: " me \r\n"})
 	}},
-	{name: "list_stats_500_means_build_none", args: []string{"pr", "list"}, setup: func(s *bbfake.Server) { s.Fail("POST /stats", bbfake.Fault{Status: 500, Body: "boom"}) }},
-	{name: "list_dashboard_500", args: []string{"pr", "list"}, setup: func(s *bbfake.Server) { s.Fail("GET /dashboard/pull-requests", bbfake.Fault{Status: 500, Body: "{}"}) }},
-	{name: "list_dashboard_401_bad_token", args: []string{"pr", "list"}, sc: func(sc *bbfake.Scenario) { sc.Token = "a-different-token" }},
-	{name: "list_second_page_fails", args: []string{"pr", "list"}, sc: listScenario, setup: func(s *bbfake.Server) {
+	{name: "list_stats_500_means_build_none", args: listArgs, setup: func(s *bbfake.Server) { s.Fail("POST /stats", bbfake.Fault{Status: 500, Body: "boom"}) }},
+	{name: "list_dashboard_500", args: listArgs, setup: func(s *bbfake.Server) { s.Fail("GET /dashboard/pull-requests", bbfake.Fault{Status: 500, Body: "{}"}) }},
+	{name: "list_dashboard_401_bad_token", args: listArgs, sc: func(sc *bbfake.Scenario) { sc.Token = "a-different-token" }},
+	{name: "list_second_page_fails", args: listArgs, sc: listScenario, setup: func(s *bbfake.Server) {
 		s.Fail("GET /dashboard/pull-requests", bbfake.Fault{Status: 200, Body: `{"isLastPage":false,"nextPageStart":2,"values":[]}`}, bbfake.Fault{Status: 503, Body: "{}"})
 	}},
-	{name: "list_unreachable_server", args: []string{"pr", "list"}, closed: true},
-	{name: "list_dropped_connection", args: []string{"pr", "list"}, setup: func(s *bbfake.Server) { s.Fail("GET /dashboard/pull-requests", bbfake.Fault{Drop: true}) }},
-	{name: "list_slow_server_hits_max_time", args: []string{"pr", "list"}, maxTime: "0.3",
+	{name: "list_unreachable_server", goDiff: "9", args: listArgs, closed: true},
+	{name: "list_dropped_connection", goDiff: "9", args: listArgs, setup: func(s *bbfake.Server) { s.Fail("GET /dashboard/pull-requests", bbfake.Fault{Drop: true}) }},
+	{name: "list_slow_server_hits_max_time", goDiff: "9", args: listArgs, maxTime: "0.3",
 		setup: func(s *bbfake.Server) {
 			s.Fail("GET /dashboard/pull-requests", bbfake.Fault{Delay: 10 * time.Second, Status: 200, Body: "{}"})
 		}},
-	{name: "list_non_json_200_aborts", args: []string{"pr", "list"}, maskStderr: true,
+	{name: "list_non_json_200_aborts", goDiff: "5", args: listArgs, maskStderr: true,
 		setup: func(s *bbfake.Server) {
 			s.Fail("GET /dashboard/pull-requests", bbfake.Fault{Status: 200, Body: "<html>login</html>"})
 		}},
-	{name: "list_context_path", args: []string{"pr", "list"}, sc: func(sc *bbfake.Scenario) { sc.ContextPath = "/bitbucket" }},
-	{name: "list_base_url_trailing_slash_is_404", args: []string{"pr", "list"}, env: map[string]string{"BBAPPROVE_BASE_URL": "{BASE}/"}},
+	{name: "list_context_path", args: listArgs, sc: func(sc *bbfake.Scenario) { sc.ContextPath = "/bitbucket" }},
+	{name: "list_base_url_trailing_slash_is_404", goDiff: "7", args: listArgs, env: map[string]string{"BBAPPROVE_BASE_URL": "{BASE}/"}},
 
 	// ---- pr view ----
 	{name: "view_basic", args: []string{"pr", "view", url5}, check: func(t *testing.T, r result) {
@@ -215,7 +224,7 @@ var charCases = []charCase{
 		s.Fail("GET /activities", bbfake.Fault{Status: 502, Body: "<html>bad gateway</html>"})
 		s.Fail("GET /blocker-comments", bbfake.Fault{Status: 500, Body: "{}"})
 	}},
-	{name: "view_stats_failure_means_build_none", args: []string{"pr", "view", url5}, setup: func(s *bbfake.Server) { s.Fail("POST /stats", bbfake.Fault{Drop: true}) }},
+	{name: "view_stats_failure_means_build_none", goDiff: "9", args: []string{"pr", "view", url5}, setup: func(s *bbfake.Server) { s.Fail("POST /stats", bbfake.Fault{Drop: true}) }},
 	{name: "view_without_head_commit_skips_stats", args: []string{"pr", "view", url5}, sc: func(sc *bbfake.Scenario) { pr5(sc).Commit = "" }},
 	{name: "view_build_failed_beats_running", args: []string{"pr", "view", url5}, sc: func(sc *bbfake.Scenario) {
 		sc.Builds["abc"] = bbfake.BuildStats{Successful: 5, Failed: 1, InProgress: 2}
@@ -224,9 +233,9 @@ var charCases = []charCase{
 	{name: "view_url_host_is_ignored_and_normalized_url_uses_base", args: []string{"pr", "view", "https://other.example.com/projects/PROJ/repos/repo/pull-requests/5/overview?x=1"}},
 	{name: "view_bad_url", args: []string{"pr", "view", "https://example.com/not-a-pr"}},
 	{name: "view_numeric_id_alone_is_not_a_url", args: []string{"pr", "view", "5"}},
-	{name: "view_no_url_argument_unbound_variable", args: []string{"pr", "view"}},
-	{name: "view_extra_arguments_ignored", args: []string{"pr", "view", url5, "--json", "x"}},
-	{name: "view_non_json_200_aborts", args: []string{"pr", "view", url5}, maskStderr: true,
+	{name: "view_no_url_argument_unbound_variable", goDiff: "2", args: []string{"pr", "view"}},
+	{name: "view_extra_arguments_ignored", goDiff: "3", args: []string{"pr", "view", url5, "--json", "x"}},
+	{name: "view_non_json_200_aborts", goDiff: "5", args: []string{"pr", "view", url5}, maskStderr: true,
 		setup: func(s *bbfake.Server) { s.Fail("GET /pull-requests/5", bbfake.Fault{Status: 200, Body: "not json"}) }},
 
 	// ---- pr review ----
@@ -239,15 +248,15 @@ var charCases = []charCase{
 	{name: "review_approve_403", args: []string{"pr", "review", url5, "--approve"}, setup: func(s *bbfake.Server) {
 		s.Fail("POST /approve", bbfake.Fault{Status: 403, Body: "{}"})
 	}},
-	{name: "review_approve_redirect_is_failure", args: []string{"pr", "review", url5, "--approve"}, setup: func(s *bbfake.Server) {
+	{name: "review_approve_redirect_is_failure", goDiff: "12", args: []string{"pr", "review", url5, "--approve"}, setup: func(s *bbfake.Server) {
 		s.Fail("POST /approve", bbfake.Fault{Status: 302, Body: ""})
 	}},
-	{name: "review_approve_unreachable", args: []string{"pr", "review", url5, "--approve"}, closed: true},
+	{name: "review_approve_unreachable", goDiff: "9", args: []string{"pr", "review", url5, "--approve"}, closed: true},
 	{name: "review_without_flag", args: []string{"pr", "review", url5}},
 	{name: "review_other_flag", args: []string{"pr", "review", url5, "--request-changes"}},
 	{name: "review_flag_checked_before_url", args: []string{"pr", "review", "bad", "--comment"}},
 	{name: "review_bad_url", args: []string{"pr", "review", "bad", "--approve"}},
-	{name: "review_no_arguments_unbound_variable", args: []string{"pr", "review"}},
+	{name: "review_no_arguments_unbound_variable", goDiff: "2", args: []string{"pr", "review"}},
 
 	// ---- pr merge ----
 	{name: "merge_ok", args: []string{"pr", "merge", url5}, check: func(t *testing.T, r result) { eq(t, "stdout", r.raw, "") }},
@@ -266,14 +275,14 @@ var charCases = []charCase{
 		s.Fail("POST /merge", bbfake.Fault{Status: 500, Body: `{"errors":[{"message":"out-of-date"}]}`})
 	}},
 	{name: "merge_post_500_non_json", args: []string{"pr", "merge", url5}, setup: func(s *bbfake.Server) { s.Fail("POST /merge", bbfake.Fault{Status: 500, Body: "oops"}) }},
-	{name: "merge_post_unreachable_after_get", args: []string{"pr", "merge", url5}, setup: func(s *bbfake.Server) { s.Fail("POST /merge", bbfake.Fault{Drop: true}) }},
+	{name: "merge_post_unreachable_after_get", goDiff: "9", args: []string{"pr", "merge", url5}, setup: func(s *bbfake.Server) { s.Fail("POST /merge", bbfake.Fault{Drop: true}) }},
 	{name: "merge_post_201_is_success", args: []string{"pr", "merge", url5}, setup: func(s *bbfake.Server) { s.Fail("POST /merge", bbfake.Fault{Status: 201, Body: "{}"}) }},
 	{name: "merge_version_fetch_404", args: []string{"pr", "merge", "{BASE}/projects/PROJ/repos/repo/pull-requests/99"}},
-	{name: "merge_version_fetch_unreachable", args: []string{"pr", "merge", url5}, closed: true},
+	{name: "merge_version_fetch_unreachable", goDiff: "9", args: []string{"pr", "merge", url5}, closed: true},
 	{name: "merge_version_missing_in_response", args: []string{"pr", "merge", url5}, setup: func(s *bbfake.Server) { s.Fail("GET /pull-requests/5", bbfake.Fault{Status: 200, Body: `{"id":5}`}) }},
 	{name: "merge_bad_url", args: []string{"pr", "merge", "nope"}},
-	{name: "merge_no_arguments_unbound_variable", args: []string{"pr", "merge"}},
-	{name: "merge_slow_server_hits_max_time", args: []string{"pr", "merge", url5}, maxTime: "0.3",
+	{name: "merge_no_arguments_unbound_variable", goDiff: "2", args: []string{"pr", "merge"}},
+	{name: "merge_slow_server_hits_max_time", goDiff: "9", args: []string{"pr", "merge", url5}, maxTime: "0.3",
 		setup: func(s *bbfake.Server) {
 			s.Fail("GET /pull-requests/5", bbfake.Fault{Delay: 10 * time.Second, Status: 200, Body: "{}"})
 		}},
@@ -359,7 +368,7 @@ var charCases = []charCase{
 	{name: "comment_body", args: []string{"pr", "comment", url5, "--body", "LGTM"}, check: func(t *testing.T, r result) { eq(t, "stdout", r.raw, "") }},
 	{name: "comment_body_is_json_escaped", args: []string{"pr", "comment", url5, "--body", "line one\nline \"two\" \\ ünï 🙂\t<b>&"}},
 	{name: "comment_body_file_trailing_newlines_stripped", args: []string{"pr", "comment", url5, "--body-file", "{TMP}/body.txt"}, files: map[string]string{"body.txt": "first\n\nlast line\n\n\n"}},
-	{name: "comment_body_file_missing", args: []string{"pr", "comment", url5, "--body-file", "{TMP}/nope.txt"}},
+	{name: "comment_body_file_missing", goDiff: "file read error without cat text", args: []string{"pr", "comment", url5, "--body-file", "{TMP}/nope.txt"}},
 	{name: "comment_body_file_whitespace_only", args: []string{"pr", "comment", url5, "--body-file", "{TMP}/ws.txt"}, files: map[string]string{"ws.txt": " \n\t\n"}},
 	{name: "comment_last_body_wins", args: []string{"pr", "comment", url5, "--body", "one", "--body", "two"}},
 	{name: "comment_body_and_body_file", args: []string{"pr", "comment", url5, "--body", "x", "--body-file", "{TMP}/b.txt"}, files: map[string]string{"b.txt": "y"}},
@@ -372,9 +381,9 @@ var charCases = []charCase{
 	{name: "comment_unknown_argument", args: []string{"pr", "comment", url5, "--bogus"}},
 	{name: "comment_positional_text_is_unknown_argument", args: []string{"pr", "comment", url5, "hello"}},
 	{name: "comment_bad_url", args: []string{"pr", "comment", "bad", "--body", "x"}},
-	{name: "comment_no_arguments", args: []string{"pr", "comment"}},
+	{name: "comment_no_arguments", goDiff: "2", args: []string{"pr", "comment"}},
 	{name: "comment_500", args: []string{"pr", "comment", url5, "--body", "x"}, setup: func(s *bbfake.Server) { s.Fail("POST /comments", bbfake.Fault{Status: 500, Body: "{}"}) }},
-	{name: "comment_unreachable", args: []string{"pr", "comment", url5, "--body", "x"}, closed: true},
+	{name: "comment_unreachable", goDiff: "9", args: []string{"pr", "comment", url5, "--body", "x"}, closed: true},
 
 	// ---- pr close ----
 	{name: "close_decline_only", args: []string{"pr", "close", url5}, check: func(t *testing.T, r result) { eq(t, "stdout", r.raw, "") }},
@@ -382,8 +391,8 @@ var charCases = []charCase{
 	{name: "close_comment_failure_aborts_decline", args: []string{"pr", "close", url5, "--comment", "x"}, setup: func(s *bbfake.Server) {
 		s.Fail("POST /comments", bbfake.Fault{Status: 500, Body: "{}"})
 	}},
-	{name: "close_decline_409", args: []string{"pr", "close", url5}, sc: func(sc *bbfake.Scenario) { pr5(sc).StaleDeclines = 1 }},
-	{name: "close_decline_is_not_retried_after_comment", args: []string{"pr", "close", url5, "--comment", "x"}, sc: func(sc *bbfake.Scenario) { pr5(sc).StaleDeclines = 1 }},
+	{name: "close_decline_409", goDiff: "12b", args: []string{"pr", "close", url5}, sc: func(sc *bbfake.Scenario) { pr5(sc).StaleDeclines = 1 }},
+	{name: "close_decline_is_not_retried_after_comment", goDiff: "12b", args: []string{"pr", "close", url5, "--comment", "x"}, sc: func(sc *bbfake.Scenario) { pr5(sc).StaleDeclines = 1 }},
 	{name: "close_decline_500_non_json", args: []string{"pr", "close", url5}, setup: func(s *bbfake.Server) { s.Fail("POST /decline", bbfake.Fault{Status: 500, Body: "oops"}) }},
 	{name: "close_version_fetch_404", args: []string{"pr", "close", "{BASE}/projects/PROJ/repos/repo/pull-requests/99"}},
 	{name: "close_version_missing_in_response", args: []string{"pr", "close", url5}, setup: func(s *bbfake.Server) { s.Fail("GET /pull-requests/5", bbfake.Fault{Status: 200, Body: "{}"}) }},
@@ -392,8 +401,8 @@ var charCases = []charCase{
 	{name: "close_comment_needs_value", args: []string{"pr", "close", url5, "--comment"}},
 	{name: "close_unknown_argument", args: []string{"pr", "close", url5, "--force"}},
 	{name: "close_bad_url", args: []string{"pr", "close", "bad"}},
-	{name: "close_no_arguments", args: []string{"pr", "close"}},
-	{name: "close_unreachable", args: []string{"pr", "close", url5}, closed: true},
+	{name: "close_no_arguments", goDiff: "2", args: []string{"pr", "close"}},
+	{name: "close_unreachable", goDiff: "9", args: []string{"pr", "close", url5}, closed: true},
 
 	// ---- auth token ----
 	{name: "auth_token_env_wins_and_op_is_not_called", args: []string{"auth", "token"}, op: true,
@@ -416,8 +425,8 @@ var charCases = []charCase{
 		env: map[string]string{"BBAPPROVE_TOKEN_NAME": "ITEM", "OP_TOKEN": opTok, "FORCE_COLOR": "1", "NO_COLOR": "1"}},
 	{name: "auth_token_op_not_installed", args: []string{"auth", "token"}, unset: []string{"BBAPPROVE_TOKEN"}, env: map[string]string{"BBAPPROVE_TOKEN_NAME": "ITEM"}},
 	{name: "auth_token_no_token_and_no_name", args: []string{"auth", "token"}, op: true, unset: []string{"BBAPPROVE_TOKEN"}},
-	{name: "auth_token_needs_base_url", args: []string{"auth", "token"}, unset: []string{"BBAPPROVE_BASE_URL"}},
-	{name: "auth_token_makes_no_requests", args: []string{"auth", "token", "extra", "args"}},
+	{name: "auth_token_needs_base_url", goDiff: "8", args: []string{"auth", "token"}, unset: []string{"BBAPPROVE_BASE_URL"}},
+	{name: "auth_token_makes_no_requests", goDiff: "3", args: []string{"auth", "token", "extra", "args"}},
 
 	// ---- environment and usage errors ----
 	{name: "no_base_url", args: []string{"pr", "list"}, unset: []string{"BBAPPROVE_BASE_URL"}},
@@ -433,27 +442,118 @@ var charCases = []charCase{
 	{name: "usage_unknown_group", args: []string{"issue", "list"}},
 	{name: "usage_auth_without_token", args: []string{"auth"}},
 	{name: "usage_help_flag_is_not_special", args: []string{"--help"}},
+
+	// ---- both implementations: input the Go port must escape and read exactly like jq and cat ----
+	{name: "comment_body_control_characters_are_escaped", args: []string{"pr", "comment", url5, "--body", "a\x01b\x7fc\x08d\x0ce\x1f <&> \u2028"}},
+	{name: "comment_body_file_from_stdin", args: []string{"pr", "comment", url5, "--body-file", "-"}, stdin: "from stdin\nsecond line\n\n"},
+	{name: "comment_body_file_from_stdin_blank", args: []string{"pr", "comment", url5, "--body-file", "-"}, stdin: " \n"},
+	{name: "view_title_and_branch_escapes", args: []string{"pr", "view", url5}, sc: func(sc *bbfake.Scenario) {
+		pr5(sc).Title = "t\x01\x7f\u2028 <&> \"q\" \\ \u00e9 \U0001F642"
+		pr5(sc).Branch = "feature/\x1f"
+	}},
+
+	// ---- Go adapter only: the deliberate fixes (numbers refer to docs/architecture.md) ----
+	{name: "list_needs_both_flags", goOnly: true, goDiff: "3", args: []string{"pr", "list"}},
+	{name: "list_wrong_reviewer", goOnly: true, goDiff: "3", args: []string{"pr", "list", "--reviewer", "bob", "--state", "open"}},
+	{name: "list_wrong_state", goOnly: true, goDiff: "3", args: []string{"pr", "list", "--reviewer", "@me", "--state", "merged"}},
+	{name: "list_unknown_argument", goOnly: true, goDiff: "3", args: []string{"pr", "list", "--reviewer", "@me", "--state", "open", "--all"}},
+	{name: "list_flags_in_either_order", goOnly: true, goDiff: "3", args: []string{"pr", "list", "--state", "open", "--reviewer", "@me"}},
+	{name: "list_more_pages_without_next_page_start", goOnly: true, goDiff: "4", args: listArgs, setup: func(s *bbfake.Server) {
+		s.Fail("GET /dashboard/pull-requests", bbfake.Fault{Status: 200, Body: `{"isLastPage":false,"values":[]}`})
+	}},
+	{name: "list_next_page_start_does_not_advance", goOnly: true, goDiff: "4", args: listArgs, setup: func(s *bbfake.Server) {
+		s.Fail("GET /dashboard/pull-requests", bbfake.Fault{Status: 200, Body: `{"isLastPage":false,"nextPageStart":0,"values":[]}`})
+	}},
+	{name: "list_base_url_trailing_slashes_trimmed", goOnly: true, goDiff: "7", args: listArgs, env: map[string]string{"BBAPPROVE_BASE_URL": "{BASE}///"}, check: func(t *testing.T, r result) {
+		var prs []adapter.PR
+		mustJSON(t, r.raw, &prs)
+		eq(t, "url", strings.ReplaceAll(prs[0].URL, r.base, "<BASE>"), "<BASE>/projects/PROJ/repos/repo/pull-requests/5")
+	}},
+	{name: "list_redirect_names_location", goOnly: true, goDiff: "12", args: listArgs, setup: func(s *bbfake.Server) {
+		s.Fail("GET /dashboard/pull-requests", bbfake.Fault{Status: 301, Headers: map[string]string{"Location": "https://login.example.com/sso"}})
+	}},
+	{name: "merge_redirect_names_location", goOnly: true, goDiff: "12", args: []string{"pr", "merge", url5}, setup: func(s *bbfake.Server) {
+		s.Fail("POST /merge", bbfake.Fault{Status: 302, Headers: map[string]string{"Location": "https://login.example.com/sso"}})
+	}},
+	{name: "view_activities_are_paged", goOnly: true, goDiff: "6", args: []string{"pr", "view", url5}, sc: func(sc *bbfake.Scenario) {
+		sc.ItemPageSize = 2
+		pr5(sc).CommentedActivities, pr5(sc).OtherActivities, pr5(sc).Tasks = 5, 2, []string{"OPEN", "RESOLVED"}
+	}, check: func(t *testing.T, r result) {
+		var p adapter.PR
+		mustJSON(t, r.raw, &p)
+		eq(t, "commentCount (5 COMMENTED - 2 tasks)", p.CommentCount, 3)
+		eq(t, "openTasks", p.OpenTasks, 1)
+	}},
+	{name: "view_blocker_comments_are_paged", goOnly: true, goDiff: "6", args: []string{"pr", "view", url5}, sc: func(sc *bbfake.Scenario) {
+		sc.ItemPageSize = 2
+		pr5(sc).CommentedActivities, pr5(sc).OtherActivities, pr5(sc).Tasks = 6, 0, []string{"RESOLVED", "OPEN", "RESOLVED", "OPEN", "OPEN"}
+	}, check: func(t *testing.T, r result) {
+		var p adapter.PR
+		mustJSON(t, r.raw, &p)
+		eq(t, "commentCount (6 COMMENTED - 5 tasks)", p.CommentCount, 1)
+		eq(t, "openTasks (on the third page too)", p.OpenTasks, 3)
+	}},
+	{name: "view_stats_200_not_json", goOnly: true, goDiff: "5", args: []string{"pr", "view", url5}, setup: func(s *bbfake.Server) {
+		s.Fail("POST /stats", bbfake.Fault{Status: 200, Body: "<html>"})
+	}},
+	{name: "view_extra_arguments_rejected_after_url", goOnly: true, goDiff: "3", args: []string{"pr", "view", url5, "extra"}},
+	{name: "review_extra_argument", goOnly: true, goDiff: "3", args: []string{"pr", "review", url5, "--approve", "extra"}},
+	{name: "merge_extra_argument", goOnly: true, goDiff: "3", args: []string{"pr", "merge", url5, "extra"}},
+	{name: "merge_retries_not_a_number", goOnly: true, goDiff: "11", args: []string{"pr", "merge", url5}, env: map[string]string{"BBAPPROVE_MERGE_RETRIES": "many"}},
+	{name: "merge_retries_negative", goOnly: true, goDiff: "11", args: []string{"pr", "merge", url5}, env: map[string]string{"BBAPPROVE_MERGE_RETRIES": "-1"}},
+	{name: "merge_retry_sleep_not_an_integer", goOnly: true, goDiff: "11", args: []string{"pr", "merge", url5}, env: map[string]string{"BBAPPROVE_RETRY_SLEEP": "1.5"}},
+	{name: "close_retry_sleep_invalid", goOnly: true, goDiff: "11", args: []string{"pr", "close", url5}, env: map[string]string{"BBAPPROVE_RETRY_SLEEP": "-2"}},
+	{name: "close_decline_retries_stale_version_then_succeeds", goOnly: true, goDiff: "12b", args: []string{"pr", "close", url5}, sc: func(sc *bbfake.Scenario) { pr5(sc).StaleDeclines = 2 }},
+	{name: "close_decline_stale_every_time_gives_up_after_4_attempts", goOnly: true, goDiff: "12b", args: []string{"pr", "close", url5}, sc: func(sc *bbfake.Scenario) { pr5(sc).StaleDeclines = 99 }},
+	{name: "close_decline_retries_env_2", goOnly: true, goDiff: "12b", args: []string{"pr", "close", url5}, env: map[string]string{"BBAPPROVE_MERGE_RETRIES": "2"}, sc: func(sc *bbfake.Scenario) { pr5(sc).StaleDeclines = 99 }},
+}
+
+// impl is one adapter implementation under test.
+type impl struct {
+	name   string
+	cmd    string   // executable
+	prefix []string // arguments before the adapter's own (the script for bash)
+	path   string   // PATH for the adapter: only what it may use
+	script string   // path shown as <ADAPTER> in redactions
+	src    string   // bash source, to build the short-timeout copy
+	bash   string   // shell for the op stub's shebang
 }
 
 func TestAdapterCharacterization(t *testing.T) {
-	bash, bin := toolDir(t)
-	script, err := filepath.Abs("../../adapters/bitbucket")
-	if err != nil {
-		t.Fatal(err)
-	}
-	src, err := os.ReadFile(script)
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Run("bash", func(t *testing.T) {
+		bash, tools := toolDir(t)
+		script, err := filepath.Abs("../../adapters/bitbucket")
+		if err != nil {
+			t.Fatal(err)
+		}
+		src, err := os.ReadFile(script)
+		if err != nil {
+			t.Fatal(err)
+		}
+		runAll(t, impl{name: "bash", cmd: bash, prefix: []string{script}, path: tools, script: script, src: string(src), bash: bash})
+	})
+	t.Run("go", func(t *testing.T) {
+		shell := "/bin/sh"
+		if p, err := exec.LookPath("bash"); err == nil {
+			shell = p
+		}
+		runAll(t, impl{name: "go", cmd: goBinary, path: t.TempDir(), script: goBinary, bash: shell})
+	})
+}
+
+func runAll(t *testing.T, im impl) {
 	for _, tc := range charCases {
+		if tc.goOnly && im.name != "go" {
+			continue
+		}
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			runCase(t, tc, bash, bin, script, string(src))
+			runCase(t, tc, im)
 		})
 	}
 }
 
-func runCase(t *testing.T, tc charCase, bash, bin, script, src string) {
+func runCase(t *testing.T, tc charCase, im impl) {
 	tmp := t.TempDir()
 	sc := stdScenario()
 	if tc.sc != nil {
@@ -475,24 +575,31 @@ func runCase(t *testing.T, tc charCase, bash, bin, script, src string) {
 			t.Fatal(err)
 		}
 	}
+	script, argv := im.script, append([]string(nil), im.prefix...)
+	extraEnv := map[string]string{}
 	if tc.maxTime != "" {
-		const orig = "CURL_MAX_TIME=3.5 "
-		if !strings.Contains(src, orig) {
-			t.Fatal("adapter no longer declares CURL_MAX_TIME=3.5; update the characterization test")
-		}
-		script = filepath.Join(tmp, "bitbucket-short-timeout")
-		if err := os.WriteFile(script, []byte(strings.Replace(src, orig, "CURL_MAX_TIME="+tc.maxTime+" ", 1)), 0o700); err != nil {
-			t.Fatal(err)
+		if im.name == "bash" {
+			const orig = "CURL_MAX_TIME=3.5 "
+			if !strings.Contains(im.src, orig) {
+				t.Fatal("adapter no longer declares CURL_MAX_TIME=3.5; update the characterization test")
+			}
+			script = filepath.Join(tmp, "bitbucket-short-timeout")
+			if err := os.WriteFile(script, []byte(strings.Replace(im.src, orig, "CURL_MAX_TIME="+tc.maxTime+" ", 1)), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			argv = []string{script}
+		} else {
+			extraEnv["BBAPPROVE_BITBUCKET_TEST_MAX_TIME"] = tc.maxTime + "s"
 		}
 	}
-	path := bin
+	path := im.path
 	opLog := filepath.Join(tmp, "op.log")
 	if tc.op {
 		opDir := filepath.Join(tmp, "opbin")
 		if err := os.Mkdir(opDir, 0o700); err != nil {
 			t.Fatal(err)
 		}
-		stub := "#!" + bash + "\n" + `echo "$*" >>"$OP_LOG"
+		stub := "#!" + im.bash + "\n" + `echo "$*" >>"$OP_LOG"
 case "$*" in
   *label=token) v="${OP_TOKEN:-}" ;;
   *label=credential) v="${OP_CRED:-}" ;;
@@ -503,12 +610,15 @@ echo "$v"
 		if err := os.WriteFile(filepath.Join(opDir, "op"), []byte(stub), 0o700); err != nil {
 			t.Fatal(err)
 		}
-		path = opDir + string(os.PathListSeparator) + bin
+		path = opDir + string(os.PathListSeparator) + path
 	}
 
 	env := map[string]string{
 		"PATH": path, "HOME": tmp, "LC_ALL": "C", "NO_PROXY": "*", "OP_LOG": opLog,
 		"BBAPPROVE_BASE_URL": base, "BBAPPROVE_TOKEN": canary, "BBAPPROVE_RETRY_SLEEP": "0",
+	}
+	for k, v := range extraEnv {
+		env[k] = v
 	}
 	for k, v := range tc.env {
 		env[k] = subst.Replace(v)
@@ -527,8 +637,9 @@ echo "$v"
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, bash, append([]string{script}, args...)...)
+	cmd := exec.CommandContext(ctx, im.cmd, append(argv, args...)...)
 	cmd.Dir, cmd.Env = tmp, environ
+	cmd.Stdin = strings.NewReader(tc.stdin)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	exit := 0
@@ -545,7 +656,7 @@ echo "$v"
 	for _, a := range tc.args {
 		r.Args = append(r.Args, a)
 	}
-	if tc.maskStderr {
+	if tc.maskStderr && im.name == "bash" {
 		// jq's wording and exit code for a parse error differ between versions: pin only "failed".
 		r.Stderr = "<tool-specific stderr not pinned>"
 		if r.Exit == 0 {
@@ -582,7 +693,7 @@ echo "$v"
 	if tc.check != nil {
 		tc.check(t, r)
 	}
-	checkGolden(t, tc.name, r)
+	checkGolden(t, tc, im.name, r)
 }
 
 type redactor struct{ rep *strings.Replacer }
@@ -604,7 +715,17 @@ func (r redactor) text(s string) string {
 	return reCurl.ReplaceAllString(s, "curl: <curl error text>")
 }
 
-func checkGolden(t *testing.T, name string, r result) {
+func goldenPath(name string, goSide bool) string {
+	suffix := ".golden.json"
+	if goSide {
+		suffix = ".go.golden.json"
+	}
+	return filepath.Join("testdata", "adapter", name+suffix)
+}
+
+// checkGolden compares r with the right golden. The bash side owns <name>.golden.json. The Go side must equal it
+// unless the case declares goDiff (or goOnly), in which case <name>.go.golden.json is its own record.
+func checkGolden(t *testing.T, tc charCase, impl string, r result) {
 	t.Helper()
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
@@ -613,12 +734,31 @@ func checkGolden(t *testing.T, name string, r result) {
 	if err := enc.Encode(r); err != nil {
 		t.Fatal(err)
 	}
-	p := filepath.Join("testdata", "adapter", name+".golden.json")
-	if *updateGolden {
+	got := buf.Bytes()
+	bashPath := goldenPath(tc.name, false)
+	switch {
+	case impl == "bash":
+		compareGolden(t, tc.name, bashPath, got, true)
+	case tc.goOnly:
+		compareGolden(t, tc.name, goldenPath(tc.name, true), got, true)
+	case tc.goDiff != "":
+		if want, err := os.ReadFile(bashPath); err == nil && bytes.Equal(want, got) {
+			t.Errorf("goDiff %q is set but the Go output equals the bash golden: drop goDiff and %s", tc.goDiff, goldenPath(tc.name, true))
+		}
+		compareGolden(t, tc.name, goldenPath(tc.name, true), got, true)
+	default:
+		// The Go adapter must match the bash golden; never rewrite it from the Go side.
+		compareGolden(t, tc.name, bashPath, got, false)
+	}
+}
+
+func compareGolden(t *testing.T, name, p string, got []byte, writable bool) {
+	t.Helper()
+	if *updateGolden && writable {
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(p, buf.Bytes(), 0o644); err != nil {
+		if err := os.WriteFile(p, got, 0o644); err != nil {
 			t.Fatal(err)
 		}
 		return
@@ -627,16 +767,44 @@ func checkGolden(t *testing.T, name string, r result) {
 	if err != nil {
 		t.Fatalf("%v (run: go test ./internal/bbfake -run Char -update)", err)
 	}
-	if bytes.Equal(want, buf.Bytes()) {
+	if bytes.Equal(want, got) {
+		return
+	}
+	if !writable {
+		t.Errorf("the Go adapter differs from the bash golden %s: fix it, or declare the difference with goDiff (decision numbers) and record %s\n--- got ---\n%s\n--- want ---\n%s",
+			p, goldenPath(name, true), got, want)
 		return
 	}
 	// Distinguish a semantic change from formatting only (key order, whitespace) in stdout.
-	var w result
-	if json.Unmarshal(want, &w) == nil && w.Exit == r.Exit && w.Stderr == r.Stderr && reflect.DeepEqual(w.JSON, r.JSON) && w.Stdout != r.Stdout {
-		t.Errorf("stdout is semantically equal JSON but its text differs (key order or whitespace)\n got: %s\nwant: %s", r.Stdout, w.Stdout)
+	var w, g result
+	if json.Unmarshal(want, &w) == nil && json.Unmarshal(got, &g) == nil && w.Exit == g.Exit && w.Stderr == g.Stderr && reflect.DeepEqual(w.JSON, g.JSON) && w.Stdout != g.Stdout {
+		t.Errorf("stdout is semantically equal JSON but its text differs (key order or whitespace)\n got: %s\nwant: %s", g.Stdout, w.Stdout)
 		return
 	}
-	t.Errorf("%s differs from the golden file (run: go test ./internal/bbfake -run Char -update)\n--- got ---\n%s\n--- want ---\n%s", name, buf.Bytes(), want)
+	t.Errorf("%s differs from the golden file (run: go test ./internal/bbfake -run Char -update)\n--- got ---\n%s\n--- want ---\n%s", name, got, want)
+}
+
+// TestGoGoldensHaveCases keeps the Go-only goldens honest: each belongs to a case that declares goDiff or goOnly.
+func TestGoGoldensHaveCases(t *testing.T) {
+	files, err := filepath.Glob(filepath.Join("testdata", "adapter", "*.go.golden.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{}
+	for _, tc := range charCases {
+		if tc.goOnly || tc.goDiff != "" {
+			want[goldenPath(tc.name, true)] = true
+		}
+	}
+	for _, f := range files {
+		if !want[f] {
+			t.Errorf("%s belongs to no case with goDiff or goOnly", f)
+		}
+		delete(want, f)
+	}
+	for f := range want {
+		t.Errorf("%s is missing", f)
+	}
 }
 
 // TestAdapterTimeoutConstants pins the curl timeouts the characterization cases stand in for: the slow-server

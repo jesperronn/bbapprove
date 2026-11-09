@@ -1,0 +1,15 @@
+{
+  "args": [
+    "pr",
+    "list",
+    "--reviewer",
+    "someone-else",
+    "--state",
+    "merged",
+    "extra"
+  ],
+  "exit": 2,
+  "stdout": "",
+  "stderr": "pr list: only --reviewer @me --state open is supported\n",
+  "requests": null
+}

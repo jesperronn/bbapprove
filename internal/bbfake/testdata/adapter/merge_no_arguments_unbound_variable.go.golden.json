@@ -1,0 +1,10 @@
+{
+  "args": [
+    "pr",
+    "merge"
+  ],
+  "exit": 2,
+  "stdout": "",
+  "stderr": "pr merge: missing PR URL\n",
+  "requests": null
+}

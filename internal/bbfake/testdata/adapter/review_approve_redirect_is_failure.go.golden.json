@@ -1,0 +1,19 @@
+{
+  "args": [
+    "pr",
+    "review",
+    "{BASE}/projects/PROJ/repos/repo/pull-requests/5",
+    "--approve"
+  ],
+  "exit": 1,
+  "stdout": "",
+  "stderr": "redirect to (no Location header); check BBAPPROVE_BASE_URL / repository\n",
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/rest/api/1.0/projects/PROJ/repos/repo/pull-requests/5/approve",
+      "authorization": "Bearer <CANARY>",
+      "accept": "application/json"
+    }
+  ]
+}

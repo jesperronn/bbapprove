@@ -1,0 +1,13 @@
+{
+  "args": [
+    "pr",
+    "comment",
+    "{BASE}/projects/PROJ/repos/repo/pull-requests/5",
+    "--body",
+    "x"
+  ],
+  "exit": 1,
+  "stdout": "",
+  "stderr": "POST /rest/api/1.0/projects/PROJ/repos/repo/pull-requests/5/comments: connection failed\n",
+  "requests": null
+}

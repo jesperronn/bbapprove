@@ -1,0 +1,13 @@
+{
+  "args": [
+    "pr",
+    "comment",
+    "{BASE}/projects/PROJ/repos/repo/pull-requests/5",
+    "--body-file",
+    "{TMP}/nope.txt"
+  ],
+  "exit": 2,
+  "stdout": "",
+  "stderr": "pr comment: cannot read <TMP>/nope.txt: no such file or directory\n",
+  "requests": null
+}

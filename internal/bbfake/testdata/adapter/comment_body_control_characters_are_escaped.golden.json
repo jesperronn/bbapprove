@@ -1,0 +1,22 @@
+{
+  "args": [
+    "pr",
+    "comment",
+    "{BASE}/projects/PROJ/repos/repo/pull-requests/5",
+    "--body",
+    "a\u0001bc\bd\fe\u001f <&> \u2028"
+  ],
+  "exit": 0,
+  "stdout": "",
+  "stderr": "",
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/rest/api/1.0/projects/PROJ/repos/repo/pull-requests/5/comments",
+      "body": "{\n  \"text\": \"a\\u0001b\\u007fc\\bd\\fe\\u001f <&> \u2028\"\n}",
+      "authorization": "Bearer <CANARY>",
+      "accept": "application/json",
+      "contentType": "application/json"
+    }
+  ]
+}

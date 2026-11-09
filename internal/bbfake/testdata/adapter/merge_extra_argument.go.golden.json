@@ -1,0 +1,12 @@
+{
+  "args": [
+    "pr",
+    "merge",
+    "{BASE}/projects/PROJ/repos/repo/pull-requests/5",
+    "extra"
+  ],
+  "exit": 2,
+  "stdout": "",
+  "stderr": "pr merge: unknown argument: extra\n",
+  "requests": null
+}

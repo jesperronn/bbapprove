@@ -1,0 +1,12 @@
+{
+  "args": [
+    "pr",
+    "comment",
+    "{BASE}/projects/PROJ/repos/repo/pull-requests/5",
+    "--bogus"
+  ],
+  "exit": 2,
+  "stdout": "",
+  "stderr": "pr comment: unknown argument: --bogus\n",
+  "requests": null
+}

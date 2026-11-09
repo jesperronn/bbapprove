@@ -1,0 +1,11 @@
+{
+  "args": [
+    "pr",
+    "review",
+    "{BASE}/projects/PROJ/repos/repo/pull-requests/5"
+  ],
+  "exit": 2,
+  "stdout": "",
+  "stderr": "pr review: only --approve is supported\n",
+  "requests": null
+}

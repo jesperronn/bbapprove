@@ -1,0 +1,11 @@
+{
+  "args": [
+    "pr",
+    "comment",
+    "{BASE}/projects/PROJ/repos/repo/pull-requests/5"
+  ],
+  "exit": 2,
+  "stdout": "",
+  "stderr": "pr comment: empty comment (use --body TEXT or --body-file FILE)\n",
+  "requests": null
+}

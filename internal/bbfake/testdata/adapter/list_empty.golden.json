@@ -1,0 +1,29 @@
+{
+  "args": [
+    "pr",
+    "list",
+    "--reviewer",
+    "@me",
+    "--state",
+    "open"
+  ],
+  "exit": 0,
+  "stdout": "[]\n",
+  "stdoutJSON": [],
+  "stderr": "",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/plugins/servlet/applinks/whoami",
+      "authorization": "Bearer <CANARY>",
+      "accept": "application/json"
+    },
+    {
+      "method": "GET",
+      "path": "/rest/api/1.0/dashboard/pull-requests",
+      "query": "role=REVIEWER&state=OPEN&limit=100&start=0&withProperties=true&withAttributes=true",
+      "authorization": "Bearer <CANARY>",
+      "accept": "application/json"
+    }
+  ]
+}

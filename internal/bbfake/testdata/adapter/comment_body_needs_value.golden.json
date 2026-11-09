@@ -1,0 +1,12 @@
+{
+  "args": [
+    "pr",
+    "comment",
+    "{BASE}/projects/PROJ/repos/repo/pull-requests/5",
+    "--body"
+  ],
+  "exit": 2,
+  "stdout": "",
+  "stderr": "pr comment: --body needs a value\n",
+  "requests": null
+}

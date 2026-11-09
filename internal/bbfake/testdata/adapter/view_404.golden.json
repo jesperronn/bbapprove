@@ -1,0 +1,24 @@
+{
+  "args": [
+    "pr",
+    "view",
+    "{BASE}/projects/PROJ/repos/repo/pull-requests/99"
+  ],
+  "exit": 1,
+  "stdout": "",
+  "stderr": "Fetch failed (404): <BASE>/projects/PROJ/repos/repo/pull-requests/99\n",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/plugins/servlet/applinks/whoami",
+      "authorization": "Bearer <CANARY>",
+      "accept": "application/json"
+    },
+    {
+      "method": "GET",
+      "path": "/rest/api/1.0/projects/PROJ/repos/repo/pull-requests/99",
+      "authorization": "Bearer <CANARY>",
+      "accept": "application/json"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "args": [
+    "pr",
+    "close",
+    "{BASE}/projects/PROJ/repos/repo/pull-requests/5",
+    "--force"
+  ],
+  "exit": 2,
+  "stdout": "",
+  "stderr": "pr close: unknown argument: --force\n",
+  "requests": null
+}

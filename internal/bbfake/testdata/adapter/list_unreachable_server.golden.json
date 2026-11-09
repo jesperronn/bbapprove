@@ -1,0 +1,10 @@
+{
+  "args": [
+    "pr",
+    "list"
+  ],
+  "exit": 1,
+  "stdout": "",
+  "stderr": "curl: <curl error text>\ncurl: <curl error text>\nDashboard fetch failed (000)\n",
+  "requests": null
+}

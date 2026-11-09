@@ -1,0 +1,10 @@
+{
+  "args": [
+    "issue",
+    "list"
+  ],
+  "exit": 2,
+  "stdout": "",
+  "stderr": "usage: bitbucket auth token | pr list|view|review|merge|comment|close ...\n",
+  "requests": null
+}

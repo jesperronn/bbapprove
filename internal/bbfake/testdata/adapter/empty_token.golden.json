@@ -1,0 +1,11 @@
+{
+  "args": [
+    "pr",
+    "merge",
+    "{BASE}/projects/PROJ/repos/repo/pull-requests/5"
+  ],
+  "exit": 2,
+  "stdout": "",
+  "stderr": "bitbucket adapter: BBAPPROVE_TOKEN is not set\n",
+  "requests": null
+}

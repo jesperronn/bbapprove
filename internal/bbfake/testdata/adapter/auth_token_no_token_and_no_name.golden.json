@@ -1,0 +1,10 @@
+{
+  "args": [
+    "auth",
+    "token"
+  ],
+  "exit": 1,
+  "stdout": "",
+  "stderr": "No token: set BBAPPROVE_TOKEN, or BBAPPROVE_TOKEN_NAME to a 1Password item with a token or credential field.\n",
+  "requests": null
+}

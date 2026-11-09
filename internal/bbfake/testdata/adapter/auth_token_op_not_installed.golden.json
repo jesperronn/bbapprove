@@ -1,0 +1,10 @@
+{
+  "args": [
+    "auth",
+    "token"
+  ],
+  "exit": 1,
+  "stdout": "",
+  "stderr": "1Password CLI (op) not found; set BBAPPROVE_TOKEN instead\n",
+  "requests": null
+}

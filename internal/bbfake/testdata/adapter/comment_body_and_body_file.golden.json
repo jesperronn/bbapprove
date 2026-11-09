@@ -1,0 +1,15 @@
+{
+  "args": [
+    "pr",
+    "comment",
+    "{BASE}/projects/PROJ/repos/repo/pull-requests/5",
+    "--body",
+    "x",
+    "--body-file",
+    "{TMP}/b.txt"
+  ],
+  "exit": 2,
+  "stdout": "",
+  "stderr": "pr comment: use either --body or --body-file, not both\n",
+  "requests": null
+}

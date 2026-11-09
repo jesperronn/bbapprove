@@ -1,0 +1,19 @@
+{
+  "args": [
+    "pr",
+    "review",
+    "{BASE}/projects/PROJ/repos/repo/pull-requests/5",
+    "--approve"
+  ],
+  "exit": 1,
+  "stdout": "",
+  "stderr": "approve HTTP 302\n",
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/rest/api/1.0/projects/PROJ/repos/repo/pull-requests/5/approve",
+      "authorization": "Bearer <CANARY>",
+      "accept": "application/json"
+    }
+  ]
+}

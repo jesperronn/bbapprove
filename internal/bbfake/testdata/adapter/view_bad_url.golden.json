@@ -1,0 +1,11 @@
+{
+  "args": [
+    "pr",
+    "view",
+    "https://example.com/not-a-pr"
+  ],
+  "exit": 2,
+  "stdout": "",
+  "stderr": "Not a PR URL: https://example.com/not-a-pr\n",
+  "requests": null
+}

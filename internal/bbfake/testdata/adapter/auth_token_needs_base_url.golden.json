@@ -1,0 +1,10 @@
+{
+  "args": [
+    "auth",
+    "token"
+  ],
+  "exit": 2,
+  "stdout": "",
+  "stderr": "bitbucket adapter: BBAPPROVE_BASE_URL is not set\n",
+  "requests": null
+}

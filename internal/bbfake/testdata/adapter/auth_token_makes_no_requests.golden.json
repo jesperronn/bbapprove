@@ -1,0 +1,12 @@
+{
+  "args": [
+    "auth",
+    "token",
+    "extra",
+    "args"
+  ],
+  "exit": 0,
+  "stdout": "<CANARY>\n",
+  "stderr": "",
+  "requests": null
+}

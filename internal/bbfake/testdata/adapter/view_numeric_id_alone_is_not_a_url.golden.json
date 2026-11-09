@@ -1,0 +1,11 @@
+{
+  "args": [
+    "pr",
+    "view",
+    "5"
+  ],
+  "exit": 2,
+  "stdout": "",
+  "stderr": "Not a PR URL: 5\n",
+  "requests": null
+}

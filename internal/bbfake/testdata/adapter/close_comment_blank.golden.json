@@ -1,0 +1,13 @@
+{
+  "args": [
+    "pr",
+    "close",
+    "{BASE}/projects/PROJ/repos/repo/pull-requests/5",
+    "--comment",
+    " \t"
+  ],
+  "exit": 2,
+  "stdout": "",
+  "stderr": "pr close: --comment must not be empty\n",
+  "requests": null
+}

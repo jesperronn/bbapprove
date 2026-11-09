@@ -1,0 +1,13 @@
+{
+  "args": [
+    "pr",
+    "comment",
+    "{BASE}/projects/PROJ/repos/repo/pull-requests/5",
+    "--body-file",
+    "{TMP}/ws.txt"
+  ],
+  "exit": 2,
+  "stdout": "",
+  "stderr": "pr comment: empty comment (use --body TEXT or --body-file FILE)\n",
+  "requests": null
+}

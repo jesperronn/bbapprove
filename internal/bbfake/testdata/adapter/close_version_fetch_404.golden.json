@@ -1,0 +1,18 @@
+{
+  "args": [
+    "pr",
+    "close",
+    "{BASE}/projects/PROJ/repos/repo/pull-requests/99"
+  ],
+  "exit": 1,
+  "stdout": "",
+  "stderr": "close: could not read PR version (HTTP 404)\n",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/rest/api/1.0/projects/PROJ/repos/repo/pull-requests/99",
+      "authorization": "Bearer <CANARY>",
+      "accept": "application/json"
+    }
+  ]
+}

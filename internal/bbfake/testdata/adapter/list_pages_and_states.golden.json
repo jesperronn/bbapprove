@@ -1,0 +1,147 @@
+{
+  "args": [
+    "pr",
+    "list",
+    "--reviewer",
+    "@me",
+    "--state",
+    "open"
+  ],
+  "exit": 0,
+  "stdout": "[{\"url\":\"<BASE>/projects/PROJ/repos/repo-a/pull-requests/1\",\"number\":1,\"project\":\"PROJ\",\"repo\":\"repo-a\",\"title\":\"fix \\\"quoted\\\" & ünïcode\",\"author\":{\"email\":\"renovate-bot@example.com\",\"login\":\"renovate-bot\"},\"headBranch\":\"renovate/a\",\"approvedByMe\":true,\"build\":\"failed\",\"qualityGate\":\"failed\",\"approvals\":1,\"needsWork\":0,\"commentCount\":2,\"openTasks\":0},{\"url\":\"<BASE>/projects/PROJ/repos/repo-b/pull-requests/2\",\"number\":2,\"project\":\"PROJ\",\"repo\":\"repo-b\",\"title\":\"b\",\"author\":{\"email\":\"renovate-bot@example.com\",\"login\":\"renovate-bot\"},\"headBranch\":\"renovate/b\",\"approvedByMe\":false,\"build\":\"running\",\"qualityGate\":\"passed\",\"approvals\":2,\"needsWork\":2,\"commentCount\":0,\"openTasks\":3},{\"url\":\"<BASE>/projects/OTH/repos/repo-c/pull-requests/3\",\"number\":3,\"project\":\"OTH\",\"repo\":\"repo-c\",\"title\":\"c\",\"author\":{\"email\":\"\",\"login\":\"someone\"},\"headBranch\":\"feature/c\",\"approvedByMe\":false,\"build\":\"none\",\"qualityGate\":\"unknown\",\"approvals\":0,\"needsWork\":0,\"commentCount\":0,\"openTasks\":0},{\"url\":\"<BASE>/projects/OTH/repos/repo-d/pull-requests/4\",\"number\":4,\"project\":\"OTH\",\"repo\":\"repo-d\",\"title\":\"d\",\"author\":{\"email\":\"\",\"login\":\"someone\"},\"headBranch\":\"feature/d\",\"approvedByMe\":false,\"build\":\"none\",\"qualityGate\":\"unknown\",\"approvals\":0,\"needsWork\":0,\"commentCount\":0,\"openTasks\":0},{\"url\":\"<BASE>/projects/OTH/repos/repo-e/pull-requests/6\",\"number\":6,\"project\":\"OTH\",\"repo\":\"repo-e\",\"title\":\"no commit\",\"author\":{\"email\":\"\",\"login\":\"someone\"},\"headBranch\":\"feature/e\",\"approvedByMe\":true,\"build\":\"none\",\"qualityGate\":\"unknown\",\"approvals\":1,\"needsWork\":0,\"commentCount\":0,\"openTasks\":0}]\n",
+  "stdoutJSON": [
+    {
+      "approvals": 1,
+      "approvedByMe": true,
+      "author": {
+        "email": "renovate-bot@example.com",
+        "login": "renovate-bot"
+      },
+      "build": "failed",
+      "commentCount": 2,
+      "headBranch": "renovate/a",
+      "needsWork": 0,
+      "number": 1,
+      "openTasks": 0,
+      "project": "PROJ",
+      "qualityGate": "failed",
+      "repo": "repo-a",
+      "title": "fix \"quoted\" & ünïcode",
+      "url": "<BASE>/projects/PROJ/repos/repo-a/pull-requests/1"
+    },
+    {
+      "approvals": 2,
+      "approvedByMe": false,
+      "author": {
+        "email": "renovate-bot@example.com",
+        "login": "renovate-bot"
+      },
+      "build": "running",
+      "commentCount": 0,
+      "headBranch": "renovate/b",
+      "needsWork": 2,
+      "number": 2,
+      "openTasks": 3,
+      "project": "PROJ",
+      "qualityGate": "passed",
+      "repo": "repo-b",
+      "title": "b",
+      "url": "<BASE>/projects/PROJ/repos/repo-b/pull-requests/2"
+    },
+    {
+      "approvals": 0,
+      "approvedByMe": false,
+      "author": {
+        "email": "",
+        "login": "someone"
+      },
+      "build": "none",
+      "commentCount": 0,
+      "headBranch": "feature/c",
+      "needsWork": 0,
+      "number": 3,
+      "openTasks": 0,
+      "project": "OTH",
+      "qualityGate": "unknown",
+      "repo": "repo-c",
+      "title": "c",
+      "url": "<BASE>/projects/OTH/repos/repo-c/pull-requests/3"
+    },
+    {
+      "approvals": 0,
+      "approvedByMe": false,
+      "author": {
+        "email": "",
+        "login": "someone"
+      },
+      "build": "none",
+      "commentCount": 0,
+      "headBranch": "feature/d",
+      "needsWork": 0,
+      "number": 4,
+      "openTasks": 0,
+      "project": "OTH",
+      "qualityGate": "unknown",
+      "repo": "repo-d",
+      "title": "d",
+      "url": "<BASE>/projects/OTH/repos/repo-d/pull-requests/4"
+    },
+    {
+      "approvals": 1,
+      "approvedByMe": true,
+      "author": {
+        "email": "",
+        "login": "someone"
+      },
+      "build": "none",
+      "commentCount": 0,
+      "headBranch": "feature/e",
+      "needsWork": 0,
+      "number": 6,
+      "openTasks": 0,
+      "project": "OTH",
+      "qualityGate": "unknown",
+      "repo": "repo-e",
+      "title": "no commit",
+      "url": "<BASE>/projects/OTH/repos/repo-e/pull-requests/6"
+    }
+  ],
+  "stderr": "",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/plugins/servlet/applinks/whoami",
+      "authorization": "Bearer <CANARY>",
+      "accept": "application/json"
+    },
+    {
+      "method": "GET",
+      "path": "/rest/api/1.0/dashboard/pull-requests",
+      "query": "role=REVIEWER&state=OPEN&limit=100&start=0&withProperties=true&withAttributes=true",
+      "authorization": "Bearer <CANARY>",
+      "accept": "application/json"
+    },
+    {
+      "method": "GET",
+      "path": "/rest/api/1.0/dashboard/pull-requests",
+      "query": "role=REVIEWER&state=OPEN&limit=100&start=2&withProperties=true&withAttributes=true",
+      "authorization": "Bearer <CANARY>",
+      "accept": "application/json"
+    },
+    {
+      "method": "GET",
+      "path": "/rest/api/1.0/dashboard/pull-requests",
+      "query": "role=REVIEWER&state=OPEN&limit=100&start=4&withProperties=true&withAttributes=true",
+      "authorization": "Bearer <CANARY>",
+      "accept": "application/json"
+    },
+    {
+      "method": "POST",
+      "path": "/rest/build-status/1.0/commits/stats",
+      "body": "[\"c1\",\"c2\",\"c3\",\"c4\"]",
+      "authorization": "Bearer <CANARY>",
+      "accept": "application/json",
+      "contentType": "application/json"
+    }
+  ]
+}

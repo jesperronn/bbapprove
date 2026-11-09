@@ -1,0 +1,24 @@
+{
+  "args": [
+    "pr",
+    "comment",
+    "{BASE}/projects/PROJ/repos/repo/pull-requests/5",
+    "--body",
+    "one",
+    "--body",
+    "two"
+  ],
+  "exit": 0,
+  "stdout": "",
+  "stderr": "",
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/rest/api/1.0/projects/PROJ/repos/repo/pull-requests/5/comments",
+      "body": "{\n  \"text\": \"two\"\n}",
+      "authorization": "Bearer <CANARY>",
+      "accept": "application/json",
+      "contentType": "application/json"
+    }
+  ]
+}

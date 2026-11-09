@@ -1,0 +1,37 @@
+{
+  "args": [
+    "pr",
+    "close",
+    "{BASE}/projects/PROJ/repos/repo/pull-requests/5",
+    "--comment",
+    "superseded by #6"
+  ],
+  "exit": 0,
+  "stdout": "",
+  "stderr": "",
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/rest/api/1.0/projects/PROJ/repos/repo/pull-requests/5/comments",
+      "body": "{\n  \"text\": \"superseded by #6\"\n}",
+      "authorization": "Bearer <CANARY>",
+      "accept": "application/json",
+      "contentType": "application/json"
+    },
+    {
+      "method": "GET",
+      "path": "/rest/api/1.0/projects/PROJ/repos/repo/pull-requests/5",
+      "authorization": "Bearer <CANARY>",
+      "accept": "application/json"
+    },
+    {
+      "method": "POST",
+      "path": "/rest/api/1.0/projects/PROJ/repos/repo/pull-requests/5/decline",
+      "query": "version=3",
+      "body": "{\"version\":3}",
+      "authorization": "Bearer <CANARY>",
+      "accept": "application/json",
+      "contentType": "application/json"
+    }
+  ]
+}

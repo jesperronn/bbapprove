@@ -1,0 +1,13 @@
+{
+  "args": [
+    "pr",
+    "comment",
+    "{BASE}/projects/PROJ/repos/repo/pull-requests/5",
+    "--body",
+    "x"
+  ],
+  "exit": 1,
+  "stdout": "",
+  "stderr": "curl: <curl error text>\ncomment HTTP 000\n",
+  "requests": null
+}

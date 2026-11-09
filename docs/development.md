@@ -22,6 +22,7 @@ internal/rules/      eligibility (Config.Check) and Classify (shared by CLI and 
 internal/ignore/     per-user ignore list file
 internal/doctor/     `bbapprove doctor` diagnostics (all process seams injected)
 internal/adapter/    subprocess client for the forge adapter CLI
+internal/bbfake/     fake Bitbucket Server and adapter characterization tests (test support only)
 internal/tui/        Bubble Tea interface (-i)
 adapters/bitbucket   bash adapter: the only code that knows curl and Bitbucket
 bin/                 launcher, build/test/lint/setup/install/release scripts, bin/help
@@ -36,6 +37,7 @@ test/                *.test.sh suites; test/lib/bash_test.sh is the shared harne
 - Go code takes injected seams (TTY check, editor runner, env lookup, stdin/stdout) instead of touching the real terminal or environment.
 - Make waits configurable env vars and set them to `0` in tests (for example `RELEASE_RUN_WAIT_SECONDS`).
 - Budget about 1-2 s per suite. Every assertion prints a `[PASS]`; a silent conditional is not a test.
+- `internal/bbfake` is a fake Bitbucket Server (httptest) with scenario data, request recording and failure injection; it is test support only. `internal/bbfake/adapter_char_test.go` runs the real `adapters/bitbucket` against it for every subcommand and pins exit code, stdout, stderr and the requests sent in `internal/bbfake/testdata/adapter/*.golden.json` (refresh: `go test ./internal/bbfake -run Char -update`); it skips when bash, curl or jq is missing. A native adapter must pass the same cases.
 - Help and docs must not drift: `internal/app/docs_test.go` fails when the README and `bbapprove help` disagree about flags or environment variables. Help texts are golden-tested; refresh with `go test ./internal/app -run Golden -update`.
 - Real-terminal checks (TUI, prompts): run in a tmux session and send keys ONE AT A TIME with a short sleep between them; batched keys race the renderer. Wait for a marker in `tmux capture-pane` output before asserting.
 

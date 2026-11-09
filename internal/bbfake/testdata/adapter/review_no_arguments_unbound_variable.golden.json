@@ -1,0 +1,10 @@
+{
+  "args": [
+    "pr",
+    "review"
+  ],
+  "exit": 1,
+  "stdout": "",
+  "stderr": "<ADAPTER>: line N: $1: unbound variable\n",
+  "requests": null
+}

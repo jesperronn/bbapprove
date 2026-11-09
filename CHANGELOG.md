@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 ### Added
 - Maintainers: `bin/test --timings` prints the slowest shell suites, Go packages and Go tests and the total run time.
 
+### Internal
+- A fake Bitbucket Server (`internal/bbfake`) and golden characterization tests that pin the bash Bitbucket adapter's exact behaviour, as a safety net for porting it to Go.
+
 ## [1.0.0] - 2026-11-09
 
 ### Changed (BREAKING)

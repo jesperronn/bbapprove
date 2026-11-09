@@ -1,0 +1,65 @@
+{
+  "args": [
+    "pr",
+    "view",
+    "{BASE}/projects/PROJ/repos/repo/pull-requests/5"
+  ],
+  "exit": 0,
+  "stdout": "{\"url\":\"<BASE>/projects/PROJ/repos/repo/pull-requests/5\",\"number\":5,\"project\":\"PROJ\",\"repo\":\"repo\",\"title\":\"chore(deps): update x to v1.0.1\",\"author\":{\"email\":\"renovate-bot@example.com\",\"login\":\"renovate-bot\"},\"headBranch\":\"renovate/x\",\"approvedByMe\":true,\"build\":\"passed\",\"qualityGate\":\"unknown\",\"approvals\":1,\"needsWork\":1,\"commentCount\":1,\"openTasks\":1}\n",
+  "stdoutJSON": {
+    "approvals": 1,
+    "approvedByMe": true,
+    "author": {
+      "email": "renovate-bot@example.com",
+      "login": "renovate-bot"
+    },
+    "build": "passed",
+    "commentCount": 1,
+    "headBranch": "renovate/x",
+    "needsWork": 1,
+    "number": 5,
+    "openTasks": 1,
+    "project": "PROJ",
+    "qualityGate": "unknown",
+    "repo": "repo",
+    "title": "chore(deps): update x to v1.0.1",
+    "url": "<BASE>/projects/PROJ/repos/repo/pull-requests/5"
+  },
+  "stderr": "",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/plugins/servlet/applinks/whoami",
+      "authorization": "Bearer <CANARY>",
+      "accept": "application/json"
+    },
+    {
+      "method": "GET",
+      "path": "/rest/api/1.0/projects/PROJ/repos/repo/pull-requests/5",
+      "authorization": "Bearer <CANARY>",
+      "accept": "application/json"
+    },
+    {
+      "method": "POST",
+      "path": "/rest/build-status/1.0/commits/stats",
+      "body": "[\"abc\"]",
+      "authorization": "Bearer <CANARY>",
+      "accept": "application/json",
+      "contentType": "application/json"
+    },
+    {
+      "method": "GET",
+      "path": "/rest/api/1.0/projects/PROJ/repos/repo/pull-requests/5/activities",
+      "query": "limit=100",
+      "authorization": "Bearer <CANARY>",
+      "accept": "application/json"
+    },
+    {
+      "method": "GET",
+      "path": "/rest/api/1.0/projects/PROJ/repos/repo/pull-requests/5/blocker-comments",
+      "query": "limit=100",
+      "authorization": "Bearer <CANARY>",
+      "accept": "application/json"
+    }
+  ]
+}

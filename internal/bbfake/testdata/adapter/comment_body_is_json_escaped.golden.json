@@ -1,0 +1,22 @@
+{
+  "args": [
+    "pr",
+    "comment",
+    "{BASE}/projects/PROJ/repos/repo/pull-requests/5",
+    "--body",
+    "line one\nline \"two\" \\ ünï 🙂\t<b>&"
+  ],
+  "exit": 0,
+  "stdout": "",
+  "stderr": "",
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/rest/api/1.0/projects/PROJ/repos/repo/pull-requests/5/comments",
+      "body": "{\n  \"text\": \"line one\\nline \\\"two\\\" \\\\ ünï 🙂\\t<b>&\"\n}",
+      "authorization": "Bearer <CANARY>",
+      "accept": "application/json",
+      "contentType": "application/json"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "args": [
+    "pr",
+    "list"
+  ],
+  "exit": 2,
+  "stdout": "",
+  "stderr": "bitbucket adapter: BBAPPROVE_TOKEN is not set\n",
+  "requests": null
+}

@@ -1,0 +1,11 @@
+{
+  "args": [
+    "pr",
+    "close",
+    "bad"
+  ],
+  "exit": 2,
+  "stdout": "",
+  "stderr": "Not a PR URL: bad\n",
+  "requests": null
+}

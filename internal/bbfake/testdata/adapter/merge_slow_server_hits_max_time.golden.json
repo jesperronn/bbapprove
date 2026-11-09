@@ -1,0 +1,19 @@
+{
+  "args": [
+    "(CURL_MAX_TIME=0.3)",
+    "pr",
+    "merge",
+    "{BASE}/projects/PROJ/repos/repo/pull-requests/5"
+  ],
+  "exit": 1,
+  "stdout": "",
+  "stderr": "curl: <curl error text>\nmerge: could not read PR version (HTTP 000)\n",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/rest/api/1.0/projects/PROJ/repos/repo/pull-requests/5",
+      "authorization": "Bearer <CANARY>",
+      "accept": "application/json"
+    }
+  ]
+}

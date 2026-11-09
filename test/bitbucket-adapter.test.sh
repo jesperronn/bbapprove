@@ -201,32 +201,22 @@ test_missing_base_url_exits_2() {
   cleanup_test_tmp; TEST_TMP=""
 }
 
-setup_op_stub() {
+test_missing_token_exits_2() {
   setup_stub
-  cat >"$TEST_TMP/bin/op" <<'STUB'
-#!/usr/bin/env bash
-echo "$*" >>"$STUB_LOG.op"
-echo "tok-from-op"
-STUB
-  chmod +x "$TEST_TMP/bin/op"
-}
-
-test_auth_token_uses_token_name_item() {
-  setup_op_stub
-  local out
-  out="$(BBAPPROVE_TOKEN="" BBAPPROVE_TOKEN_NAME="MY_ITEM" run_adapter auth token)"
-  assert_contains "$out" "Waiting for 1Password: op item get MY_ITEM" "message names the configured item"
-  assert_contains "$out" "tok-from-op" "token printed"
-  assert_contains "$(cat "$STUB_LOG.op")" "item get MY_ITEM --fields label=token --reveal" "op asked for the configured item"
+  local rc=0 out
+  out="$(BBAPPROVE_TOKEN="" run_adapter pr list --reviewer @me --state open)" || rc=$?
+  assert_eq "$rc" "2" "missing BBAPPROVE_TOKEN exits 2"
+  assert_eq "$out" "bitbucket adapter: BBAPPROVE_TOKEN is not set" "message"
+  assert_eq "$(cat "$STUB_LOG")" "" "no curl call without a token"
   cleanup_test_tmp; TEST_TMP=""
 }
 
-test_auth_token_item_defaults_to_bitbucket_token() {
-  setup_op_stub
-  local out
-  out="$(BBAPPROVE_TOKEN="" run_adapter auth token)"
-  assert_contains "$out" "Waiting for 1Password: op item get BITBUCKET_TOKEN" "default item name in the message"
-  assert_contains "$(cat "$STUB_LOG.op")" "item get BITBUCKET_TOKEN --fields" "op asked for the default item"
+test_auth_token_subcommand_is_gone() {
+  setup_stub
+  local rc=0 out
+  out="$(run_adapter auth token)" || rc=$?
+  assert_eq "$rc" "2" "auth token is a usage error"
+  assert_contains "$out" "usage: bitbucket pr list" "usage shown"
   cleanup_test_tmp; TEST_TMP=""
 }
 

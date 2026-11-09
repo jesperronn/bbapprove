@@ -245,7 +245,10 @@ func contains(l []string, s string) bool {
 
 // Missing returns nil when repository and author_email are set, else an error naming the first
 // missing setting and how to create the config file.
-func (c *Config) Missing() error {
+func (c *Config) Missing() error { return c.MissingFor(style.Theme{}) }
+
+// MissingFor is Missing with the message painted by t (stripped of colour it is identical).
+func (c *Config) MissingFor(t style.Theme) error {
 	for _, s := range []struct {
 		name, env string
 		v         Value
@@ -260,13 +263,17 @@ func (c *Config) Missing() error {
 		if c.File != "" {
 			where = "config file " + c.File + " does not set it"
 		}
-		msg := fmt.Sprintf("bbapprove: %q is not set (%s).\n"+
-			"Set it in a config file (or via %s): cp %s %s and edit it.\n"+
-			"Searched: %s",
-			s.name, where, s.env, TemplateName, ConfigName, strings.Join(c.Searched, ", "))
+		searched := make([]string, len(c.Searched))
+		for i, p := range c.Searched {
+			searched[i] = t.Paint(style.Path, p)
+		}
+		msg := t.Sprintf("{fail:bbapprove:} \"{val:%s}\" is not set (%s).\n"+
+			"Set it in a config file (or via {env:%s}): {cmd:cp %s %s} and edit it.\n",
+			s.name, where, s.env, TemplateName, ConfigName) +
+			"Searched: " + strings.Join(searched, ", ")
 		if c.File == "" {
 			if def := c.DefaultPath; def != "" {
-				msg += "\nOr create it in the default location (kept across upgrades):\n" + createHint(def)
+				msg += "\nOr create it in the default location (kept across upgrades):\n" + createHint(t, def)
 			}
 		}
 		return errors.New(strings.TrimRight(msg, "\n"))
@@ -333,18 +340,28 @@ func (c *Config) SettingsThemed(t style.Theme) string {
 	return b.String()
 }
 
-// TokenMissingHelp is printed when neither BBAPPROVE_TOKEN nor a 1Password item name is set.
-const TokenMissingHelp = `bbapprove: no API token.
-Set BBAPPROVE_TOKEN to a Bitbucket HTTP access token:
-  export BBAPPROVE_TOKEN=...
+const tokenMissingMarkup = `{fail:bbapprove: no API token.}
+Set {env:BBAPPROVE_TOKEN} to a Bitbucket HTTP access token:
+  {cmd:export BBAPPROVE_TOKEN=...}
 or name a 1Password item holding it (looked up with "op", field token, then credential):
-  export BBAPPROVE_TOKEN_NAME=<item>     (or --token-name <item>, or user_token_name in the config file)
-run: bbapprove doctor`
+  {cmd:export BBAPPROVE_TOKEN_NAME=}{val:<item>}     (or {flag:--token-name} {val:<item>}, or {val:user_token_name} in the config file)
+run: bbapprove {cmd:doctor}`
+
+const removedTokenFlagMarkup = `{fail:bbapprove: --token was removed} (a token on the command line is visible to other users).
+Set the {env:BBAPPROVE_TOKEN} environment variable, or name a 1Password item with {flag:--token-name} {val:NAME} /
+{env:BBAPPROVE_TOKEN_NAME} / {val:user_token_name} (see: bbapprove {cmd:help} token); run: bbapprove {cmd:doctor}`
+
+// TokenMissingHelp is printed when neither BBAPPROVE_TOKEN nor a 1Password item name is set.
+var TokenMissingHelp = TokenMissingHelpFor(style.Theme{})
 
 // RemovedTokenFlagHelp explains --token, which no longer exists.
-const RemovedTokenFlagHelp = `bbapprove: --token was removed (a token on the command line is visible to other users).
-Set the BBAPPROVE_TOKEN environment variable, or name a 1Password item with --token-name NAME /
-BBAPPROVE_TOKEN_NAME / user_token_name (see: bbapprove help token); run: bbapprove doctor`
+var RemovedTokenFlagHelp = RemovedTokenFlagHelpFor(style.Theme{})
+
+// TokenMissingHelpFor is TokenMissingHelp painted by t.
+func TokenMissingHelpFor(t style.Theme) string { return t.MustRender(tokenMissingMarkup) }
+
+// RemovedTokenFlagHelpFor is RemovedTokenFlagHelp painted by t.
+func RemovedTokenFlagHelpFor(t style.Theme) string { return t.MustRender(removedTokenFlagMarkup) }
 
 // IsRemovedTokenFlag reports whether arg is the removed --token option (--token-name is valid).
 func IsRemovedTokenFlag(arg string) bool {

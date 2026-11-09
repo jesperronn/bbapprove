@@ -21,6 +21,11 @@ Exit codes: 0 released, 1 failed or declined, 2 usage error, 127 tool missing. `
 On a pushed `v*` tag (`.github/workflows/release.yml`): it reruns CI, then cross-builds with `bin/build` for darwin and linux on arm64 and amd64 and uploads four `bbapprove-<tag>-<os>-<arch>.tar.gz` archives plus `SHA256SUMS`. Each archive holds `bin/bbapprove`, `bin/bbapprove-go`, `adapters/bitbucket`, `bbapprove.config.template`, `README.md`, `CHANGELOG.md`, `LICENSE`.
 The release notes are the matching CHANGELOG section, printed by `bin/release-notes vX.Y.Z` (exit 1 if the section is missing or empty). A tag containing `-` is marked pre-release.
 
+## How users update
+
+Users update with `bbapprove --update`, described in [README](../README.md#updating). It consumes the release assets
+named `bbapprove-<tag>-<os>-<arch>.tar.gz` plus `SHA256SUMS`, so renaming those assets in `release.yml` breaks it.
+
 ## Versioning
 
 Semver. The version comes from git: `git describe --tags --always --dirty` (for example `v1.0.0-rc.2`, `v1.0.0-rc.2-3-gabc1234`), injected with `-ldflags "-X main.version=..."` by `bin/build`; `bin/build --version` prints it without building. Without git it is `dev`. `BBAPPROVE_VERSION` overrides it (the release workflow sets it to the tag). `bbapprove --version` shows it.

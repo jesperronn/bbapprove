@@ -12,6 +12,14 @@ All notable changes to this project are documented here. The format follows
 - `bbapprove --init [--force] [--config FILE]` creates the config on request.
 - `bin/setup`, `bin/install`, `bin/help` and `bin/release` (changelog, tag, push, watch the release workflow).
 - Maintainer docs under `docs/` (development, architecture, releasing, CI) and `AGENTS.md`.
+- `bbapprove --outdated [--pre]` checks read-only whether a newer release exists (exit 0 up to date, 1 outdated,
+  2 could not check). It asks `gh release list`, or `git ls-remote --tags origin` in a checkout without `gh`.
+- `bbapprove --update [--yes] [--pre]` shows a plan and asks `Proceed? [y/N]` (`--yes` skips it). A git checkout is
+  updated in place (fast-forward on `main`, then `bin/build`). Any other install gets the new release unpacked
+  side by side into a new sibling directory after its SHA-256 check, and prints the switch and rollback commands;
+  nothing is switched automatically.
+- Config key `update_repo` and env `BBAPPROVE_UPDATE_REPO` choose the release repository for both (default
+  `jesperronn/bbapprove`).
 
 ### Changed
 - `bin/runtests` was renamed to `bin/test`.

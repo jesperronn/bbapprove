@@ -54,6 +54,14 @@ Per setting: flag > environment (`BBAPPROVE_*`) > file > default. File lookup: `
 3. Add `test/<type>-adapter.test.sh` modelled on `test/bitbucket-adapter.test.sh`: stub `curl` on `PATH`, check each command's JSON shape and error paths.
 4. Add the file to the release archive step in `.github/workflows/release.yml` and mention it in README and CHANGELOG.
 
+## Updates (`internal/update`)
+
+`--outdated` and `--update` run through a `Runner` interface (`gh`, `git`, `bin/build`; no shell, `os/exec` only), so
+tests inject a fake. A checkout is updated in place; any other install gets a verified release unpacked side by side
+into a sibling directory, and the running tree is never touched. Archive extraction refuses absolute paths, `..`,
+links that leave the release directory, devices and other special files, and stops at 200 MiB or 50,000 entries.
+setuid, setgid and sticky bits are dropped. Details and the limits of `SHA256SUMS`: [README](../README.md#updating).
+
 ## Safety principles
 
 - Dry run by default; only `--apply` (or an explicit TUI key and prompt) changes anything.

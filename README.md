@@ -19,7 +19,8 @@ bin/bbapprove --help               # flags, eligibility rules, env vars
 ```
 
 Flags: `--apply`, `--hide-ignored`, `--disallow a,b` (adds to the disallow list), `--token T`, `--token-name NAME`,
-`--config FILE`, `--print-config`, `--init [--force]`, `-i/--interactive`, `-h/--help`.
+`--config FILE`, `--print-config`, `--init [--force]`, `--outdated [--pre]`, `--update [--yes] [--pre]`,
+`-i/--interactive`, `-h/--help`.
 
 Eligible, all of:
 - author is the configured `author_email` (no default, see Configuration)
@@ -60,6 +61,34 @@ bbapprove --print-config                     # effective settings; says how to c
 
 `--init` writes to `--config FILE`, else `$BBAPPROVE_CONFIG`, else the default path above.
 
+## Updating
+
+bbapprove never checks for updates by itself. You ask for it:
+
+```
+bbapprove --outdated [--pre]          # read-only check: exit 0 up to date, 1 outdated, 2 could not check
+bbapprove --update [--yes] [--pre]    # shows a plan, then asks Proceed? [y/N]; --yes skips the question
+```
+
+Neither command needs a config file, a token or forge access.
+
+- **Check.** `--outdated` asks `gh release list` for the newest release. In a git checkout without `gh` it falls back
+  to `git ls-remote --tags origin`. A pre-release build compares against the newest release including pre-releases;
+  a stable build compares against the newest stable release unless you pass `--pre`. The repository defaults to
+  `jesperronn/bbapprove`; override it with `BBAPPROVE_UPDATE_REPO` or `update_repo` in the config file.
+- **Confirm.** `--update` runs the same check and prints a plan. The default answer is no. Without a terminal it
+  refuses to change anything unless you pass `--yes`.
+- **Git checkout.** Runs `git fetch --tags`, `git pull --ff-only` and `bin/build`. It needs a clean tree on `main`
+  that can be fast-forwarded; otherwise nothing is changed.
+- **Release archive.** The new release is unpacked into a new directory next to the current install, named
+  `bbapprove-<tag>-<os>-<arch>`, after its SHA-256 has been verified against the release's `SHA256SUMS` (needs `gh`).
+  The running tree is never modified and nothing is switched automatically. The command prints how to switch to the
+  new tree and how to roll back (`ln -sfn` lines when your `bbapprove` is a symlink). Your config in
+  `$XDG_CONFIG_HOME/bbapprove/config.toml` is shared by both trees; see [Configuration](#configuration).
+- `SHA256SUMS` comes from the same release as the archive, so the check protects against corruption and partial
+  downloads, not against a compromised release. Build provenance and attestation checks are future work
+  (see [TODO.md](TODO.md)).
+
 ## Configuration
 
 Nothing site- or person-specific is built in. The easiest start is the first-run flow above; by hand, copy the
@@ -75,6 +104,7 @@ repository = "https://bitbucket.example.com"    # base URL of the forge; require
 user_token_name = "BITBUCKET_TOKEN"             # 1Password item (field "token"); default BITBUCKET_TOKEN
 author_email = "renovate-bot@example.com"       # only PRs by this bot are eligible; required, no default
 disallow = ["some-library", "another-library"]  # never auto-approve; merged with --disallow
+update_repo = "jesperronn/bbapprove"            # GitHub owner/repo for --outdated and --update; this is the default
 ```
 
 **File lookup** (the first that exists is used): `--config FILE`, `$BBAPPROVE_CONFIG` (both must exist, else an
@@ -82,8 +112,8 @@ error), `<repo root>/bbapprove.config.toml` (the parent of the binary's director
 `$XDG_CONFIG_HOME/bbapprove/config.toml` (default `~/.config/bbapprove/config.toml`).
 
 **Precedence** per setting: command line > environment > config file > built-in default. The environment names are
-`BBAPPROVE_REPOSITORY`, `BBAPPROVE_TOKEN_NAME` and `BBAPPROVE_AUTHOR_EMAIL`; the command line has `--token-name NAME`.
-Only `type` and `user_token_name` have built-in defaults. `disallow` is the union of the file, `--disallow` /
+`BBAPPROVE_REPOSITORY`, `BBAPPROVE_TOKEN_NAME`, `BBAPPROVE_AUTHOR_EMAIL` and `BBAPPROVE_UPDATE_REPO`; the command line has `--token-name NAME`.
+Only `type`, `user_token_name` and `update_repo` have built-in defaults. `disallow` is the union of the file, `--disallow` /
 `BBAPPROVE_DISALLOW` and the optional legacy `BBAPPROVE_DISALLOW_FILE` (one dependency per line; default `disallow.txt`
 in the repo root, git-ignored). `BBAPPROVE_ADAPTER` (an executable path) overrides what `type` selects.
 
@@ -199,6 +229,7 @@ Fixed-width columns: `STATUS`, then the check glyphs, then the PR ref and title.
 | `BBAPPROVE_REPOSITORY` | forge base URL (overrides `repository`) |
 | `BBAPPROVE_TOKEN_NAME` | 1Password item name (also `--token-name`; overrides `user_token_name`) |
 | `BBAPPROVE_AUTHOR_EMAIL` | author the eligibility check requires (overrides `author_email`) |
+| `BBAPPROVE_UPDATE_REPO` | GitHub `owner/repo` for `--outdated` and `--update` (overrides `update_repo`; default `jesperronn/bbapprove`) |
 | `BBAPPROVE_DISALLOW` | comma-separated extra disallow items |
 | `BBAPPROVE_DISALLOW_FILE` | optional extra disallow file (default `disallow.txt` in the repo root, git-ignored) |
 | `BBAPPROVE_JOBS` | parallel PR fetches and merges (default: CPU count) |

@@ -16,6 +16,7 @@
 - [x] **CI, release and dependency updates**: GitHub Actions CI, tag-driven release and Dependabot (`.github/`).
   - [ ] Build provenance attestations (`actions/attest-build-provenance`): needs a plan that supports attestations for private repos.
   - [ ] Verify the first release run end to end (`v*` tag on GitHub) and add a Windows build only if someone needs it. (`bin/release` now drives the tag and push.)
+- [ ] verify release assets with build provenance/attestation (`gh attestation verify`) in addition to SHA256SUMS
 - [ ] **Search / filter in the TUI (1.1)**: `/` filters the list as you type (plain case-insensitive substring terms,
   AND-ed; `!term` excludes) over status, `PROJECT/repo#id`, title and skip reason. Enter keeps the filter, Esc clears it,
   footer shows `filter: <text> (shown/total)`. `ctrl+a` marks eligible visible rows; `A`/`D`/`C` act only on marked rows

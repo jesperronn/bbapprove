@@ -203,4 +203,16 @@ test_missing_go_exits_127_only_when_go_needed() {
   cleanup_test_tmp
 }
 
+test_binary_file_does_not_trigger_tr_error() {
+  setup_fixture
+  # BSD tr aborts with "Illegal byte sequence" on non-UTF-8 bytes under a UTF-8 locale.
+  printf '\317\372\355\376 binary\n' >"$PROJ/bin/blob"
+  LINT_STATUS=0
+  LINT_OUT="$(cd "$PROJ" && env LC_ALL=en_US.UTF-8 PATH="$PATH" bash bin/lint bin 2>&1)" || LINT_STATUS=$?
+  assert_status 0 "$LINT_STATUS" "a binary file in bin/ does not fail the run"
+  assert_not_contains "$LINT_OUT" "Illegal byte sequence" "no tr error on binary bytes under a UTF-8 locale"
+  assert_not_contains "$(<"$LINT_TEST_LOG")" "bin/blob" "the binary file is not handed to shellcheck"
+  cleanup_test_tmp
+}
+
 run_tests "$@"

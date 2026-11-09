@@ -1,0 +1,8 @@
+exit 1
+--- stdout ---
+--- stderr ---
+bbapprove: no config file found.
+Create $XDG/bbapprove/config.toml from the template and open it in your editor? [Y/n] Created $XDG/bbapprove/config.toml (mode 0600).
+bbapprove: the file is unchanged from the template
+Edit again? [Y/n] 
+$XDG/bbapprove/config.toml was left in place. Edit it, or run: bbapprove --init --force

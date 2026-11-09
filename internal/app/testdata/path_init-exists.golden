@@ -1,0 +1,4 @@
+exit 1
+--- stdout ---
+--- stderr ---
+bbapprove: $XDG/bbapprove/config.toml already exists; not overwriting (use --init --force to replace it).

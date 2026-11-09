@@ -1,0 +1,4 @@
+exit 2
+--- stdout ---
+--- stderr ---
+--force only applies to --init

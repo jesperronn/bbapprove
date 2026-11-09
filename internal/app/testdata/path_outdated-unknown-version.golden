@@ -1,0 +1,4 @@
+exit 2
+--- stdout ---
+--- stderr ---
+bbapprove: current version "dev" is not a release, cannot compare it with latest v1.0.0-rc.3 (build with bin/build to embed a version)

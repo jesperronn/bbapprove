@@ -1,0 +1,22 @@
+exit 0
+--- stdout ---
+bbapprove v1.0.0-rc.2 — latest v1.0.0-rc.3 (pre-release): update available
+  update with: bbapprove --update   (release: https://github.com/example/repo/releases/tag/v1.0.0-rc.3)
+
+Plan: install v1.0.0-rc.2 -> v1.0.0-rc.3 side by side (the running install is not modified)
+  release notes (https://example.com/releases/tag/v1.0.0-rc.3):
+    First note
+    Second note
+  asset:   bbapprove-v1.0.0-rc.3-linux-amd64.tar.gz (+ SHA256SUMS, verified before unpacking)
+  into:    $BASE/bbapprove-v1.0.0-rc.3-linux-amd64   (new directory next to $BASE/bbapprove-v1.0.0-rc.2-linux-amd64)
+  then:    nothing is switched automatically; the commands to switch and to roll back are printed
+Downloading bbapprove-v1.0.0-rc.3-linux-amd64.tar.gz ...
+Checksum OK. Unpacking ...
+
+Installed the new release into $BASE/bbapprove-v1.0.0-rc.3-linux-amd64
+Config: $XDG_CONFIG_HOME/bbapprove/config.toml (default ~/.config/bbapprove/config.toml) is untouched and shared by both trees.
+The old tree has its own $BASE/bbapprove-v1.0.0-rc.2-linux-amd64/bbapprove.config.toml: copy it into the new tree (cp $BASE/bbapprove-v1.0.0-rc.2-linux-amd64/bbapprove.config.toml $BASE/bbapprove-v1.0.0-rc.3-linux-amd64/) or into the XDG path above.
+To switch:    ln -sfn $BASE/bbapprove-v1.0.0-rc.3-linux-amd64/bin/bbapprove $BASE/linkbin/bbapprove
+To roll back: ln -sfn $BASE/bbapprove-v1.0.0-rc.2-linux-amd64/bin/bbapprove $BASE/linkbin/bbapprove
+The old tree is kept at $BASE/bbapprove-v1.0.0-rc.2-linux-amd64.
+--- stderr ---

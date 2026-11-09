@@ -1,0 +1,4 @@
+exit 2
+--- stdout ---
+--- stderr ---
+bbapprove: cannot check for releases: gh: not logged in; install the GitHub CLI (gh, https://cli.github.com) and run `gh auth login`, or see https://github.com/example/repo/releases

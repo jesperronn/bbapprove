@@ -1,0 +1,9 @@
+exit 1
+--- stdout ---
+--- stderr ---
+bbapprove: "repository" is not set (no config file found).
+Set it in a config file (or via BBAPPROVE_REPOSITORY): cp bbapprove.config.template bbapprove.config.toml and edit it.
+Searched: $REPO/bbapprove.config.toml, $XDG/bbapprove/config.toml
+Or create it in the default location (kept across upgrades):
+  mkdir -p $XDG/bbapprove && cp bbapprove.config.template $XDG/bbapprove/config.toml
+  (or: bbapprove --init), then edit it.

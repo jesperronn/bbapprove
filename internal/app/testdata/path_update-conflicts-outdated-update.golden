@@ -1,0 +1,4 @@
+exit 2
+--- stdout ---
+--- stderr ---
+--outdated and --update cannot be combined (--update checks first anyway)

@@ -1,0 +1,6 @@
+exit 1
+--- stdout ---
+--- stderr ---
+bbapprove: "author_email" is not set (config file $REPO/c.toml does not set it).
+Set it in a config file (or via BBAPPROVE_AUTHOR_EMAIL): cp bbapprove.config.template bbapprove.config.toml and edit it.
+Searched: $REPO/c.toml

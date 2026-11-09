@@ -1,0 +1,4 @@
+exit 2
+--- stdout ---
+--- stderr ---
+--outdated / --update cannot be combined with --apply, --init, --print-config or PR URLs

@@ -1,0 +1,14 @@
+exit 1
+--- stdout ---
+bbapprove v1.0.0-rc.2 — latest v1.0.0-rc.3 (pre-release): update available
+  update with: bbapprove --update   (release: https://github.com/example/repo/releases/tag/v1.0.0-rc.3)
+
+Plan: install v1.0.0-rc.2 -> v1.0.0-rc.3 side by side (the running install is not modified)
+  release notes (https://example.com/releases/tag/v1.0.0-rc.3):
+    First note
+    Second note
+  asset:   bbapprove-v1.0.0-rc.3-linux-amd64.tar.gz (+ SHA256SUMS, verified before unpacking)
+  into:    $BASE/bbapprove-v1.0.0-rc.3-linux-amd64   (new directory next to $BASE/bbapprove-v1.0.0-rc.2-linux-amd64)
+  then:    nothing is switched automatically; the commands to switch and to roll back are printed
+Proceed? [y/N] Aborted, nothing changed.
+--- stderr ---

@@ -1,0 +1,4 @@
+exit 2
+--- stdout ---
+--- stderr ---
+bbapprove: cannot check for releases: gh failed (offline) and git ls-remote failed (offline); see https://github.com/example/repo/releases

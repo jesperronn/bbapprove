@@ -1,0 +1,5 @@
+exit 1
+--- stdout ---
+Wrote $XDG/bbapprove/config.toml (mode 0600).
+--- stderr ---
+bbapprove: editor failed: exit status 1

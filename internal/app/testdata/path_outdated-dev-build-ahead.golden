@@ -1,0 +1,4 @@
+exit 0
+--- stdout ---
+bbapprove v1.0.0-rc.3-2-gabc1234 is a development build (base v1.0.0-rc.3, 2 commits ahead) — latest v1.0.0-rc.3 (pre-release): up to date
+--- stderr ---

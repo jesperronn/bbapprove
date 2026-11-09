@@ -1,0 +1,12 @@
+exit 2
+--- stdout ---
+
+The GitHub CLI (gh) is not installed, so bbapprove cannot download the release for you. Manually:
+  1. open https://github.com/example/repo/releases/latest and note the tag (<tag>)
+  2. download bbapprove-<tag>-linux-amd64.tar.gz and SHA256SUMS from that release page into an empty directory
+  3. verify:  shasum -a 256 -c SHA256SUMS --ignore-missing
+  4. extract: tar -xzf bbapprove-<tag>-linux-amd64.tar.gz   (creates a new directory; do not unpack over the current install $BASE/bbapprove-v1.0.0-rc.2-linux-amd64)
+  5. switch by re-pointing your bbapprove symlink to <new>/bin/bbapprove; keep the old tree for rollback
+Or install gh (https://cli.github.com), run `gh auth login` and re-run bbapprove --update.
+--- stderr ---
+bbapprove: cannot check for releases: exec: "gh": executable file not found in $PATH; install the GitHub CLI (gh, https://cli.github.com) and run `gh auth login`, or see https://github.com/example/repo/releases

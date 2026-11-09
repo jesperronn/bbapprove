@@ -1,0 +1,6 @@
+exit 0
+--- stdout ---
+Wrote $XDG/bbapprove/config.toml (mode 0600).
+Edit $XDG/bbapprove/config.toml to set repository and author_email.
+Next: bbapprove --print-config   (shows the effective settings and where each came from)
+--- stderr ---

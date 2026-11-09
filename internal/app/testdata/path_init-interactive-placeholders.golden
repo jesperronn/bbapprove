@@ -1,0 +1,6 @@
+exit 0
+--- stdout ---
+Wrote $XDG/bbapprove/config.toml (mode 0600).
+warning: the file is unchanged from the template
+Next: bbapprove --print-config   (shows the effective settings and where each came from)
+--- stderr ---

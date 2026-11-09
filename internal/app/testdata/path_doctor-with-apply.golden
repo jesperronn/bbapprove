@@ -1,0 +1,4 @@
+exit 2
+--- stdout ---
+--- stderr ---
+doctor only takes --offline, --config, --token-name and --disallow

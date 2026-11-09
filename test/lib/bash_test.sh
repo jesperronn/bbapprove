@@ -144,18 +144,29 @@ capture_command() {
   printf -v "$status_var" '%s' "$captured_status"
 }
 
+# bash_test_normalize_time T: T (an EPOCHREALTIME value) with a '.' radix. Under comma-decimal locales bash
+# prints "1731,123456", which awk reads as 1731, so every [TIME] line would be wrong.
+bash_test_normalize_time() {
+  local t="$1"
+  printf '%s.%s\n' "${t%[.,]*}" "${t#*[.,]}"
+}
+
+bash_test_now() {
+  bash_test_normalize_time "$EPOCHREALTIME"
+}
+
 run_test_function() {
   local test_name="$1"
   local start_time="" end_time="" elapsed=""
 
   test_run "$test_name"
-  start_time="$EPOCHREALTIME"
+  start_time="$(bash_test_now)"
   "$test_name"
-  end_time="$EPOCHREALTIME"
+  end_time="$(bash_test_now)"
   BASH_TEST_CASES=$((BASH_TEST_CASES + 1))
 
   if [[ "${BASH_TEST_VERBOSE}" == "1" ]]; then
-    elapsed="$(awk -v s="$start_time" -v e="$end_time" 'BEGIN { printf "%.2f", e - s }')"
+    elapsed="$(LC_ALL=C awk -v s="$start_time" -v e="$end_time" 'BEGIN { printf "%.2f", e - s }')"
     bash_test_color_print "${BASH_TEST_C_CYAN}" "[TIME] $test_name: ${elapsed}s"
   fi
 }
@@ -189,16 +200,16 @@ run_tests() {
     return 1
   fi
 
-  suite_start="$EPOCHREALTIME"
+  suite_start="$(bash_test_now)"
   for test_name in "${test_names[@]}"; do
     if ! declare -F "$test_name" >/dev/null 2>&1; then
       test_fail "missing test function" "Unknown test: [$test_name]"
     fi
     run_test_function "$test_name"
   done
-  suite_end="$EPOCHREALTIME"
+  suite_end="$(bash_test_now)"
 
-  suite_elapsed="$(awk -v s="$suite_start" -v e="$suite_end" 'BEGIN { printf "%.2f", e - s }')"
+  suite_elapsed="$(LC_ALL=C awk -v s="$suite_start" -v e="$suite_end" 'BEGIN { printf "%.2f", e - s }')"
   bash_test_color_print "${BASH_TEST_C_BOLD}${BASH_TEST_C_GREEN}" \
     "SUMMARY: ${BASH_TEST_CASES} test(s), ${BASH_TEST_ASSERTIONS} assertion(s), ${suite_elapsed}s"
 }

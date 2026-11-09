@@ -29,9 +29,11 @@ type Options struct {
 	RepoDir string   // repo root, used for default adapter and disallow file locations
 	Stdout  io.Writer
 	Stderr  io.Writer
-	IsTTY   bool   // stdout is a terminal
-	Width   int    // terminal width; only used when IsTTY
-	Version string // build version shown in the help text
+	IsTTY   bool // stdout is a terminal
+	// StderrTTY says stderr is a terminal. Colour is decided per stream: stdout by IsTTY, stderr by StderrTTY.
+	StderrTTY bool
+	Width     int    // terminal width; only used when IsTTY
+	Version   string // build version shown in the help text
 	// IgnorePath overrides the per-user ignore file (default: ignore.DefaultPath(), honouring
 	// XDG_CONFIG_HOME from Environ first). Mainly for tests.
 	IgnorePath string
@@ -169,13 +171,13 @@ func Run(ctx context.Context, o Options) int {
 		switch {
 		case a == "-h" || a == "--help":
 			if doDoctor {
-				io.WriteString(o.Stdout, doctorUsageFor(style.New(color(o))))
+				io.WriteString(o.Stdout, doctorUsageFor(o.outTheme()))
 				return 0
 			}
-			io.WriteString(o.Stdout, usageFor(style.New(color(o)), o.Version))
+			io.WriteString(o.Stdout, usageFor(o.outTheme(), o.Version))
 			return 0
 		case a == "help" && len(targets) == 0 && !doDoctor:
-			th := style.New(color(o))
+			th := o.outTheme()
 			if i+1 >= len(args) {
 				io.WriteString(o.Stdout, topicListFor(th, o.Version))
 				return 0
@@ -293,7 +295,7 @@ func Run(ctx context.Context, o Options) int {
 		fmt.Fprintf(o.Stderr, "bbapprove: warning: %s\n", w)
 	}
 	if printCfg {
-		io.WriteString(o.Stdout, cfg.DescribeThemed(style.New(color(o))))
+		io.WriteString(o.Stdout, cfg.DescribeThemed(o.outTheme()))
 		return 0
 	}
 	if err := cfg.Missing(); err != nil {
@@ -402,6 +404,11 @@ func Run(ctx context.Context, o Options) int {
 func color(o Options) bool {
 	return style.Enabled(o.env, o.IsTTY)
 }
+
+// outTheme paints text for stdout, errTheme text for stderr. Each applies the shared colour rule
+// (style.Enabled) to its own stream, so redirecting one stream never colours or strips the other.
+func (o Options) outTheme() style.Theme { return style.New(style.Enabled(o.env, o.IsTTY)) }
+func (o Options) errTheme() style.Theme { return style.New(style.Enabled(o.env, o.StderrTTY)) }
 
 // act approves then merges one PR and returns the single result line (not width-truncated, so errors stay readable).
 func act(ctx context.Context, c *adapter.Client, st Style, pr adapter.PR) string {

@@ -1,19 +1,12 @@
-bbapprove v1.0.0  (linux/amd64, go1.test)
-     install:      release archive
-     root:         $ROOT
-     binary:       $ROOT/bin/bbapprove-go
-     on PATH:      bbapprove not found on PATH (run it by full path, or run bin/build --install)
-
-update:
-warn could not check: cannot check for releases: i/o timeout; install the GitHub CLI (gh, https://cli.github.com) and run `gh auth login`, or see https://github.com/jesperronn/bbapprove/releases
-
-config:
-     lookup order (an explicit file wins, else the first one found):
-        1. --config flag     (not set)
-        2. BBAPPROVE_CONFIG  (not set)
-        3. repo root         $ROOT/bbapprove.config.toml  [not found]
-        4. XDG config        $XDG/bbapprove/config.toml  [not found]
-FAIL in use:       none
+bbapprove v1.0.0 (linux/amd64, go1.test) · release archive
+     root     $ROOT
+     binary   $ROOT/bin/bbapprove-go (not on PATH: run it by full path, or run bin/build --install)
+warn update   could not check: cannot check for releases: i/o timeout; install the GitHub CLI (gh, https://cli.github.com) and run `gh auth login`, or see https://github.com/jesperronn/bbapprove/releases
+FAIL config   no config file found — run: bbapprove --init   (or: cp bbapprove.config.template bbapprove.config.toml in $ROOT and edit it)
+        1. --config flag     not set
+        2. BBAPPROVE_CONFIG  not set
+        3. repo root         not found  $ROOT/bbapprove.config.toml
+        4. XDG config        not found  $XDG/bbapprove/config.toml
      effective settings (source: flag, env, file or default):
         type:                  bitbucket  [default]
         adapter:               $ROOT/adapters/bitbucket  [default]
@@ -22,46 +15,13 @@ FAIL in use:       none
         author_email:          (not set)  [unset]
         update_repo:           jesperronn/bbapprove  [default]
         delete_source_branch:  true  [default]
-        disallow_file:         $ROOT/disallow.txt  [default]
-        disallow:              
-
-adapter:
-     type:         bitbucket
-     path:         $ROOT/adapters/bitbucket  [default]
-FAIL state:        does not exist
-
-token (never printed; BBAPPROVE_TOKEN wins over a 1Password item):
-FAIL no token: BBAPPROVE_TOKEN is not set and no 1Password item name is configured
-
-ignore list:
-     path:         $XDG/bbapprove/ignore
-ok   state:        readable
-     mode:         0600
-     entries:      1
-       x
+        disallow_file:         $ROOT/disallow.txt  [default, not found]
+        disallow:              (none)
+FAIL bitbucket adapter $ROOT/adapters/bitbucket does not exist — check type / BBAPPROVE_ADAPTER, or reinstall (bin/build --install)
+FAIL token    no token: BBAPPROVE_TOKEN is not set and no 1Password item name is configured — export BBAPPROVE_TOKEN=<token>, or set BBAPPROVE_TOKEN_NAME / --token-name / user_token_name to a 1Password item
+ok   ignore   $XDG/bbapprove/ignore, 1 entry, 0600
      rows matching these entries are shown as IGNORED and never acted on; edit the file or press i on an ignored row in the TUI to remove an entry
+     env      NO_COLOR=1, XDG_CONFIG_HOME=$XDG
+     tools    git /usr/bin/git · gh /usr/bin/gh (logged in) · op /usr/bin/op
 
-disallow (matching PRs are SKIPped):
-     config file:  (none)
-     BBAPPROVE_DISALLOW: (none)
-     file:         $ROOT/disallow.txt  [default, not found]
-     --disallow:   adds more entries per run (flag only)
-
-environment:
-     no BBAPPROVE_* variables set
-     NO_COLOR=1
-     FORCE_COLOR not set
-     XDG_CONFIG_HOME=$XDG
-     EDITOR not set
-     VISUAL not set
-
-tools:
-     git:          /usr/bin/git
-     gh:           /usr/bin/gh
-     gh auth:      logged in
-     op:           /usr/bin/op
-
-FAIL no config file found (searched $ROOT/bbapprove.config.toml, $XDG/bbapprove/config.toml) and repository/author_email are not both set — run: bbapprove --init   (or: cp bbapprove.config.template bbapprove.config.toml in $ROOT and edit it)
-FAIL adapter $ROOT/adapters/bitbucket does not exist — check type / BBAPPROVE_ADAPTER, or reinstall (bin/build --install)
-FAIL no API token source — export BBAPPROVE_TOKEN=<token>, or set BBAPPROVE_TOKEN_NAME / --token-name / user_token_name to a 1Password item
 3 problem(s) found

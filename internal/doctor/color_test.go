@@ -46,10 +46,9 @@ func TestColourClassesInDoctor(t *testing.T) {
 	r.run.releases = `[{"tagName":"v1.2.0","isPrerelease":false,"isDraft":false}]`
 	out := r.doctorTTY(true, nil, "BBAPPROVE_UPDATE_REPO=example/repo")
 	for name, want := range map[string]string{
-		"title version":    "bbapprove \x1b[1mv1.0.0\x1b[0m  \x1b[2m(linux/amd64, go1.test)\x1b[0m",
-		"dim label":        "\x1b[2minstall:\x1b[0m",
+		"title version":    "bbapprove \x1b[1mv1.0.0\x1b[0m \x1b[2m(linux/amd64, go1.test)\x1b[0m",
+		"dim label":        "\x1b[2mroot\x1b[0m",
 		"path":             "\x1b[36m$ROOT\x1b[0m",
-		"heading":          "\x1b[1;36mconfig:\x1b[0m",
 		"ok marker":        "\x1b[32m✓\x1b[0m    ",
 		"warn marker":      "\x1b[33m!\x1b[0m    ",
 		"update available": "\x1b[33mupdate available: v1.2.0\x1b[0m (run: bbapprove \x1b[32m--update\x1b[0m)",
@@ -57,10 +56,10 @@ func TestColourClassesInDoctor(t *testing.T) {
 		"source default":   "\x1b[2m[default]\x1b[0m",
 		"source env":       "\x1b[33m[env]\x1b[0m",
 		"env name":         "\x1b[33mBBAPPROVE_JOBS\x1b[0m=3",
-		"env not set":      "\x1b[33mVISUAL\x1b[0m \x1b[2mnot set\x1b[0m",
-		"flag":             "\x1b[32m--disallow:\x1b[0m",
-		"list indent":      "\x1b[2m  \x1b[0mleft-pad",
-		"found, used":      "\x1b[32m[found, used]\x1b[0m",
+		"env value":        "\x1b[33mEDITOR\x1b[0m=vi",
+		"disallow sources": "foo, bar, left-pad  \x1b[2m[\x1b[0m\x1b[33menv\x1b[0m\x1b[2m, \x1b[0m\x1b[32mfile\x1b[0m\x1b[2m]\x1b[0m",
+		"lookup used":      "\x1b[32mused\x1b[0m",
+		"tool path":        "git \x1b[36m/usr/bin/git\x1b[0m",
 		"final":            "\x1b[1;32mall good\x1b[0m",
 	} {
 		if !strings.Contains(out, want) {
@@ -71,7 +70,7 @@ func TestColourClassesInDoctor(t *testing.T) {
 
 func TestColourUpToDateAndFailures(t *testing.T) {
 	r := goldenRig(t)
-	if out := r.doctorTTY(true, nil); !strings.Contains(out, "\x1b[32mup to date\x1b[0m (latest release: \x1b[1mv1.0.0\x1b[0m)") {
+	if out := r.doctorTTY(true, nil); !strings.Contains(out, "\x1b[32mup to date\x1b[0m (\x1b[1mv1.0.0\x1b[0m)") {
 		t.Errorf("up to date not green:\n%s", out)
 	}
 	r = newRig(t)
@@ -82,7 +81,7 @@ func TestColourUpToDateAndFailures(t *testing.T) {
 	for name, want := range map[string]string{
 		"could not check": "\x1b[31mcould not check:\x1b[0m",
 		"fail marker":     "\x1b[1;31m✗\x1b[0m    ",
-		"fail word":       "\x1b[1;31mFAIL\x1b[0m no config file found",
+		"fail word":       "\x1b[2mconfig\x1b[0m   no config file found",
 		"token":           "no token: \x1b[33mBBAPPROVE_TOKEN\x1b[0m is not set",
 		"unset source":    "\x1b[2m[unset]\x1b[0m",
 		"problem count":   "\x1b[1;31m3 problem(s) found\x1b[0m",

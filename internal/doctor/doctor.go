@@ -12,19 +12,14 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
 	"bbapprove/internal/config"
-	"bbapprove/internal/ignore"
 	"bbapprove/internal/rules"
 	"bbapprove/internal/style"
 	"bbapprove/internal/update"
 )
-
-// maxListed caps how many ignore / disallow entries are printed.
-const maxListed = 50
 
 // ghAuthTimeout bounds `gh auth status`.
 const ghAuthTimeout = 5 * time.Second
@@ -75,7 +70,7 @@ type report struct {
 	w        io.Writer
 	color    bool
 	t        style.Theme
-	problems []string
+	problems int // how many FAIL lines were printed
 }
 
 // p paints text with a style class (identity without colour).
@@ -105,10 +100,6 @@ func (r *report) mark(kind string) string {
 	return "     "
 }
 
-func (r *report) head(s string) {
-	fmt.Fprintf(r.w, "\n%s\n", r.p(style.Heading, s))
-}
-
 // line prints an indented line with a status gutter.
 func (r *report) line(kind, format string, a ...any) {
 	fmt.Fprintf(r.w, "%s%s\n", r.mark(kind), fmt.Sprintf(format, a...))
@@ -129,12 +120,6 @@ func labelClass(label string) string {
 	}
 	return style.Dim
 }
-
-func (r *report) kv(kind, label, format string, a ...any) {
-	r.line(kind, "%s %s", r.pad(labelClass(label), label+":", 13), fmt.Sprintf(format, a...))
-}
-
-func (r *report) fail(what, fix string) { r.problems = append(r.problems, what+" — "+fix) }
 
 // Run prints the report and returns the exit code: 0 when nothing FAILed (warnings are fine), 1 otherwise.
 func Run(ctx context.Context, o Options) int {
@@ -159,100 +144,15 @@ func Run(ctx context.Context, o Options) int {
 	if cfgErr != nil {
 		cfg = nil
 	}
-	if o.Verbose {
-		r.sectionVersion()
-		r.sectionUpdate(ctx, cfg)
-		r.sectionConfigFiles(cfg, cfgErr)
-		r.sectionSettings(cfg, cfgErr)
-		r.sectionAdapter(cfg)
-		r.sectionToken(cfg)
-		r.sectionIgnore()
-		r.sectionDisallow(cfg)
-		r.sectionEnvironment()
-		r.sectionTools(ctx)
-	} else {
-		r.compact(ctx, cfg, cfgErr)
-	}
+	r.body(ctx, cfg, cfgErr)
 
 	fmt.Fprintln(r.w)
-	for _, p := range r.problems {
-		fmt.Fprintf(r.w, "%s %s\n", r.p(style.Bad, "FAIL"), p)
-	}
-	if len(r.problems) == 0 {
+	if r.problems == 0 {
 		fmt.Fprintln(r.w, r.p(style.Good, "all good"))
 		return 0
 	}
-	fmt.Fprintln(r.w, r.p(style.Bad, fmt.Sprintf("%d problem(s) found", len(r.problems))))
+	fmt.Fprintln(r.w, r.p(style.Bad, fmt.Sprintf("%d problem(s) found", r.problems)))
 	return 1
-}
-
-func (r *report) sectionVersion() {
-	o := r.o
-	v := o.Version
-	if v == "" {
-		v = "dev"
-	}
-	fmt.Fprintf(r.w, "bbapprove %s  %s\n", r.p(style.Version, v), r.p(style.Dim, fmt.Sprintf("(%s/%s, %s)", o.GOOS, o.GOARCH, o.GoVersion)))
-	install := "release archive"
-	if update.DetectInstall(o.InstallRoot) == update.Checkout {
-		install = "git checkout"
-	}
-	r.kv("", "install", "%s", install)
-	r.kv("", "root", "%s", r.p(style.Path, o.InstallRoot))
-	if o.Executable == nil {
-		return
-	}
-	exe, err := o.Executable()
-	if err != nil {
-		r.kv("warn", "binary", "unknown (%v)", err)
-		return
-	}
-	if res, err := o.EvalLinks(exe); err == nil {
-		exe = res
-	}
-	r.kv("", "binary", "%s", r.p(style.Path, exe))
-	onPath, err := o.LookPath("bbapprove")
-	if err != nil {
-		r.kv("", "on PATH", "bbapprove not found on PATH (run it by full path, or run bin/build --install)")
-		return
-	}
-	resolved := onPath
-	if res, err := o.EvalLinks(onPath); err == nil {
-		resolved = res
-	}
-	if resolved == exe || filepath.Dir(resolved) == filepath.Dir(exe) {
-		r.kv("", "on PATH", "%s", r.p(style.Path, onPath))
-		return
-	}
-	r.kv("warn", "on PATH", "%s", r.p(style.Path, onPath))
-	r.line("warn", "PATH shadowing: `bbapprove` on your PATH is %s, not this binary (%s)", r.p(style.Path, onPath), r.p(style.Path, exe))
-}
-
-func (r *report) sectionUpdate(ctx context.Context, cfg *config.Config) {
-	r.head("update:")
-	if r.o.Offline {
-		r.line("", "%s", r.p(style.Dim, "skipped (")+r.p(style.Flag, "--offline")+r.p(style.Dim, ")"))
-		return
-	}
-	slug := r.o.env("BBAPPROVE_UPDATE_REPO")
-	if slug == "" {
-		slug = config.DefaultUpdateRepo
-		if cfg != nil {
-			slug = cfg.UpdateRepo.Value
-		}
-	}
-	res, err := update.Check(ctx, update.Options{
-		Runner: r.o.Runner, InstallRoot: r.o.InstallRoot, Version: r.o.Version, Slug: slug,
-		PathEnv: r.o.env("PATH"), GOOS: r.o.GOOS, GOARCH: r.o.GOARCH,
-	})
-	switch {
-	case err != nil:
-		r.line("warn", "%s %v", r.p(style.Err, "could not check:"), err)
-	case res.Outdated:
-		r.line("warn", "%s (run: bbapprove %s)", r.p(style.Warn, "update available: "+res.Latest.Tag), r.p(style.Flag, "--update"))
-	default:
-		r.line("ok", "%s (latest release: %s)", r.p(style.OK, "up to date"), r.p(style.Version, res.Latest.Tag))
-	}
 }
 
 // candidate is one place a config file may live.
@@ -297,199 +197,6 @@ func (r *report) lookup() (cands []candidate, winner int, exists func(string) bo
 	return cands, winner, exists
 }
 
-// printLookup prints the lookup order with the state of every candidate.
-func (r *report) printLookup(cands []candidate, winner int, exists func(string) bool) {
-	fmt.Fprintf(r.w, "     %s\n", r.p(style.Dim, "lookup order (an explicit file wins, else the first one found):"))
-	for i, c := range cands {
-		if c.path == "" {
-			if i < 2 {
-				fmt.Fprintf(r.w, "        %d. %s %s\n", i+1, r.pad(labelClass(c.label), c.label, 17), r.p(style.Dim, "(not set)"))
-			} else {
-				fmt.Fprintf(r.w, "        %d. %s %s\n", i+1, r.pad(labelClass(c.label), c.label, 17), r.p(style.Dim, "(no home directory)"))
-			}
-			continue
-		}
-		state, stateClass := "not found", style.Dim
-		switch {
-		case exists(c.path) && i == winner:
-			state, stateClass = "found, used", style.OK
-		case exists(c.path) && winner >= 0:
-			state = "found, shadowed by " + cands[winner].path
-		case exists(c.path):
-			state = "found"
-		case i == winner:
-			state = "NOT FOUND, but selected explicitly"
-		}
-		fmt.Fprintf(r.w, "        %d. %s %s  %s\n", i+1, r.pad(labelClass(c.label), c.label, 17), r.p(style.Path, c.path), r.p(stateClass, "["+state+"]"))
-	}
-}
-
-func (r *report) sectionConfigFiles(cfg *config.Config, err error) {
-	r.head("config:")
-	cands, winner, exists := r.lookup()
-	r.printLookup(cands, winner, exists)
-
-	if err != nil {
-		r.kv("fail", "in use", "%v", err)
-		r.fail("config: "+err.Error(), "fix the file, or create a fresh one with: bbapprove --init --force")
-		return
-	}
-	if cfg.File == "" {
-		r.kv("fail", "in use", "none")
-		return
-	}
-	via := [...]string{"--config flag", "BBAPPROVE_CONFIG", "repo root", "XDG config"}[winner]
-	r.kv("ok", "in use", "%s %s", r.p(style.Path, cfg.File), r.p(style.Dim, "(via "+via+")"))
-	if st, err := os.Stat(cfg.File); err == nil {
-		mode := st.Mode().Perm()
-		if mode&0o077 != 0 {
-			r.kv("warn", "file mode", "%04o: readable by group/other (default is 0600; the file holds no secrets, so this is only a note)", mode)
-		} else {
-			r.kv("", "file mode", "%04o", mode)
-		}
-	}
-	r.kv("ok", "parse", "valid TOML")
-	for _, w := range cfg.Warnings {
-		r.line("warn", "%s", w)
-	}
-	for _, p := range config.Placeholders(cfg.File) {
-		r.fail("config "+cfg.File+": "+p, "edit the file and set your own values")
-	}
-}
-
-func (r *report) sectionSettings(cfg *config.Config, cfgErr error) {
-	if cfg == nil {
-		r.line("", "effective settings: unavailable (config error above)")
-		return
-	}
-	fmt.Fprintf(r.w, "     %s\n", r.p(style.Dim, "effective settings (source: flag, env, file or default):"))
-	for _, l := range strings.Split(strings.TrimRight(cfg.SettingsThemed(r.t), "\n"), "\n") {
-		fmt.Fprintf(r.w, "        %s\n", l)
-	}
-	r.checkSettings(cfg)
-}
-
-// checkSettings records the problems with the settings: no usable config file, repository or author_email unset.
-func (r *report) checkSettings(cfg *config.Config) {
-	if cfg.File == "" {
-		if cfg.Repository.Value == "" || cfg.AuthorEmail.Value == "" {
-			r.fail("no config file found (searched "+strings.Join(cfg.Searched, ", ")+") and repository/author_email are not both set",
-				"run: bbapprove --init   (or: cp "+config.TemplateName+" "+config.ConfigName+" in "+r.o.InstallRoot+" and edit it)")
-		} else {
-			r.line("warn", "no config file: all settings come from the environment")
-		}
-		return
-	}
-	if cfg.Repository.Value == "" {
-		r.fail("repository is not set", "set repository in "+cfg.File+" or BBAPPROVE_REPOSITORY")
-	}
-	if cfg.AuthorEmail.Value == "" {
-		r.fail("author_email is not set", "set author_email in "+cfg.File+" or BBAPPROVE_AUTHOR_EMAIL")
-	}
-}
-
-func (r *report) sectionAdapter(cfg *config.Config) {
-	r.head("adapter:")
-	if cfg == nil {
-		r.line("", "unavailable (config error above)")
-		return
-	}
-	r.kv("", "type", "%s", cfg.Type.Value)
-	path := cfg.Adapter.Value
-	if !strings.Contains(path, "/") {
-		if p, err := r.o.LookPath(path); err == nil {
-			path = p
-		}
-	}
-	r.kv("", "path", "%s  %s", r.p(style.Path, path), r.t.Source(cfg.Adapter.Source))
-	st, err := os.Stat(path)
-	switch {
-	case err != nil:
-		r.kv("fail", "state", "does not exist")
-		r.fail("adapter "+path+" does not exist", "check type / BBAPPROVE_ADAPTER, or reinstall (bin/build --install)")
-	case st.IsDir() || st.Mode().Perm()&0o111 == 0:
-		r.kv("fail", "state", "exists but is not executable")
-		r.fail("adapter "+path+" is not executable", "chmod +x "+path)
-	default:
-		r.kv("ok", "state", "exists, executable")
-	}
-}
-
-func (r *report) sectionToken(cfg *config.Config) {
-	r.head("token (never printed; BBAPPROVE_TOKEN wins over a 1Password item):")
-	name, src := "", ""
-	if cfg != nil {
-		name, src = cfg.TokenName.Value, cfg.TokenName.Source
-	}
-	if r.o.env("BBAPPROVE_TOKEN") != "" {
-		r.line("ok", "%s set", r.p(style.Env, "BBAPPROVE_TOKEN"))
-		if name != "" {
-			r.line("", "1Password item %q [%s] is ignored while BBAPPROVE_TOKEN is set", name, src)
-		}
-		return
-	}
-	if name == "" {
-		r.line("fail", "no token: %s is not set and no 1Password item name is configured", r.p(style.Env, "BBAPPROVE_TOKEN"))
-		r.fail("no API token source", "export BBAPPROVE_TOKEN=<token>, or set BBAPPROVE_TOKEN_NAME / --token-name / user_token_name to a 1Password item")
-		return
-	}
-	r.line("ok", "from 1Password item %q [%s] (not looked up by doctor)", name, src)
-	if _, err := r.o.LookPath("op"); err != nil {
-		r.line("warn", "op (1Password CLI) NOT found on PATH; the item cannot be looked up")
-	}
-}
-
-func (r *report) sectionIgnore() {
-	r.head("ignore list:")
-	path := r.o.IgnorePath
-	if path == "" {
-		r.line("fail", "no home directory: cannot locate the ignore list")
-		r.fail("ignore list location unknown", "set XDG_CONFIG_HOME or HOME")
-		return
-	}
-	r.kv("", "path", "%s", r.p(style.Path, path))
-	st, err := os.Stat(path)
-	if err != nil && os.IsNotExist(err) {
-		r.kv("ok", "state", "does not exist: no dependency is ignored (default location; created by pressing i on a row in the TUI)")
-		return
-	}
-	entries, lerr := ignore.Load(path)
-	if lerr != nil || err != nil {
-		if lerr == nil {
-			lerr = err
-		}
-		r.kv("fail", "state", "exists but is unreadable: %v", lerr)
-		r.fail("ignore list "+path+" is unreadable (bbapprove fails closed and refuses to run)", "chmod 600 "+path)
-		return
-	}
-	r.kv("ok", "state", "readable")
-	r.kv("", "mode", "%04o", st.Mode().Perm())
-	r.kv("", "entries", "%d", len(entries))
-	for i, e := range entries {
-		if i == maxListed {
-			r.line("", "%s... and %d more", r.p(style.Dim, "  "), len(entries)-maxListed)
-			break
-		}
-		r.line("", "%s%s", r.p(style.Dim, "  "), e)
-	}
-	r.line("", "rows matching these entries are shown as IGNORED and never acted on; edit the file or press i on an ignored row in the TUI to remove an entry")
-}
-
-func (r *report) listEntries(label string, items []string) {
-	if len(items) == 0 {
-		r.kv("", label, "%s", r.p(style.Dim, "(none)"))
-		return
-	}
-	r.kv("", label, "%d", len(items))
-	for i, e := range items {
-		if i == maxListed {
-			r.line("", "%s... and %d more", r.p(style.Dim, "  "), len(items)-maxListed)
-			break
-		}
-		r.line("", "%s%s", r.p(style.Dim, "  "), e)
-	}
-}
-
 func normalizeAll(parts []string) []string {
 	var out []string
 	for _, p := range parts {
@@ -498,83 +205,4 @@ func normalizeAll(parts []string) []string {
 		}
 	}
 	return out
-}
-
-func (r *report) sectionDisallow(cfg *config.Config) {
-	r.head("disallow (matching PRs are SKIPped):")
-	if cfg == nil {
-		r.line("", "unavailable (config error above)")
-	} else {
-		r.listEntries("config file", cfg.FileDisallow)
-	}
-	r.listEntries("BBAPPROVE_DISALLOW", normalizeAll(strings.Split(r.o.env("BBAPPROVE_DISALLOW"), ",")))
-	if cfg != nil {
-		df := cfg.DisallowFile.Value
-		state := "not found"
-		if st, err := os.Stat(df); err == nil && !st.IsDir() {
-			state = "found"
-		}
-		r.kv("", "file", "%s  %s", r.p(style.Path, df), r.p(style.Dim, "["+cfg.DisallowFile.Source+", "+state+"]"))
-		if state == "found" {
-			r.listEntries("file entries", rules.LoadDisallow(df, ""))
-		}
-	}
-	r.kv("", "--disallow", "%s", r.p(style.Dim, "adds more entries per run (flag only)"))
-}
-
-func (r *report) sectionEnvironment() {
-	r.head("environment:")
-	var names []string
-	seen := map[string]bool{}
-	for _, kv := range r.o.Environ {
-		k, _, _ := strings.Cut(kv, "=")
-		if strings.HasPrefix(k, "BBAPPROVE_") && !seen[k] {
-			seen[k] = true
-			names = append(names, k)
-		}
-	}
-	sort.Strings(names)
-	if len(names) == 0 {
-		r.line("", "no %s variables set", r.p(style.Env, "BBAPPROVE_*"))
-	}
-	for _, k := range names {
-		if k == "BBAPPROVE_TOKEN" {
-			r.line("", "%s=%s", r.p(style.Env, k), r.p(style.Dim, "set (value hidden)"))
-		} else {
-			r.line("", "%s=%s", r.p(style.Env, k), r.o.env(k))
-		}
-	}
-	for _, k := range []string{"NO_COLOR", "FORCE_COLOR", "XDG_CONFIG_HOME", "EDITOR", "VISUAL"} {
-		if v := r.o.env(k); v != "" {
-			r.line("", "%s=%s", r.p(style.Env, k), v)
-		} else {
-			r.line("", "%s %s", r.p(style.Env, k), r.p(style.Dim, "not set"))
-		}
-	}
-}
-
-func (r *report) sectionTools(ctx context.Context) {
-	r.head("tools:")
-	for _, t := range []string{"git", "gh", "op"} {
-		p, err := r.o.LookPath(t)
-		if err != nil {
-			note := ""
-			if t == "gh" {
-				note = " (needed for --outdated / --update)"
-			}
-			r.kv("", t, "%s", r.p(style.Dim, "not found on PATH"+note))
-			continue
-		}
-		r.kv("", t, "%s", r.p(style.Path, p))
-		if t == "gh" {
-			cctx, cancel := context.WithTimeout(ctx, ghAuthTimeout)
-			_, err := r.o.Runner.Run(cctx, update.Cmd{Name: "gh", Args: []string{"auth", "status"}})
-			cancel()
-			if err != nil {
-				r.kv("", "gh auth", "not logged in")
-			} else {
-				r.kv("", "gh auth", "logged in")
-			}
-		}
-	}
 }

@@ -6,7 +6,7 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
-- `bbapprove doctor` prints one line per area and always shows problems; `bbapprove doctor -v` prints the full report as before.
+- `bbapprove doctor` prints one line per area; every problem carries its fix on its own line and the last line only counts them. `bbapprove doctor -v` adds the lookup order, file mode, tool paths and environment, without printing any fact twice.
 - Maintainers: `bin/test --timings` prints the slowest shell suites, Go packages and Go tests and the total run time.
 
 ### Internal

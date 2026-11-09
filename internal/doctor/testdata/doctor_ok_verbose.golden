@@ -1,21 +1,12 @@
-bbapprove v1.0.0  (linux/amd64, go1.test)
-     install:      release archive
-     root:         $ROOT
-     binary:       $ROOT/bin/bbapprove-go
-     on PATH:      bbapprove not found on PATH (run it by full path, or run bin/build --install)
-
-update:
-     skipped (--offline)
-
-config:
-     lookup order (an explicit file wins, else the first one found):
-        1. --config flag     (not set)
-        2. BBAPPROVE_CONFIG  (not set)
-        3. repo root         $ROOT/bbapprove.config.toml  [not found]
-        4. XDG config        $XDG/bbapprove/config.toml  [found, used]
-ok   in use:       $XDG/bbapprove/config.toml (via XDG config)
-     file mode:    0600
-ok   parse:        valid TOML
+bbapprove v1.0.0 (linux/amd64, go1.test) · release archive
+     root     $ROOT
+     binary   $ROOT/bin/bbapprove-go (not on PATH: run it by full path, or run bin/build --install)
+     update   skipped (--offline)
+ok   config   $XDG/bbapprove/config.toml (XDG config), valid TOML, mode 0600
+        1. --config flag     not set
+        2. BBAPPROVE_CONFIG  not set
+        3. repo root         not found  $ROOT/bbapprove.config.toml
+        4. XDG config        used
      effective settings (source: flag, env, file or default):
         type:                  bitbucket  [default]
         adapter:               $ROOT/adapters/bitbucket  [default]
@@ -24,49 +15,12 @@ ok   parse:        valid TOML
         author_email:          bot@corp.test  [file]
         update_repo:           jesperronn/bbapprove  [default]
         delete_source_branch:  true  [default]
-        disallow_file:         $ROOT/disallow.txt  [default]
-        disallow:              foo, bar, left-pad
-
-adapter:
-     type:         bitbucket
-     path:         $ROOT/adapters/bitbucket  [default]
-ok   state:        exists, executable
-
-token (never printed; BBAPPROVE_TOKEN wins over a 1Password item):
-ok   BBAPPROVE_TOKEN set
-
-ignore list:
-     path:         $XDG/bbapprove/ignore
-ok   state:        readable
-     mode:         0600
-     entries:      2
-       left-pad
-       lodash
+        disallow_file:         $ROOT/disallow.txt  [default, not found]
+        disallow:              foo, bar, left-pad  [env, file]
+ok   token    BBAPPROVE_TOKEN set
+ok   ignore   $XDG/bbapprove/ignore, 2 entries, 0600
      rows matching these entries are shown as IGNORED and never acted on; edit the file or press i on an ignored row in the TUI to remove an entry
-
-disallow (matching PRs are SKIPped):
-     config file:  1
-       left-pad
-     BBAPPROVE_DISALLOW: 2
-       foo
-       bar
-     file:         $ROOT/disallow.txt  [default, not found]
-     --disallow:   adds more entries per run (flag only)
-
-environment:
-     BBAPPROVE_DISALLOW=Foo,bar
-     BBAPPROVE_JOBS=3
-     BBAPPROVE_TOKEN=set (value hidden)
-     NO_COLOR=1
-     FORCE_COLOR not set
-     XDG_CONFIG_HOME=$XDG
-     EDITOR=vi
-     VISUAL not set
-
-tools:
-     git:          /usr/bin/git
-     gh:           /usr/bin/gh
-     gh auth:      logged in
-     op:           /usr/bin/op
+     env      BBAPPROVE_JOBS=3, NO_COLOR=1, XDG_CONFIG_HOME=$XDG, EDITOR=vi
+     tools    git /usr/bin/git · gh /usr/bin/gh (logged in) · op /usr/bin/op
 
 all good

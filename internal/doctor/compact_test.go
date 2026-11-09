@@ -37,8 +37,8 @@ func TestCompactIsShorterThanVerbose(t *testing.T) {
 	r := goldenRig(t)
 	_, short := r.doctor(func(o *Options) { o.Offline = true })
 	_, full := r.doctorV(func(o *Options) { o.Offline = true })
-	if lines(short) >= 25 || lines(short)*2 > lines(full) {
-		t.Errorf("default report has %d lines, -v has %d; the default must be dense", lines(short), lines(full))
+	if lines(short) >= 25 || lines(full) <= lines(short) || lines(full) > 28 {
+		t.Errorf("default report has %d lines, -v has %d; both must be dense and -v must add something", lines(short), lines(full))
 	}
 }
 
@@ -60,7 +60,7 @@ func TestCompactHeaderAndRoot(t *testing.T) {
 		}
 	})
 	mustContain(t, out, "/opt/tools/bbapprove (root "+r.root+") (on PATH: /opt/tools/bbapprove)")
-	mustNotContain(t, out, "shadowing")
+	mustNotContain(t, out, "shadowed")
 }
 
 func TestCompactOneLinePerArea(t *testing.T) {
@@ -154,8 +154,8 @@ func TestCompactShowsEveryProblem(t *testing.T) {
 		if code != 1 {
 			t.Fatalf("code %d", code)
 		}
-		mustContain(t, out, "FAIL config   no config file found", "lookup order", "1. --config flag", "4. XDG config",
-			"[not found]", "FAIL no config file found (searched", "bbapprove --init")
+		mustContain(t, out, "FAIL config   no config file found — run: bbapprove --init", "1. --config flag     not set", "4. XDG config        not found  "+r.xdg)
+		mustNotContain(t, out, "lookup order", "searched")
 	})
 	t.Run("explicit file missing shows the lookup order", func(t *testing.T) {
 		r := newRig(t)
@@ -164,7 +164,7 @@ func TestCompactShowsEveryProblem(t *testing.T) {
 		if code != 1 {
 			t.Fatalf("code %d", code)
 		}
-		mustContain(t, out, "lookup order", "/nonexistent/x.toml  [NOT FOUND, but selected explicitly]")
+		mustContain(t, out, "FAIL config   ", "2. BBAPPROVE_CONFIG  not found  /nonexistent/x.toml")
 	})
 	t.Run("no token", func(t *testing.T) {
 		r := newRig(t)
@@ -197,7 +197,7 @@ func TestCompactShowsEveryProblem(t *testing.T) {
 			t.Fatalf("warnings are not failures, code %d", code)
 		}
 		mustContain(t, out, "warn update   update available: v1.0.0 (run: bbapprove --update)",
-			"warn PATH shadowing: `bbapprove` on your PATH is /opt/other/bbapprove",
+			"warn PATH     shadowed: /opt/other/bbapprove is not this binary",
 			"warn          op (1Password CLI) NOT found on PATH", "op not found")
 	})
 	t.Run("placeholder values", func(t *testing.T) {
@@ -208,7 +208,7 @@ func TestCompactShowsEveryProblem(t *testing.T) {
 		if code != 1 {
 			t.Fatalf("code %d", code)
 		}
-		mustContain(t, out, "FAIL config "+p+": the file is unchanged from the template")
+		mustContain(t, out, "FAIL config   "+p+" (XDG config), valid TOML, the file is unchanged from the template — edit the file")
 	})
 }
 
@@ -217,16 +217,17 @@ func TestCompactFileModeNoteOnlyWithVerbose(t *testing.T) {
 	p := r.writeXDG(validCfg)
 	os.Chmod(p, 0o644)
 	_, out := r.doctor(nil)
-	mustNotContain(t, out, "0644", "readable by group/other")
+	mustNotContain(t, out, "0644", "default 0600")
 	_, out = r.doctorV(nil)
-	mustContain(t, out, "0644: readable by group/other")
+	mustContain(t, out, "valid TOML, mode 0644 (default 0600; no secrets, a note only)\n")
 }
 
 func TestVerboseIsTheFullReport(t *testing.T) {
 	r := goldenRig(t)
 	_, out := r.doctorV(func(o *Options) { o.Offline = true })
-	mustContain(t, out, "lookup order", "file mode:", "rows matching these entries", "tools:", "VISUAL not set", "adapter:\n",
-		"on PATH:      bbapprove not found")
+	mustContain(t, out, "     root     "+r.root+"\n", "1. --config flag     not set", ", mode 0600", "rows matching these entries",
+		"     env      BBAPPROVE_JOBS=3, NO_COLOR=1, XDG_CONFIG_HOME="+r.xdg+", EDITOR=vi\n",
+		"     tools    git /usr/bin/git · gh /usr/bin/gh (logged in) · op /usr/bin/op\n")
 }
 
 func TestCompactNeverRunsOpOrPrintsSecret(t *testing.T) {
@@ -261,11 +262,107 @@ func TestCompactColour(t *testing.T) {
 	out = r.doctorTTYMode(true, false, nil)
 	for name, want := range map[string]string{
 		"fail marker":  "\x1b[1;31m✗\x1b[0m    \x1b[2mbitbucket\x1b[0m adapter ",
-		"lookup order": "\x1b[2mlookup order",
-		"fail word":    "\x1b[1;31mFAIL\x1b[0m no config file found",
+		"lookup state": "\x1b[2mnot found\x1b[0m  \x1b[36m$XDG/bbapprove/config.toml\x1b[0m",
+		"fail word":    "\x1b[1;31m✗\x1b[0m    \x1b[2mconfig\x1b[0m   no config file found",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("%s: missing %q in\n%s", name, want, out)
 		}
 	}
+}
+
+func TestVerboseNamesEachFactOnce(t *testing.T) {
+	r := goldenRig(t)
+	cfgPath := filepath.Join(t.TempDir(), "mine.toml")
+	os.WriteFile(cfgPath, []byte(validCfg), 0o600)
+	_, out := r.doctorV(func(o *Options) { o.Offline = true; o.ConfigFlag = cfgPath })
+	if n := strings.Count(out, cfgPath); n != 1 {
+		t.Errorf("the config path appears %d times, want once:\n%s", n, out)
+	}
+	if n := strings.Count(out, r.ignorePath()); n != 1 {
+		t.Errorf("the ignore path appears %d times, want once:\n%s", n, out)
+	}
+	mustContain(t, out, "(--config flag), valid TOML, mode 0600", "1. --config flag     used\n")
+	// no section headings, no adapter block, no "not set" environment lines, no second disallow listing
+	mustNotContain(t, out, "adapter:\n", "state:", "in use:", "parse:", "on PATH:  ", "VISUAL", "FORCE_COLOR", "disallow (matching",
+		"config file:", "not found on PATH", "latest release", "lookup order")
+	// variables shown as settings sources are not repeated in the environment line
+	if env := lineWith(out, "     env      "); strings.Contains(env, "BBAPPROVE_DISALLOW") || strings.Contains(env, "BBAPPROVE_TOKEN") {
+		t.Errorf("env line repeats a setting: %q", env)
+	}
+	if n := strings.Count(out, "left-pad"); n != 1 {
+		t.Errorf("a disallow entry appears %d times, want once:\n%s", n, out)
+	}
+}
+
+func TestVerboseEnvironmentLineOnlyWhenSet(t *testing.T) {
+	r := newRig(t)
+	r.writeXDG(validCfg)
+	r.env = []string{"XDG_CONFIG_HOME=" + r.xdg, "BBAPPROVE_TOKEN=zzz-secret"}
+	_, out := r.doctorV(func(o *Options) { o.Environ = r.env })
+	if got, want := lineWith(out, "     env "), "     env      XDG_CONFIG_HOME="+r.xdg; got != want {
+		t.Errorf("env line %q, want %q", got, want)
+	}
+	r.env = []string{"BBAPPROVE_TOKEN=zzz-secret"}
+	_, out = r.doctorV(func(o *Options) { o.Environ = r.env; o.ConfigFlag = r.writeXDG(validCfg) })
+	mustNotContain(t, out, "     env ", "zzz-secret")
+}
+
+func TestVerboseDisallowSourcesOnTheSettingsRow(t *testing.T) {
+	r := goldenRig(t)
+	_, out := r.doctorV(func(o *Options) { o.Offline = true })
+	mustContain(t, out, "disallow:              foo, bar, left-pad  [env, file]\n", "disallow_file:         "+r.root+"/disallow.txt  [default, not found]\n")
+	_, out = r.doctor(func(o *Options) { o.Offline = true })
+	mustContain(t, out, "disallow:              3 entries: foo, bar, left-pad\n", "     disallow env: foo, bar\n")
+}
+
+func TestProblemsAreInlineWithTheirFixAndSummarisedByCount(t *testing.T) {
+	for _, verbose := range []bool{false, true} {
+		r := newRig(t)
+		r.env = []string{"NO_COLOR=1", "XDG_CONFIG_HOME=" + r.xdg}
+		os.Remove(filepath.Join(r.root, "adapters", "bitbucket"))
+		run := r.doctor
+		if verbose {
+			run = r.doctorV
+		}
+		code, out := run(nil)
+		if code != 1 {
+			t.Fatalf("verbose=%v: code %d", verbose, code)
+		}
+		mustContain(t, out, "FAIL config   no config file found — run: bbapprove --init",
+			"FAIL bitbucket adapter "+r.root+"/adapters/bitbucket does not exist — check type",
+			"FAIL token    no token: BBAPPROVE_TOKEN is not set and no 1Password item name is configured — export BBAPPROVE_TOKEN=<token>",
+			"\n3 problem(s) found\n")
+		if n := strings.Count(out, "no API token source") + strings.Count(out, "\nFAIL no "); n != 0 {
+			t.Errorf("verbose=%v: the closing summary repeats a problem:\n%s", verbose, out)
+		}
+		if n := strings.Count(out, "FAIL "); n != 3 {
+			t.Errorf("verbose=%v: %d FAIL lines, want 3:\n%s", verbose, n, out)
+		}
+	}
+}
+
+func TestVerboseShowsEveryProblemToo(t *testing.T) {
+	r := newRig(t)
+	r.writeXDG(validCfg + "user_token_name = \"X\"\n")
+	r.env = []string{"NO_COLOR=1", "XDG_CONFIG_HOME=" + r.xdg}
+	r.tools["bbapprove"] = "/opt/other/bbapprove"
+	delete(r.tools, "op")
+	os.MkdirAll(r.ignorePath(), 0o755)
+	code, out := r.doctorV(func(o *Options) { o.Version = "v0.9.0" })
+	if code != 1 {
+		t.Fatalf("code %d\n%s", code, out)
+	}
+	mustContain(t, out, "warn update   update available", "warn PATH     shadowed: /opt/other/bbapprove is not this binary",
+		"warn          op (1Password CLI) NOT found on PATH", "FAIL ignore   ", "op not found")
+}
+
+// lineWith returns the first line that starts with prefix, or "".
+func lineWith(out, prefix string) string {
+	for _, l := range strings.Split(out, "\n") {
+		if strings.HasPrefix(l, prefix) {
+			return l
+		}
+	}
+	return ""
 }

@@ -141,3 +141,17 @@ func TestSprintfEscapesArguments(t *testing.T) {
 		t.Errorf("colour: %q", got)
 	}
 }
+
+func TestSourcesTag(t *testing.T) {
+	plain := Theme{}
+	if got := plain.Sources("env", "file"); got != "[env, file]" {
+		t.Errorf("plain: %q", got)
+	}
+	if got := plain.Sources("default"); got != plain.Source("default") {
+		t.Errorf("one name must equal Source: %q", got)
+	}
+	on := New(true)
+	if got := on.Sources("env", "file"); got != "\x1b[2m[\x1b[0m\x1b[33menv\x1b[0m\x1b[2m, \x1b[0m\x1b[32mfile\x1b[0m\x1b[2m]\x1b[0m" {
+		t.Errorf("coloured: %q", got)
+	}
+}

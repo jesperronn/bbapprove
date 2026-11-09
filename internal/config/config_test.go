@@ -418,3 +418,13 @@ func TestSettingsCompactDisallowOnOneLine(t *testing.T) {
 		t.Error("--print-config's list must keep its own format")
 	}
 }
+
+func TestSettingsWithRowsReplacesNamedRows(t *testing.T) {
+	c := &Config{Type: Value{"bitbucket", FromDefault}, Disallow: []string{"a"}, DisallowFile: Value{"/d.txt", FromDefault}}
+	got := c.SettingsWithRows(style.Theme{}, map[string]string{"disallow": "a  [env]", "disallow_file": "/d.txt  [default, not found]"})
+	for _, want := range []string{"disallow_file:         /d.txt  [default, not found]\n", "disallow:              a  [env]\n", "type:                  bitbucket  [default]\n"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in\n%s", want, got)
+		}
+	}
+}

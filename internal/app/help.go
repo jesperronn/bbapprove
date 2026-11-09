@@ -67,7 +67,7 @@ approved, merged, declined or commented, in a dry run and with {flag:--apply}. I
 hidden on demand and i edits the list. A title matching an entry (case-insensitive substring) is IGNORED
 whatever else applies; removing the entry restores the PR's own SKIP reason. A missing file is an empty list;
 a file that exists but cannot be read stops the run (exit 1) rather than risk acting on an ignored PR.
-{cmd:doctor} {flag:-v} lists the entries and repeats this.
+{cmd:doctor} {flag:-v} repeats this.
 {flag:--hide-ignored} leaves ignored rows out of the table. The footer names the file:
 "N ignored via FILE (see: bbapprove doctor)", or "N ignored (hidden) via FILE" with {flag:--hide-ignored}.
 
@@ -238,8 +238,8 @@ Read-only: prints a report, changes nothing, never prints a secret, and needs no
 forge access or config file. It also works when the configuration is broken: that is what it reports.
 
 {h:Options:}
-  {flag:-v}              the full report: every ok line, the lookup order, the ignore and disallow entries,
-                       the environment and the tool paths (the default report is one line per area)
+  {flag:-v}              the full report: the default report plus the install root, the config lookup order and
+                       file mode, where each disallow entry comes from, the environment and the tool paths
   {flag:--offline}       skip the update check (nothing leaves this machine)
   {flag:--config} {val:FILE}   diagnose this config file ({env:BBAPPROVE_CONFIG} does the same; the flag wins)
   {flag:--disallow} {val:a,b}  add disallowed dependencies, as for a normal run
@@ -247,26 +247,28 @@ forge access or config file. It also works when the configuration is broken: tha
                          and user_token_name do the same); only used when {env:BBAPPROVE_TOKEN} is unset
   {flag:-h}, {flag:--help}      show this help
 
-{h:Sections:} one line each in the default report, a block each with {flag:-v}, in this order. A problem
-(warn or FAIL) is always printed; only ok lines and explanations are left out of the default report.
-  version      bbapprove version, platform, git checkout or release archive, the running binary,
-               and whether the bbapprove on your PATH is that binary
+{h:Sections:} one line each, in this order. A problem (warn or FAIL) is always printed, with what to do
+about it, and the last line only counts them; no fact is printed twice.
+  version      bbapprove version, platform, git checkout or release archive, the running binary
+               ({flag:-v}: and the install root); warn when the bbapprove on your PATH is another binary
   update       asks gh (or git in a checkout) for a newer release; skipped with {flag:--offline}
-  config       every candidate config file ({flag:--config}, {env:BBAPPROVE_CONFIG}, repo root,
-               {path:$XDG_CONFIG_HOME/bbapprove/config.toml}) and which one wins (the default report
-               lists them only when no file is found), its mode ({flag:-v}), whether it is
-               valid TOML and still holds the template's example values; then every effective
-               setting with its source: {src-flag:[flag]}, {src-env:[env]}, {src-file:[file]} or {src-default:[default]}.
-               A forge adapter that is missing or not executable is reported under the forge type
+  config       the file in use and how it was found ({flag:--config}, {env:BBAPPROVE_CONFIG}, repo root,
+               {path:$XDG_CONFIG_HOME/bbapprove/config.toml}), that it is valid TOML and not still the
+               template's example values; {flag:-v} adds its mode and the state of all four candidates
+               (used, not set, not found, shadowed). Then every effective setting with its source:
+               {src-flag:[flag]}, {src-env:[env]}, {src-file:[file]} or {src-default:[default]}; with {flag:-v} the disallow
+               row names where its entries come from. A forge adapter that is missing or not executable
+               is reported under the forge type
   token        where the token comes from: {env:BBAPPROVE_TOKEN} (wins), else the 1Password item named by
                {flag:--token-name} / {env:BBAPPROVE_TOKEN_NAME} / user_token_name; never a value, and doctor
                does not run op. FAIL when there is neither
-  ignore list  the per-user ignore file, whether it is readable (an unreadable list is a problem:
-               bbapprove then refuses to run), and its entries
-  disallow     the disallow lists from the config file, {env:BBAPPROVE_DISALLOW} and the disallow file
-  environment  the {env:BBAPPROVE_*} variables that are set, plus {env:NO_COLOR} and {env:FORCE_COLOR}
-               (nothing when none is set); {flag:-v} adds {env:XDG_CONFIG_HOME}, {env:EDITOR} and {env:VISUAL}
-  tools        git, gh and op on PATH, and whether gh is logged in
+  ignore       the per-user ignore file, its entry count and mode; an unreadable list is a problem
+               (bbapprove then refuses to run); {flag:-v} adds what the list does
+  disallow     entries from {env:BBAPPROVE_DISALLOW} and the disallow file, when there are any (with {flag:-v}
+               they are part of the settings row instead)
+  env          the {env:BBAPPROVE_*} variables that are set, plus {env:NO_COLOR} and {env:FORCE_COLOR}; {flag:-v} prints
+               values and adds {env:XDG_CONFIG_HOME}, {env:EDITOR} and {env:VISUAL}, but not what the settings show
+  tools        git, gh and op on PATH (with their paths for {flag:-v}), and whether gh is logged in
 
 {h:Markers:} {ok:ok} / {ok:✓} fine, {warn:warn} / {warn:!} worth a look, {fail:FAIL} / {fail:✗} a problem.
 The symbols replace the words on a colour terminal.

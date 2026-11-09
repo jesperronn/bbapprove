@@ -355,13 +355,19 @@ func (c *Config) Settings() string { return c.SettingsThemed(style.Theme{}) }
 
 // SettingsThemed is Settings with colour: setting names dim, values in the default colour, "[source]"
 // coloured by origin (flag, env, file, default; anything else dim).
-func (c *Config) SettingsThemed(t style.Theme) string { return c.settingsThemed(t, false) }
+func (c *Config) SettingsThemed(t style.Theme) string { return c.settingsThemed(t, false, nil) }
 
 // SettingsCompactThemed is SettingsThemed with the disallow list on one line as "N entries: a, b"
 // ("(none)" when empty), as `bbapprove doctor` shows it.
-func (c *Config) SettingsCompactThemed(t style.Theme) string { return c.settingsThemed(t, true) }
+func (c *Config) SettingsCompactThemed(t style.Theme) string { return c.settingsThemed(t, true, nil) }
 
-func (c *Config) settingsThemed(t style.Theme, compactDisallow bool) string {
+// SettingsWithRows is SettingsThemed with the text after the label replaced for the named rows (for
+// example "disallow"), for a caller that knows more about a row than its Value does.
+func (c *Config) SettingsWithRows(t style.Theme, rows map[string]string) string {
+	return c.settingsThemed(t, false, rows)
+}
+
+func (c *Config) settingsThemed(t style.Theme, compactDisallow bool, over map[string]string) string {
 	var b strings.Builder
 	label := func(name string) string {
 		l := name + ":"
@@ -371,6 +377,10 @@ func (c *Config) settingsThemed(t style.Theme, compactDisallow bool) string {
 		val := v.Value
 		if val == "" {
 			val = "(not set)"
+		}
+		if o, ok := over[name]; ok {
+			fmt.Fprintf(&b, "%s%s\n", label(name), o)
+			return
 		}
 		fmt.Fprintf(&b, "%s%s  %s\n", label(name), val, t.Source(v.Source))
 	}
@@ -392,6 +402,9 @@ func (c *Config) settingsThemed(t style.Theme, compactDisallow bool) string {
 		default:
 			list = fmt.Sprintf("%d entries: %s", n, list)
 		}
+	}
+	if o, ok := over["disallow"]; ok {
+		list = o
 	}
 	fmt.Fprintf(&b, "%s%s\n", label("disallow"), list)
 	return b.String()

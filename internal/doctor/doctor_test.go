@@ -140,9 +140,9 @@ func TestNoConfigFile(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("code %d\n%s", code, out)
 	}
-	mustContain(t, out, "FAIL no config file found", "bbapprove --init", "cp bbapprove.config.template bbapprove.config.toml",
-		"1 problem(s) found", "bbapprove v1.0.0  (linux/amd64, go1.test)", "install: ", "release archive")
-	if strings.Count(out, "[not found]") != 2 {
+	mustContain(t, out, "FAIL config   no config file found — run: bbapprove --init", "cp bbapprove.config.template bbapprove.config.toml",
+		"1 problem(s) found\n", "bbapprove v1.0.0 (linux/amd64, go1.test) · release archive", "root     "+r.root)
+	if strings.Count(out, "not found  ") != 2 {
 		t.Errorf("both path candidates must read not found:\n%s", out)
 	}
 }
@@ -192,9 +192,13 @@ func TestConfigMechanisms(t *testing.T) {
 			if code != 0 {
 				t.Fatalf("code %d\n%s", code, out)
 			}
-			mustContain(t, out, want+"  [found, used]", "in use:       "+want+" (via "+tc.via+")", "valid TOML", "[file]", "all good")
+			mustContain(t, out, "ok   config   "+want+" ("+tc.via+"), valid TOML, mode 0600\n", "[file]", "all good")
+			if n := strings.Count(out, want); n != 1 {
+				t.Errorf("the config path appears %d times, want once:\n%s", n, out)
+			}
+			mustContain(t, out, " used\n")
 			for _, s := range shadowed {
-				mustContain(t, out, s+"  [found, shadowed by "+want+"]")
+				mustContain(t, out, "shadowed  "+s)
 			}
 		})
 	}
@@ -207,7 +211,7 @@ func TestExplicitConfigMissing(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("code %d", code)
 	}
-	mustContain(t, out, "/nonexistent/x.toml  [NOT FOUND, but selected explicitly]", "FAIL config: ", "/nonexistent/x.toml")
+	mustContain(t, out, "FAIL config   ", "/nonexistent/x.toml", "not found  /nonexistent/x.toml", "fix the file")
 }
 
 func TestMalformedTOML(t *testing.T) {
@@ -217,7 +221,7 @@ func TestMalformedTOML(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("code %d", code)
 	}
-	mustContain(t, out, "FAIL config: invalid TOML in "+p+" at line 2", "1 problem(s) found")
+	mustContain(t, out, "FAIL config   invalid TOML in "+p+" at line 2", "1 problem(s) found\n")
 }
 
 func TestPlaceholderValues(t *testing.T) {
@@ -228,7 +232,7 @@ func TestPlaceholderValues(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("code %d\n%s", code, out)
 	}
-	mustContain(t, out, "FAIL config "+p+": the file is unchanged from the template", "edit the file")
+	mustContain(t, out, "FAIL config   "+p+" (XDG config), valid TOML, mode 0600, the file is unchanged from the template — edit the file and set your own values")
 }
 
 func TestMissingRepositoryAndAuthor(t *testing.T) {
@@ -238,7 +242,7 @@ func TestMissingRepositoryAndAuthor(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("code %d", code)
 	}
-	mustContain(t, out, "FAIL repository is not set", "FAIL author_email is not set", "2 problem(s) found")
+	mustContain(t, out, "FAIL settings repository is not set — set repository in "+r.xdg, "FAIL settings author_email is not set", "2 problem(s) found\n")
 }
 
 func TestFileModeNote(t *testing.T) {
@@ -249,7 +253,7 @@ func TestFileModeNote(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("a loose mode is only a note, code %d", code)
 	}
-	mustContain(t, out, "warn", "0644: readable by group/other (default is 0600")
+	mustContain(t, out, "mode 0644 (default 0600")
 }
 
 func TestIgnoreList(t *testing.T) {
@@ -261,8 +265,9 @@ func TestIgnoreList(t *testing.T) {
 		if code != 0 {
 			t.Fatalf("code %d\n%s", code, out)
 		}
-		mustContain(t, out, r.ignorePath(), "entries:      2", "@some/library", "lodash",
-			"rows matching these entries are shown as IGNORED and never acted on; edit the file or press i on an ignored row in the TUI to remove an entry")
+		mustContain(t, out, "ok   ignore   "+r.ignorePath()+", 2 entries, 0600\n",
+			"     rows matching these entries are shown as IGNORED and never acted on; edit the file or press i on an ignored row in the TUI to remove an entry\n")
+		mustNotContain(t, out, "@some/library", "lodash")
 	})
 	t.Run("absent", func(t *testing.T) {
 		r := newRig(t)
@@ -271,7 +276,7 @@ func TestIgnoreList(t *testing.T) {
 		if code != 0 {
 			t.Fatalf("code %d", code)
 		}
-		mustContain(t, out, r.ignorePath(), "does not exist: no dependency is ignored")
+		mustContain(t, out, r.ignorePath()+", does not exist (nothing is ignored)", "rows matching these entries")
 	})
 	t.Run("unreadable", func(t *testing.T) {
 		if os.Geteuid() == 0 {
@@ -286,7 +291,7 @@ func TestIgnoreList(t *testing.T) {
 		if code != 1 {
 			t.Fatalf("code %d\n%s", code, out)
 		}
-		mustContain(t, out, "FAIL ignore list "+r.ignorePath()+" is unreadable", "fails closed", "chmod 600")
+		mustContain(t, out, "FAIL ignore   "+r.ignorePath()+" exists but is unreadable", "fails closed", "chmod 600")
 	})
 	t.Run("directory in the way", func(t *testing.T) {
 		r := newRig(t)
@@ -298,7 +303,7 @@ func TestIgnoreList(t *testing.T) {
 		}
 		mustContain(t, out, "is unreadable")
 	})
-	t.Run("truncated at 50", func(t *testing.T) {
+	t.Run("a long list stays one line", func(t *testing.T) {
 		r := newRig(t)
 		r.writeXDG(validCfg)
 		var b strings.Builder
@@ -307,8 +312,8 @@ func TestIgnoreList(t *testing.T) {
 		}
 		os.WriteFile(r.ignorePath(), []byte(b.String()), 0o600)
 		_, out := r.doctorV(nil)
-		mustContain(t, out, "entries:      53", "dep-49", "... and 3 more")
-		mustNotContain(t, out, "dep-50")
+		mustContain(t, out, ", 53 entries, 0600\n")
+		mustNotContain(t, out, "dep-00")
 	})
 }
 
@@ -319,7 +324,8 @@ func TestDisallowSources(t *testing.T) {
 	os.WriteFile(df, []byte("# c\nFile-Dep\n"), 0o644)
 	r.env = append(r.env, "BBAPPROVE_DISALLOW=env-dep, other-dep", "BBAPPROVE_DISALLOW_FILE="+df)
 	_, out := r.doctorV(nil)
-	mustContain(t, out, "config file:", "left-pad", "env-dep", "other-dep", df+"  [env, found]", "file-dep", "--disallow:", "flag only")
+	mustContain(t, out, "disallow:              file-dep, env-dep, other-dep, left-pad  [env, disallow_file, file]\n", "disallow_file:         "+df+"  [env]\n")
+	mustNotContain(t, out, "disallow (matching", "--disallow", "flag only")
 }
 
 const canary = "CANARY-SECRET-123"
@@ -336,15 +342,15 @@ func TestTokenSection(t *testing.T) {
 		unwants []string
 	}{
 		{"env token wins", validCfg, []string{"BBAPPROVE_TOKEN=" + secret, "BBAPPROVE_TOKEN_NAME=MY_ITEM"}, nil, 0,
-			[]string{"BBAPPROVE_TOKEN set", `item "MY_ITEM" [env] is ignored`, "BBAPPROVE_TOKEN=set (value hidden)"}, []string{"not looked up"}},
+			[]string{"BBAPPROVE_TOKEN set", `item "MY_ITEM" [env] is ignored`}, []string{"not looked up"}},
 		{"name from env", validCfg, []string{"BBAPPROVE_TOKEN_NAME=MY_ITEM"}, nil, 0,
-			[]string{`from 1Password item "MY_ITEM" [env] (not looked up by doctor)`}, []string{"NOT found", "BBAPPROVE_TOKEN set"}},
+			[]string{`1Password item "MY_ITEM" [env] (not looked up by doctor)`}, []string{"NOT found", "BBAPPROVE_TOKEN set"}},
 		{"name from file", validCfg + "user_token_name = \"FILE_ITEM\"\n", nil, nil, 0,
-			[]string{`from 1Password item "FILE_ITEM" [file] (not looked up by doctor)`}, nil},
+			[]string{`1Password item "FILE_ITEM" [file] (not looked up by doctor)`}, nil},
 		{"name but no op", validCfg, []string{"BBAPPROVE_TOKEN_NAME=MY_ITEM"}, map[string]string{"git": "/usr/bin/git"}, 0,
 			[]string{`item "MY_ITEM"`, "op (1Password CLI) NOT found on PATH"}, nil},
 		{"neither", validCfg, nil, nil, 1,
-			[]string{"FAIL no token: BBAPPROVE_TOKEN is not set and no 1Password item name is configured", "1 problem(s) found"}, nil},
+			[]string{"FAIL token    no token: BBAPPROVE_TOKEN is not set and no 1Password item name is configured — export BBAPPROVE_TOKEN=<token>", "1 problem(s) found\n"}, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := newRig(t)
@@ -376,7 +382,7 @@ func TestUpdateOutcomes(t *testing.T) {
 		mod     func(f *fakeRunner)
 		want    string
 	}{
-		{"up to date", "v1.0.0", nil, "up to date (latest release: v1.0.0)"},
+		{"up to date", "v1.0.0", nil, "up to date (v1.0.0)"},
 		{"available", "v0.9.0", nil, "update available: v1.0.0 (run: bbapprove --update)"},
 		{"cannot check", "v1.0.0", func(f *fakeRunner) { f.releaseEr = errors.New("network down") }, "could not check: "},
 	} {
@@ -413,13 +419,13 @@ func TestGhAuth(t *testing.T) {
 	r.writeXDG(validCfg)
 	r.run.authErr = errors.New("not logged in")
 	_, out := r.doctorV(func(o *Options) { o.Offline = true })
-	mustContain(t, out, "gh auth:      not logged in")
+	mustContain(t, out, "gh /usr/bin/gh (not logged in)")
 	// gh absent: never run
 	r2 := newRig(t)
 	r2.writeXDG(validCfg)
 	delete(r2.tools, "gh")
 	_, out = r2.doctorV(func(o *Options) { o.Offline = true })
-	mustContain(t, out, "gh:           not found on PATH")
+	mustContain(t, out, "gh not found (needed for --outdated / --update)")
 	if r2.run.called("gh") {
 		t.Errorf("gh run although missing: %v", r2.run.calls)
 	}
@@ -433,7 +439,10 @@ func TestPathShadowing(t *testing.T) {
 	if code != 0 {
 		t.Errorf("shadowing is only a warning, code %d", code)
 	}
-	mustContain(t, out, "PATH shadowing: `bbapprove` on your PATH is /opt/other/bbapprove", "all good")
+	mustContain(t, out, "warn PATH     shadowed: /opt/other/bbapprove is not this binary\n", "all good")
+	if n := strings.Count(out, "/opt/other/bbapprove"); n != 1 {
+		t.Errorf("the shadowing path appears %d times, want once:\n%s", n, out)
+	}
 	// the launcher next to the binary is fine
 	r.tools["bbapprove"] = filepath.Join(r.root, "bin", "bbapprove")
 	_, out = r.doctorV(nil)
@@ -448,13 +457,13 @@ func TestAdapterChecks(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("code %d", code)
 	}
-	mustContain(t, out, "not executable", "FAIL adapter ", "chmod +x")
+	mustContain(t, out, "is not executable", "FAIL bitbucket adapter ", "chmod +x")
 	os.Remove(filepath.Join(r.root, "adapters", "bitbucket"))
 	_, out = r.doctorV(nil)
-	mustContain(t, out, "does not exist", "FAIL adapter ")
+	mustContain(t, out, "does not exist", "FAIL bitbucket adapter ")
 	os.WriteFile(filepath.Join(r.root, "adapters", "bitbucket"), []byte("#!/bin/sh\n"), 0o755)
 	code, out = r.doctorV(nil)
-	mustContain(t, out, "exists, executable")
+	mustNotContain(t, out, "\nadapter:\n", "ok   adapter", "adapter exists")
 	if code != 0 {
 		t.Errorf("code %d", code)
 	}
@@ -465,8 +474,8 @@ func TestEnvironmentSection(t *testing.T) {
 	r.writeXDG(validCfg)
 	r.env = append(r.env, "BBAPPROVE_JOBS=3", "BBAPPROVE_TOKEN=zzz-secret", "EDITOR=vi")
 	_, out := r.doctorV(nil)
-	mustContain(t, out, "BBAPPROVE_JOBS=3", "BBAPPROVE_TOKEN=set (value hidden)", "NO_COLOR=1", "EDITOR=vi", "VISUAL not set")
-	mustNotContain(t, out, "zzz-secret")
+	mustContain(t, out, "     env      BBAPPROVE_JOBS=3, NO_COLOR=1, XDG_CONFIG_HOME="+r.xdg+", EDITOR=vi\n")
+	mustNotContain(t, out, "zzz-secret", "BBAPPROVE_TOKEN=", "VISUAL", "FORCE_COLOR")
 }
 
 func TestPlainOutputHasNoEscapes(t *testing.T) {

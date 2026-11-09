@@ -92,20 +92,37 @@ func (t Theme) Paint(class, text string) string {
 	return "\x1b[" + code + "m" + text + reset
 }
 
-// Source paints a "[source]" tag by where a setting came from; anything unknown (e.g. "unset") is dim.
-func (t Theme) Source(source string) string {
-	class := Dim
+// sourceClass is the class of a source name; anything unknown (e.g. "unset") is dim.
+func sourceClass(source string) string {
 	switch source {
 	case "flag":
-		class = SrcFlag
+		return SrcFlag
 	case "env":
-		class = SrcEnv
+		return SrcEnv
 	case "file":
-		class = SrcFile
+		return SrcFile
 	case "default":
-		class = SrcDef
+		return SrcDef
 	}
-	return t.Paint(class, "["+source+"]")
+	return Dim
+}
+
+// Source paints a "[source]" tag by where a setting came from; anything unknown (e.g. "unset") is dim.
+func (t Theme) Source(source string) string {
+	return t.Paint(sourceClass(source), "["+source+"]")
+}
+
+// Sources paints a "[a, b]" tag for a value with several origins: each name in its own colour, the
+// brackets and commas dim.
+func (t Theme) Sources(sources ...string) string {
+	if len(sources) == 1 {
+		return t.Source(sources[0])
+	}
+	parts := make([]string, len(sources))
+	for i, s := range sources {
+		parts[i] = t.Paint(sourceClass(s), s)
+	}
+	return t.Paint(Dim, "[") + strings.Join(parts, t.Paint(Dim, ", ")) + t.Paint(Dim, "]")
 }
 
 // Escape makes arbitrary text safe to embed in markup.

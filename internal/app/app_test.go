@@ -703,14 +703,14 @@ func TestDoctorSubcommand(t *testing.T) {
 	}
 	// -v is the full report
 	code, full, _ := doctorCLI(t, env, "doctor", "-v", "--offline")
-	if code != 0 || !strings.Contains(full, "lookup order") || !strings.Contains(full, "VISUAL not set") || strings.Contains(full, "tok-must-not-print") {
+	if code != 0 || !strings.Contains(full, "1. --config flag") || !strings.Contains(full, "BBAPPROVE_JOBS=4") || strings.Contains(full, "tok-must-not-print") {
 		t.Errorf("doctor -v: code %d\n%s", code, full)
 	}
-	if strings.Contains(out, "VISUAL") || len(full) <= len(out) {
+	if strings.Contains(out, "\n     root     ") || strings.Count(full, "\n") <= strings.Count(out, "\n") {
 		t.Errorf("the default report must be shorter than -v:\n%s", out)
 	}
 	// no settings at all: a FAIL, exit 1, still not a usage error
-	if code, out, _ := doctorCLI(t, []string{"NO_COLOR=1", "XDG_CONFIG_HOME=" + t.TempDir()}, "--offline", "doctor", "-i"); code != 1 || !strings.Contains(out, "FAIL no config file found") {
+	if code, out, _ := doctorCLI(t, []string{"NO_COLOR=1", "XDG_CONFIG_HOME=" + t.TempDir()}, "--offline", "doctor", "-i"); code != 1 || !strings.Contains(out, "FAIL config   no config file found") {
 		t.Errorf("-i doctor: code %d\n%s", code, out)
 	}
 }

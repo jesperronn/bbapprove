@@ -2,25 +2,16 @@
 
 Approve and merge Renovate PRs from the terminal (Go core, bash launcher and forge adapter). Instructions for AI agents and new maintainers.
 
-## Commands
-
-```
-bin/help      list every command          bin/lint      gofmt, go vet, shellcheck (--autofix, PATH...)
-bin/setup     check tools, fetch, build   bin/test      Go + shell suites (--verbose --no-go --no-shell TARGET)
-bin/build     build bin/bbapprove-go      bin/install   build + link the launcher into ~/.local/bin
-bin/release X.Y.Z   changelog, tag, push, watch the workflow (--dry-run first)
-```
-
 ## Definition of done
 
-Run `bin/lint`, then `bin/test`. Both must be green, and you must have seen the output, before you say "done".
+`bin/help` lists the commands. Run `bin/lint`, then `bin/test`. Both must be green, and you must have seen the output, before you say "done".
 
 ## Conventions
 
 - Conventional commits: `feat|fix|chore|docs|test|refactor(scope): subject`.
 - One logical change per commit. Stage only your files by path; never `git add -A`.
 - A new or changed script in `bin/` gets a `test/<name>.test.sh`.
-- Add a line under `## [Unreleased]` in `CHANGELOG.md` for user-visible changes.
+- Add a line under `## [Unreleased]` in `CHANGELOG.md` for user-visible changes (changes only, no how-to).
 - On macOS use `gsed` (GNU sed), not BSD `sed`.
 
 ## Hard rules
@@ -31,6 +22,6 @@ Run `bin/lint`, then `bin/test`. Both must be green, and you must have seen the 
 - The adapter (`adapters/<type>`) is the only code that talks to the forge.
 - Never push, tag or release unless asked; `bin/release` does it.
 
-## More
+## Docs
 
-[docs/README.md](docs/README.md) indexes: [development](docs/development.md), [architecture](docs/architecture.md), [releasing](docs/releasing.md), [CI](docs/ci.md). User docs: [README.md](README.md); open work: [TODO.md](TODO.md).
+One source per fact: flags, env vars and exit codes live in `bbapprove --help` and its topics (`internal/app/help.go`), the README only links to them, and `internal/app/docs_test.go` enforces it. Design rationale lives only in [docs/architecture.md](docs/architecture.md). Maintainer docs: [docs/README.md](docs/README.md). Open work: [TODO.md](TODO.md).

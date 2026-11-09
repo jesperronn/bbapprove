@@ -13,7 +13,14 @@ All notable changes to this project are documented here. The format follows
   `bbapprove doctor` reports it as a problem. `--token` was removed (a token on the command line is visible to
   other users); the adapter's `auth token` remains and runs only when `BBAPPROVE_TOKEN` is empty and a name is set.
 
+### Changed
+- The README is a short task-led quick-start (install, set up, first run, TUI keys, update, troubleshoot) that links
+  to `bbapprove --help` and its topics instead of repeating flag and variable tables. `bbapprove help` without a
+  topic now lists the topics instead of repeating `--help`.
+
 ### Added
+- `bbapprove help TOPIC` for `rules`, `tui`, `config`, `token`, `update` and `env` (next to `doctor`); `bbapprove help`
+  lists them. The top-level `--help` now fits one screen and points at the topics.
 - Coloured `--help`, `bbapprove doctor` and `--print-config` (terminal only; `NO_COLOR` disables, `FORCE_COLOR=1`
   forces; piped output is unchanged plain text). New `bbapprove doctor --help` (also `bbapprove help doctor`).
 - `bbapprove doctor [--offline] [--config FILE]`: read-only diagnostics (version and update status, every config

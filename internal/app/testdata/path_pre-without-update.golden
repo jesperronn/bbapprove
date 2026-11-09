@@ -1,0 +1,4 @@
+exit 2
+--- stdout ---
+--- stderr ---
+--pre and --yes only apply to --outdated / --update

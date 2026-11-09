@@ -1,0 +1,4 @@
+exit 2
+--- stdout ---
+--- stderr ---
+--config needs a value

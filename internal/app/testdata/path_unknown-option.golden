@@ -1,0 +1,39 @@
+exit 2
+--- stdout ---
+--- stderr ---
+Unknown option: --bogus
+bbapprove v1.0.0-rc.2 — approve and merge Renovate PRs on Bitbucket Server.
+
+Usage: bbapprove [--apply] [--hide-ignored] [--disallow a,b] [--token-name NAME]
+                 [--config FILE] [--print-config] [-i] [--no-mouse] [PR_URL...]
+       bbapprove --init [--force] [--config FILE]
+       bbapprove doctor [--offline] [--config FILE]
+       bbapprove --outdated [--pre]
+       bbapprove --update [--yes] [--pre]
+
+Dry run by default: with no PR_URL every open PR where you are a reviewer is listed and only
+eligibility is reported. Nothing changes without --apply.
+
+Options:
+  --apply            approve, then merge, the eligible PRs
+  --hide-ignored     leave ignored PRs out of the table
+  --disallow a,b     also skip PRs whose title mentions these dependencies
+  --token-name NAME  1Password item that holds the API token
+  --config FILE      use this config file
+  --print-config     show the effective settings and where each came from (no secrets)
+  --init             create the config file from the template (--force replaces one)
+  -i                 interactive TUI (--no-mouse turns mouse capture off)
+  --outdated         check whether a newer release exists (--pre includes pre-releases)
+  --update           update after showing a plan (--yes skips the question)
+  -V, --version      print the version
+  -h, --help         this help
+  doctor             diagnose the installation and the configuration
+
+Topics: bbapprove help TOPIC
+  rules   which PRs are eligible, the ignore list, the STATUS column
+  tui     the interactive TUI: columns, status bar, exit summary, mouse
+  config  config file lookup, precedence, first run, --init, --print-config
+  token   where the API token comes from
+  update  --outdated and --update
+  env     environment variables and exit codes
+  doctor  bbapprove doctor, the diagnostics report

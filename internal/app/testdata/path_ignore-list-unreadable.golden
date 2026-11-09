@@ -1,0 +1,4 @@
+exit 1
+--- stdout ---
+--- stderr ---
+cannot read ignore list: read ignore list $BASE/ignore: read $BASE/ignore: is a directory

@@ -1,0 +1,4 @@
+exit 2
+--- stdout ---
+--- stderr ---
+--yes only applies to --update

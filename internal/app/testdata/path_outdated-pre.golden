@@ -1,0 +1,5 @@
+exit 1
+--- stdout ---
+bbapprove v1.0.0 — latest v1.1.0-rc.1 (pre-release): update available
+  update with: bbapprove --update   (release: https://github.com/example/repo/releases/tag/v1.1.0-rc.1)
+--- stderr ---

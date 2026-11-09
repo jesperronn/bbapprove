@@ -1,0 +1,4 @@
+exit 2
+--- stdout ---
+--- stderr ---
+bbapprove: no releases found for example/repo (see https://github.com/example/repo/releases)

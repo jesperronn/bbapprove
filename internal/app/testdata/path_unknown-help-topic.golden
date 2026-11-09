@@ -1,0 +1,14 @@
+exit 2
+--- stdout ---
+--- stderr ---
+Unknown help topic: nosuchtopic
+bbapprove v1.0.0-rc.2 — approve and merge Renovate PRs on Bitbucket Server.
+
+Topics: bbapprove help TOPIC
+  rules   which PRs are eligible, the ignore list, the STATUS column
+  tui     the interactive TUI: columns, status bar, exit summary, mouse
+  config  config file lookup, precedence, first run, --init, --print-config
+  token   where the API token comes from
+  update  --outdated and --update
+  env     environment variables and exit codes
+  doctor  bbapprove doctor, the diagnostics report

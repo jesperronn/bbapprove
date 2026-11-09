@@ -1,0 +1,4 @@
+exit 0
+--- stdout ---
+bbapprove v1.0.0-rc.3 is up to date
+--- stderr ---

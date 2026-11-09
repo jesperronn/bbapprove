@@ -1,0 +1,12 @@
+exit 1
+--- stdout ---
+--- stderr ---
+bbapprove: no config file found.
+Create $XDG/bbapprove/config.toml from the template and open it in your editor? [Y/n] Created $XDG/bbapprove/config.toml (mode 0600).
+config OK
+bbapprove: no API token.
+Set BBAPPROVE_TOKEN to a Bitbucket HTTP access token:
+  export BBAPPROVE_TOKEN=...
+or name a 1Password item holding it (looked up with "op", field token, then credential):
+  export BBAPPROVE_TOKEN_NAME=<item>     (or --token-name <item>, or user_token_name in the config file)
+run: bbapprove doctor

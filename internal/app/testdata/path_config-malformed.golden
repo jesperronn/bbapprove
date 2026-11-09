@@ -1,0 +1,4 @@
+exit 1
+--- stdout ---
+--- stderr ---
+bbapprove: invalid TOML in $REPO/c.toml at line 1, column 15: toml: unexpected character U+006F 'o' at start of value

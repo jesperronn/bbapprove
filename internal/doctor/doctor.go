@@ -19,6 +19,7 @@ import (
 	"bbapprove/internal/config"
 	"bbapprove/internal/ignore"
 	"bbapprove/internal/rules"
+	"bbapprove/internal/style"
 	"bbapprove/internal/update"
 )
 
@@ -64,10 +65,7 @@ func (o Options) env(key string) string {
 }
 
 func (o Options) color() bool {
-	if o.env("NO_COLOR") != "" {
-		return false
-	}
-	return o.IsTTY || o.env("FORCE_COLOR") != ""
+	return style.Enabled(o.env, o.IsTTY)
 }
 
 type report struct {

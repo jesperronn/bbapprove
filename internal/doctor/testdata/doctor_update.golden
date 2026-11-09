@@ -1,0 +1,69 @@
+bbapprove v1.0.0  (linux/amd64, go1.test)
+     install:      release archive
+     root:         $ROOT
+     binary:       $ROOT/bin/bbapprove-go
+     on PATH:      bbapprove not found on PATH (run it by full path, or run bin/build --install)
+
+update:
+warn update available: v1.2.0 (run: bbapprove --update)
+
+config:
+     lookup order (an explicit file wins, else the first one found):
+        1. --config flag     (not set)
+        2. BBAPPROVE_CONFIG  (not set)
+        3. repo root         $ROOT/bbapprove.config.toml  [not found]
+        4. XDG config        $XDG/bbapprove/config.toml  [found, used]
+ok   in use:       $XDG/bbapprove/config.toml (via XDG config)
+     file mode:    0600
+ok   parse:        valid TOML
+     effective settings (source: flag, env, file or default):
+        type:            bitbucket  [default]
+        adapter:         $ROOT/adapters/bitbucket  [default]
+        repository:      https://bb.corp.test  [file]
+        author_email:    bot@corp.test  [file]
+        update_repo:     jesperronn/bbapprove  [default]
+        disallow_file:   $ROOT/disallow.txt  [default]
+        disallow:        foo, bar, left-pad
+
+adapter:
+     type:         bitbucket
+     path:         $ROOT/adapters/bitbucket  [default]
+ok   state:        exists, executable
+
+token:
+ok   BBAPPROVE_TOKEN: set (value hidden, 21 chars)
+
+ignore list:
+     path:         $XDG/bbapprove/ignore
+ok   state:        readable
+     mode:         0600
+     entries:      2
+       left-pad
+       lodash
+     rows matching these entries are shown as IGNORED and never acted on; edit the file or press i on an ignored row in the TUI to remove an entry
+
+disallow (matching PRs are SKIPped):
+     config file:  1
+       left-pad
+     BBAPPROVE_DISALLOW: 2
+       foo
+       bar
+     file:         $ROOT/disallow.txt  [default, not found]
+     --disallow:   adds more entries per run (flag only)
+
+environment:
+     BBAPPROVE_DISALLOW=Foo,bar
+     BBAPPROVE_JOBS=3
+     BBAPPROVE_TOKEN=set (value hidden)
+     NO_COLOR=1
+     FORCE_COLOR not set
+     XDG_CONFIG_HOME=$XDG
+     EDITOR=vi
+     VISUAL not set
+
+tools:
+     git:          /usr/bin/git
+     gh:           /usr/bin/gh
+     gh auth:      logged in
+
+all good

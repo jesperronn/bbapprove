@@ -18,6 +18,7 @@ import (
 	"bbapprove/internal/doctor"
 	"bbapprove/internal/ignore"
 	"bbapprove/internal/rules"
+	"bbapprove/internal/style"
 	"bbapprove/internal/update"
 )
 
@@ -391,10 +392,7 @@ func Run(ctx context.Context, o Options) int {
 }
 
 func color(o Options) bool {
-	if o.env("NO_COLOR") != "" {
-		return false
-	}
-	return o.IsTTY || o.env("FORCE_COLOR") != ""
+	return style.Enabled(o.env, o.IsTTY)
 }
 
 // act approves then merges one PR and returns the single result line (not width-truncated, so errors stay readable).

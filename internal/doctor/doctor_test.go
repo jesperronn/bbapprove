@@ -105,6 +105,17 @@ func (r *rig) doctor(mod func(*Options)) (int, string) {
 	return code, out.String()
 }
 
+// doctorV runs the full report (bbapprove doctor -v).
+func (r *rig) doctorV(mod func(*Options)) (int, string) {
+	r.t.Helper()
+	return r.doctor(func(o *Options) {
+		o.Verbose = true
+		if mod != nil {
+			mod(o)
+		}
+	})
+}
+
 func mustContain(t *testing.T, out string, subs ...string) {
 	t.Helper()
 	for _, s := range subs {
@@ -125,7 +136,7 @@ func mustNotContain(t *testing.T, out string, subs ...string) {
 
 func TestNoConfigFile(t *testing.T) {
 	r := newRig(t)
-	code, out := r.doctor(nil)
+	code, out := r.doctorV(nil)
 	if code != 1 {
 		t.Fatalf("code %d\n%s", code, out)
 	}
@@ -139,7 +150,7 @@ func TestNoConfigFile(t *testing.T) {
 func TestEnvSettingsWithoutFileIsWarningOnly(t *testing.T) {
 	r := newRig(t)
 	r.env = append(r.env, "BBAPPROVE_REPOSITORY=https://bb.corp.test", "BBAPPROVE_AUTHOR_EMAIL=bot@corp.test")
-	code, out := r.doctor(nil)
+	code, out := r.doctorV(nil)
 	if code != 0 {
 		t.Fatalf("code %d\n%s", code, out)
 	}
@@ -177,7 +188,7 @@ func TestConfigMechanisms(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			r := newRig(t)
 			flag, want, shadowed := tc.setup(r)
-			code, out := r.doctor(func(o *Options) { o.ConfigFlag = flag; o.Environ = r.env })
+			code, out := r.doctorV(func(o *Options) { o.ConfigFlag = flag; o.Environ = r.env })
 			if code != 0 {
 				t.Fatalf("code %d\n%s", code, out)
 			}
@@ -192,7 +203,7 @@ func TestConfigMechanisms(t *testing.T) {
 func TestExplicitConfigMissing(t *testing.T) {
 	r := newRig(t)
 	r.env = append(r.env, "BBAPPROVE_CONFIG=/nonexistent/x.toml")
-	code, out := r.doctor(nil)
+	code, out := r.doctorV(nil)
 	if code != 1 {
 		t.Fatalf("code %d", code)
 	}
@@ -202,7 +213,7 @@ func TestExplicitConfigMissing(t *testing.T) {
 func TestMalformedTOML(t *testing.T) {
 	r := newRig(t)
 	p := r.writeXDG("repository = \"x\"\nauthor_email = = broken\n")
-	code, out := r.doctor(nil)
+	code, out := r.doctorV(nil)
 	if code != 1 {
 		t.Fatalf("code %d", code)
 	}
@@ -213,7 +224,7 @@ func TestPlaceholderValues(t *testing.T) {
 	r := newRig(t)
 	tmpl, _ := os.ReadFile("../config/bbapprove.config.template")
 	p := r.writeXDG(string(tmpl))
-	code, out := r.doctor(nil)
+	code, out := r.doctorV(nil)
 	if code != 1 {
 		t.Fatalf("code %d\n%s", code, out)
 	}
@@ -223,7 +234,7 @@ func TestPlaceholderValues(t *testing.T) {
 func TestMissingRepositoryAndAuthor(t *testing.T) {
 	r := newRig(t)
 	r.writeXDG("type = \"bitbucket\"\n")
-	code, out := r.doctor(nil)
+	code, out := r.doctorV(nil)
 	if code != 1 {
 		t.Fatalf("code %d", code)
 	}
@@ -234,7 +245,7 @@ func TestFileModeNote(t *testing.T) {
 	r := newRig(t)
 	p := r.writeXDG(validCfg)
 	os.Chmod(p, 0o644)
-	code, out := r.doctor(nil)
+	code, out := r.doctorV(nil)
 	if code != 0 {
 		t.Fatalf("a loose mode is only a note, code %d", code)
 	}
@@ -246,7 +257,7 @@ func TestIgnoreList(t *testing.T) {
 		r := newRig(t)
 		r.writeXDG(validCfg)
 		os.WriteFile(r.ignorePath(), []byte("# mine\n@some/library\nlodash\n"), 0o600)
-		code, out := r.doctor(nil)
+		code, out := r.doctorV(nil)
 		if code != 0 {
 			t.Fatalf("code %d\n%s", code, out)
 		}
@@ -256,7 +267,7 @@ func TestIgnoreList(t *testing.T) {
 	t.Run("absent", func(t *testing.T) {
 		r := newRig(t)
 		r.writeXDG(validCfg)
-		code, out := r.doctor(nil)
+		code, out := r.doctorV(nil)
 		if code != 0 {
 			t.Fatalf("code %d", code)
 		}
@@ -271,7 +282,7 @@ func TestIgnoreList(t *testing.T) {
 		os.WriteFile(r.ignorePath(), []byte("lodash\n"), 0o600)
 		os.Chmod(r.ignorePath(), 0)
 		t.Cleanup(func() { os.Chmod(r.ignorePath(), 0o600) })
-		code, out := r.doctor(nil)
+		code, out := r.doctorV(nil)
 		if code != 1 {
 			t.Fatalf("code %d\n%s", code, out)
 		}
@@ -281,7 +292,7 @@ func TestIgnoreList(t *testing.T) {
 		r := newRig(t)
 		r.writeXDG(validCfg)
 		os.MkdirAll(r.ignorePath(), 0o755)
-		code, out := r.doctor(nil)
+		code, out := r.doctorV(nil)
 		if code != 1 {
 			t.Fatalf("code %d\n%s", code, out)
 		}
@@ -295,7 +306,7 @@ func TestIgnoreList(t *testing.T) {
 			fmt.Fprintf(&b, "dep-%02d\n", i)
 		}
 		os.WriteFile(r.ignorePath(), []byte(b.String()), 0o600)
-		_, out := r.doctor(nil)
+		_, out := r.doctorV(nil)
 		mustContain(t, out, "entries:      53", "dep-49", "... and 3 more")
 		mustNotContain(t, out, "dep-50")
 	})
@@ -307,7 +318,7 @@ func TestDisallowSources(t *testing.T) {
 	df := filepath.Join(t.TempDir(), "dis.txt")
 	os.WriteFile(df, []byte("# c\nFile-Dep\n"), 0o644)
 	r.env = append(r.env, "BBAPPROVE_DISALLOW=env-dep, other-dep", "BBAPPROVE_DISALLOW_FILE="+df)
-	_, out := r.doctor(nil)
+	_, out := r.doctorV(nil)
 	mustContain(t, out, "config file:", "left-pad", "env-dep", "other-dep", df+"  [env, found]", "file-dep", "--disallow:", "flag only")
 }
 
@@ -343,7 +354,7 @@ func TestTokenSection(t *testing.T) {
 			if tc.tools != nil {
 				r.tools = tc.tools
 			}
-			code, out := r.doctor(nil)
+			code, out := r.doctorV(nil)
 			if code != tc.exit {
 				t.Errorf("exit %d, want %d", code, tc.exit)
 			}
@@ -375,7 +386,7 @@ func TestUpdateOutcomes(t *testing.T) {
 			if tc.mod != nil {
 				tc.mod(r.run)
 			}
-			code, out := r.doctor(func(o *Options) { o.Version = tc.version })
+			code, out := r.doctorV(func(o *Options) { o.Version = tc.version })
 			if code != 0 {
 				t.Errorf("an update problem is never a FAIL, code %d", code)
 			}
@@ -387,7 +398,7 @@ func TestUpdateOutcomes(t *testing.T) {
 func TestOfflineSkipsNetwork(t *testing.T) {
 	r := newRig(t)
 	r.writeXDG(validCfg)
-	_, out := r.doctor(func(o *Options) { o.Offline = true })
+	_, out := r.doctorV(func(o *Options) { o.Offline = true })
 	mustContain(t, out, "skipped (--offline)")
 	if r.run.called("gh release") || r.run.called("git") {
 		t.Errorf("offline made update calls: %v", r.run.calls)
@@ -401,13 +412,13 @@ func TestGhAuth(t *testing.T) {
 	r := newRig(t)
 	r.writeXDG(validCfg)
 	r.run.authErr = errors.New("not logged in")
-	_, out := r.doctor(func(o *Options) { o.Offline = true })
+	_, out := r.doctorV(func(o *Options) { o.Offline = true })
 	mustContain(t, out, "gh auth:      not logged in")
 	// gh absent: never run
 	r2 := newRig(t)
 	r2.writeXDG(validCfg)
 	delete(r2.tools, "gh")
-	_, out = r2.doctor(func(o *Options) { o.Offline = true })
+	_, out = r2.doctorV(func(o *Options) { o.Offline = true })
 	mustContain(t, out, "gh:           not found on PATH")
 	if r2.run.called("gh") {
 		t.Errorf("gh run although missing: %v", r2.run.calls)
@@ -418,14 +429,14 @@ func TestPathShadowing(t *testing.T) {
 	r := newRig(t)
 	r.writeXDG(validCfg)
 	r.tools["bbapprove"] = "/opt/other/bbapprove"
-	code, out := r.doctor(nil)
+	code, out := r.doctorV(nil)
 	if code != 0 {
 		t.Errorf("shadowing is only a warning, code %d", code)
 	}
 	mustContain(t, out, "PATH shadowing: `bbapprove` on your PATH is /opt/other/bbapprove", "all good")
 	// the launcher next to the binary is fine
 	r.tools["bbapprove"] = filepath.Join(r.root, "bin", "bbapprove")
-	_, out = r.doctor(nil)
+	_, out = r.doctorV(nil)
 	mustNotContain(t, out, "shadowing")
 }
 
@@ -433,16 +444,16 @@ func TestAdapterChecks(t *testing.T) {
 	r := newRig(t)
 	r.writeXDG(validCfg)
 	os.Chmod(filepath.Join(r.root, "adapters", "bitbucket"), 0o644)
-	code, out := r.doctor(nil)
+	code, out := r.doctorV(nil)
 	if code != 1 {
 		t.Fatalf("code %d", code)
 	}
 	mustContain(t, out, "not executable", "FAIL adapter ", "chmod +x")
 	os.Remove(filepath.Join(r.root, "adapters", "bitbucket"))
-	_, out = r.doctor(nil)
+	_, out = r.doctorV(nil)
 	mustContain(t, out, "does not exist", "FAIL adapter ")
 	os.WriteFile(filepath.Join(r.root, "adapters", "bitbucket"), []byte("#!/bin/sh\n"), 0o755)
-	code, out = r.doctor(nil)
+	code, out = r.doctorV(nil)
 	mustContain(t, out, "exists, executable")
 	if code != 0 {
 		t.Errorf("code %d", code)
@@ -453,7 +464,7 @@ func TestEnvironmentSection(t *testing.T) {
 	r := newRig(t)
 	r.writeXDG(validCfg)
 	r.env = append(r.env, "BBAPPROVE_JOBS=3", "BBAPPROVE_TOKEN=zzz-secret", "EDITOR=vi")
-	_, out := r.doctor(nil)
+	_, out := r.doctorV(nil)
 	mustContain(t, out, "BBAPPROVE_JOBS=3", "BBAPPROVE_TOKEN=set (value hidden)", "NO_COLOR=1", "EDITOR=vi", "VISUAL not set")
 	mustNotContain(t, out, "zzz-secret")
 }
@@ -471,7 +482,7 @@ func TestPlainOutputHasNoEscapes(t *testing.T) {
 			r := newRig(t)
 			r.env = append([]string{"XDG_CONFIG_HOME=" + r.xdg}, tc.env...)
 			r.writeXDG(validCfg)
-			_, out := r.doctor(func(o *Options) { o.IsTTY = tc.tty; o.Environ = r.env })
+			_, out := r.doctorV(func(o *Options) { o.IsTTY = tc.tty; o.Environ = r.env })
 			mustNotContain(t, out, "\033", "✓", "✗")
 			mustContain(t, out, "ok   ")
 		})
@@ -480,14 +491,14 @@ func TestPlainOutputHasNoEscapes(t *testing.T) {
 	r := newRig(t)
 	r.env = []string{"XDG_CONFIG_HOME=" + r.xdg}
 	r.writeXDG(validCfg)
-	_, out := r.doctor(func(o *Options) { o.IsTTY = true; o.Environ = r.env })
+	_, out := r.doctorV(func(o *Options) { o.IsTTY = true; o.Environ = r.env })
 	mustContain(t, out, "\033[32m✓")
 }
 
 func TestExitCodeAllGood(t *testing.T) {
 	r := newRig(t)
 	r.writeXDG(validCfg)
-	code, out := r.doctor(nil)
+	code, out := r.doctorV(nil)
 	if code != 0 || !strings.HasSuffix(out, "all good\n") {
 		t.Fatalf("code %d\n%s", code, out)
 	}
@@ -496,11 +507,11 @@ func TestExitCodeAllGood(t *testing.T) {
 func TestSettingsListDeleteSourceBranch(t *testing.T) {
 	r := newRig(t)
 	r.writeXDG(validCfg + "delete_source_branch = false\n")
-	_, out := r.doctor(nil)
+	_, out := r.doctorV(nil)
 	mustContain(t, out, "delete_source_branch:  false  [file]")
 	r = newRig(t)
 	r.writeXDG(validCfg)
 	r.env = append(r.env, "BBAPPROVE_DELETE_SOURCE_BRANCH=1")
-	_, out = r.doctor(nil)
+	_, out = r.doctorV(nil)
 	mustContain(t, out, "delete_source_branch:  true  [env]")
 }

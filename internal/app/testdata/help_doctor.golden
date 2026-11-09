@@ -1,6 +1,6 @@
 bbapprove doctor — diagnose the installation and the configuration.
 
-Usage: bbapprove doctor [--offline] [--config FILE] [--disallow a,b]
+Usage: bbapprove doctor [-v] [--offline] [--config FILE] [--disallow a,b]
                          [--token-name NAME]
        bbapprove doctor --help
 
@@ -8,6 +8,8 @@ Read-only: prints a report, changes nothing, never prints a secret, and needs no
 forge access or config file. It also works when the configuration is broken: that is what it reports.
 
 Options:
+  -v              the full report: every ok line, the lookup order, the ignore and disallow entries,
+                       the environment and the tool paths (the default report is one line per area)
   --offline       skip the update check (nothing leaves this machine)
   --config FILE   diagnose this config file (BBAPPROVE_CONFIG does the same; the flag wins)
   --disallow a,b  add disallowed dependencies, as for a normal run
@@ -15,23 +17,25 @@ Options:
                          and user_token_name do the same); only used when BBAPPROVE_TOKEN is unset
   -h, --help      show this help
 
-Sections: one block each, in this order
+Sections: one line each in the default report, a block each with -v, in this order. A problem
+(warn or FAIL) is always printed; only ok lines and explanations are left out of the default report.
   version      bbapprove version, platform, git checkout or release archive, the running binary,
                and whether the bbapprove on your PATH is that binary
   update       asks gh (or git in a checkout) for a newer release; skipped with --offline
   config       every candidate config file (--config, BBAPPROVE_CONFIG, repo root,
-               $XDG_CONFIG_HOME/bbapprove/config.toml) and which one wins, its mode, whether it is
+               $XDG_CONFIG_HOME/bbapprove/config.toml) and which one wins (the default report
+               lists them only when no file is found), its mode (-v), whether it is
                valid TOML and still holds the template's example values; then every effective
-               setting with its source: [flag], [env], [file] or [default]
-  adapter      the forge type, the adapter path, and that it exists and is executable
+               setting with its source: [flag], [env], [file] or [default].
+               A forge adapter that is missing or not executable is reported under the forge type
   token        where the token comes from: BBAPPROVE_TOKEN (wins), else the 1Password item named by
                --token-name / BBAPPROVE_TOKEN_NAME / user_token_name; never a value, and doctor
                does not run op. FAIL when there is neither
   ignore list  the per-user ignore file, whether it is readable (an unreadable list is a problem:
                bbapprove then refuses to run), and its entries
   disallow     the disallow lists from the config file, BBAPPROVE_DISALLOW and the disallow file
-  environment  the BBAPPROVE_* variables that are set, plus NO_COLOR, FORCE_COLOR,
-               XDG_CONFIG_HOME, EDITOR and VISUAL
+  environment  the BBAPPROVE_* variables that are set, plus NO_COLOR and FORCE_COLOR
+               (nothing when none is set); -v adds XDG_CONFIG_HOME, EDITOR and VISUAL
   tools        git, gh and op on PATH, and whether gh is logged in
 
 Markers: ok / ✓ fine, warn / ! worth a look, FAIL / ✗ a problem.

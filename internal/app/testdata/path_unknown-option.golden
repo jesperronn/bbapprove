@@ -7,7 +7,7 @@ bbapprove v1.0.0-rc.2 — approve and merge Renovate PRs on Bitbucket Server.
 Usage: bbapprove [--apply] [--hide-ignored] [--disallow a,b] [--token-name NAME]
                  [--config FILE] [--print-config] [-i] [--no-mouse] [PR_URL...]
        bbapprove --init [--force] [--config FILE]
-       bbapprove doctor [--offline] [--config FILE]
+       bbapprove doctor [-v] [--offline] [--config FILE]
        bbapprove --outdated [--pre]
        bbapprove --update [--yes] [--pre]
 

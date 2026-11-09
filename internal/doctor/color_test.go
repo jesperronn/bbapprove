@@ -25,9 +25,15 @@ func colourEnv(r *rig, extra ...string) []string {
 
 func (r *rig) doctorTTY(tty bool, mod func(*Options), extra ...string) string {
 	r.t.Helper()
+	return r.doctorTTYMode(tty, true, mod, extra...)
+}
+
+// doctorTTYMode is doctorTTY with the choice between the full (-v) and the dense report.
+func (r *rig) doctorTTYMode(tty, verbose bool, mod func(*Options), extra ...string) string {
+	r.t.Helper()
 	env := colourEnv(r, extra...)
 	_, out := r.doctor(func(o *Options) {
-		o.Environ, o.IsTTY = env, tty
+		o.Environ, o.IsTTY, o.Verbose = env, tty, verbose
 		if mod != nil {
 			mod(o)
 		}
@@ -134,10 +140,12 @@ func TestStrippedColourEqualsPlain(t *testing.T) {
 	for name, mk := range scenarios {
 		t.Run(name, func(t *testing.T) {
 			r := mk()
-			col := r.doctorTTY(true, nil)
-			plain := r.doctorTTY(false, nil)
-			if got := plainGutter(stripSGR(col)); got != plain {
-				t.Errorf("stripped colour differs from plain\n--- stripped ---\n%s\n--- plain ---\n%s", got, plain)
+			for _, verbose := range []bool{true, false} {
+				col := r.doctorTTYMode(true, verbose, nil)
+				plain := r.doctorTTYMode(false, verbose, nil)
+				if got := plainGutter(stripSGR(col)); got != plain {
+					t.Errorf("verbose=%v: stripped colour differs from plain\n--- stripped ---\n%s\n--- plain ---\n%s", verbose, got, plain)
+				}
 			}
 		})
 	}

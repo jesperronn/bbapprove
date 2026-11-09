@@ -400,3 +400,21 @@ func TestDeleteSourceBranchInvalid(t *testing.T) {
 		t.Error("a non-boolean file value must be an error")
 	}
 }
+
+func TestSettingsCompactDisallowOnOneLine(t *testing.T) {
+	c := &Config{Type: Value{"bitbucket", FromDefault}, Disallow: []string{"a", "b"}}
+	if got := c.SettingsCompactThemed(style.Theme{}); !strings.HasSuffix(got, "disallow:              2 entries: a, b\n") {
+		t.Errorf("two entries: %q", got)
+	}
+	c.Disallow = []string{"a"}
+	if got := c.SettingsCompactThemed(style.Theme{}); !strings.HasSuffix(got, "disallow:              1 entry: a\n") {
+		t.Errorf("one entry: %q", got)
+	}
+	c.Disallow = nil
+	if got := c.SettingsCompactThemed(style.Theme{}); !strings.HasSuffix(got, "disallow:              (none)\n") {
+		t.Errorf("no entries: %q", got)
+	}
+	if c.SettingsThemed(style.Theme{}) == c.SettingsCompactThemed(style.Theme{}) {
+		t.Error("--print-config's list must keep its own format")
+	}
+}

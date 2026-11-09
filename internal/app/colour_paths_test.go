@@ -28,6 +28,12 @@ var colourCases = func() []pathCase {
 			o.Executable = func() (string, error) { return filepath.Join(fx.repo, "bin", "bbapprove"), nil }
 			return o
 		}},
+		{"doctor-report-verbose", nil, func(t *testing.T, fx *fixture) Options {
+			o := plainOpts(fx, "doctor", "-v", "--offline")
+			o.LookPath = func(string) (string, error) { return "", exec.ErrNotFound }
+			o.Executable = func() (string, error) { return filepath.Join(fx.repo, "bin", "bbapprove"), nil }
+			return o
+		}},
 		{"print-config", []string{"--print-config"}, func(t *testing.T, fx *fixture) Options {
 			return plainOpts(fx, "--print-config", "--disallow", "a,b")
 		}},
@@ -52,7 +58,7 @@ func hasSGR(s string) bool { return sgrRe.MatchString(s) }
 // reportsColourEnv names cases whose text legitimately depends on the colour settings: the doctor report
 // uses symbols instead of ok/FAIL/warn when coloured and prints the NO_COLOR / FORCE_COLOR it saw. Its plain
 // and coloured forms are pinned by the goldens in internal/doctor; here it only has to be coloured.
-var reportsColourEnv = map[string]bool{"doctor-report": true}
+var reportsColourEnv = map[string]bool{"doctor-report": true, "doctor-report-verbose": true}
 
 // TestEveryPathIsColoured runs every command, topic and error path with FORCE_COLOR=1 and checks that
 // (a) some ANSI escape appears and (b) removing the escapes gives exactly the plain output. It also checks

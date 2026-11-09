@@ -89,7 +89,7 @@ const usageMarkup = `
 {h:Usage:} bbapprove [{flag:--apply}] [{flag:--hide-ignored}] [{flag:--disallow} {val:a,b}] [{flag:--token-name} {val:NAME}]
                  [{flag:--config} {val:FILE}] [{flag:--print-config}] [{flag:-i}] [{flag:--no-mouse}] [{val:PR_URL...}]
        bbapprove {flag:--init} [{flag:--force}] [{flag:--config} {val:FILE}]
-       bbapprove {cmd:doctor} [{flag:--offline}] [{flag:--config} {val:FILE}]
+       bbapprove {cmd:doctor} [{flag:-v}] [{flag:--offline}] [{flag:--config} {val:FILE}]
        bbapprove {flag:--outdated} [{flag:--pre}]
        bbapprove {flag:--update} [{flag:--yes}] [{flag:--pre}]
 
@@ -160,6 +160,7 @@ func Run(ctx context.Context, o Options) int {
 		wantTUI  bool
 		offline  bool
 		doDoctor bool
+		verbose  bool
 		targets  []string
 	)
 	args := o.Args
@@ -221,6 +222,8 @@ func Run(ctx context.Context, o Options) int {
 			pre = true
 		case a == "--offline":
 			offline = true
+		case a == "-v":
+			verbose = true
 		case a == "--yes":
 			yes = true
 		case a == "--print-config":
@@ -255,13 +258,17 @@ func Run(ctx context.Context, o Options) int {
 
 	if doDoctor {
 		if apply || hideIgn || initCfg || force || outdated || doUpdate || pre || yes || printCfg || len(targets) > 0 {
-			o.errf("{cmd:doctor} {fail:only takes} {flag:--offline}, {flag:--config}, {flag:--token-name} and {flag:--disallow}")
+			o.errf("{cmd:doctor} {fail:only takes} {flag:--offline}, {flag:--config}, {flag:--token-name}, {flag:--disallow} and {flag:-v}")
 			return 2
 		}
-		return runDoctor(ctx, o, cfgFile, tokName, disallow, offline)
+		return runDoctor(ctx, o, cfgFile, tokName, disallow, offline, verbose)
 	}
 	if offline {
 		o.errf("{flag:--offline} {fail:only applies to} {cmd:doctor}")
+		return 2
+	}
+	if verbose {
+		o.errf("{flag:-v} {fail:only applies to} {cmd:doctor}")
 		return 2
 	}
 	for _, t := range targets {
@@ -514,13 +521,13 @@ func runUpdate(ctx context.Context, o Options, f updateFlags) int {
 }
 
 // runDoctor wires the real process seams into package doctor.
-func runDoctor(ctx context.Context, o Options, cfgFile, tokName, disallow string, offline bool) int {
+func runDoctor(ctx context.Context, o Options, cfgFile, tokName, disallow string, offline, verbose bool) int {
 	d := doctor.Options{
 		Environ: o.Environ, Stdout: o.Stdout, Stderr: o.Stderr, IsTTY: o.IsTTY,
 		Runner: o.UpdateRunner, LookPath: o.LookPath, Executable: o.Executable,
 		Version: o.Version, GOOS: o.GOOS, GOARCH: o.GOARCH, GoVersion: runtime.Version(),
 		InstallRoot: o.RepoDir, ConfigFlag: cfgFile, TokenNameFlag: tokName, DisallowFlag: disallow,
-		IgnorePath: o.ignorePath(), Offline: offline, Getwd: os.Getwd, HomeDir: os.UserHomeDir,
+		IgnorePath: o.ignorePath(), Offline: offline, Verbose: verbose, Getwd: os.Getwd, HomeDir: os.UserHomeDir,
 	}
 	if d.LookPath == nil {
 		d.LookPath = exec.LookPath

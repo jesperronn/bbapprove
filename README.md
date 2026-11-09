@@ -82,7 +82,8 @@ does not protect: `bbapprove help update`.
 ## Troubleshooting
 
 `bbapprove doctor` is a read-only report (no token or forge access needed): installation, config in use, where
-each setting came from, token source, ignore list, tools. `bbapprove help doctor` explains each section. A row
+each setting came from, token source, ignore list, tools, one line each; `bbapprove doctor -v` prints the full
+report. `bbapprove help doctor` explains each section. A row
 shown as IGNORED is on your ignore file, which doctor lists. Environment variables and exit codes:
 `bbapprove help env`.
 

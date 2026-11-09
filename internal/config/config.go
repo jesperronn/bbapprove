@@ -355,7 +355,13 @@ func (c *Config) Settings() string { return c.SettingsThemed(style.Theme{}) }
 
 // SettingsThemed is Settings with colour: setting names dim, values in the default colour, "[source]"
 // coloured by origin (flag, env, file, default; anything else dim).
-func (c *Config) SettingsThemed(t style.Theme) string {
+func (c *Config) SettingsThemed(t style.Theme) string { return c.settingsThemed(t, false) }
+
+// SettingsCompactThemed is SettingsThemed with the disallow list on one line as "N entries: a, b"
+// ("(none)" when empty), as `bbapprove doctor` shows it.
+func (c *Config) SettingsCompactThemed(t style.Theme) string { return c.settingsThemed(t, true) }
+
+func (c *Config) settingsThemed(t style.Theme, compactDisallow bool) string {
 	var b strings.Builder
 	label := func(name string) string {
 		l := name + ":"
@@ -376,7 +382,18 @@ func (c *Config) SettingsThemed(t style.Theme) string {
 	row("update_repo", c.UpdateRepo)
 	row("delete_source_branch", c.DeleteSourceBranch)
 	row("disallow_file", c.DisallowFile)
-	fmt.Fprintf(&b, "%s%s\n", label("disallow"), strings.Join(c.Disallow, ", "))
+	list := strings.Join(c.Disallow, ", ")
+	if compactDisallow {
+		switch n := len(c.Disallow); n {
+		case 0:
+			list = t.Paint(style.Dim, "(none)")
+		case 1:
+			list = "1 entry: " + list
+		default:
+			list = fmt.Sprintf("%d entries: %s", n, list)
+		}
+	}
+	fmt.Fprintf(&b, "%s%s\n", label("disallow"), list)
 	return b.String()
 }
 

@@ -6,6 +6,7 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- `bbapprove doctor` prints one line per area and always shows problems; `bbapprove doctor -v` prints the full report as before.
 - Maintainers: `bin/test --timings` prints the slowest shell suites, Go packages and Go tests and the total run time.
 
 ### Internal

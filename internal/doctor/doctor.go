@@ -53,6 +53,7 @@ type Options struct {
 	DisallowFlag  string // --disallow
 	IgnorePath    string // the ignore list the app will read
 	Offline       bool   // skip the update check
+	Verbose       bool   // print the full report (every ok line and explanation), not the dense one
 }
 
 func (o Options) env(key string) string {
@@ -152,22 +153,26 @@ func Run(ctx context.Context, o Options) int {
 	r := &report{o: o, w: o.Stdout, color: o.color()}
 	r.t = style.New(r.color)
 
-	r.sectionVersion()
 	cfg, cfgErr := config.Load(config.Input{
 		Env: o.env, RepoDir: o.InstallRoot, ConfigFlag: o.ConfigFlag, TokenNameFlag: o.TokenNameFlag, DisallowFlag: o.DisallowFlag,
 	})
 	if cfgErr != nil {
 		cfg = nil
 	}
-	r.sectionUpdate(ctx, cfg)
-	r.sectionConfigFiles(cfg, cfgErr)
-	r.sectionSettings(cfg, cfgErr)
-	r.sectionAdapter(cfg)
-	r.sectionToken(cfg)
-	r.sectionIgnore()
-	r.sectionDisallow(cfg)
-	r.sectionEnvironment()
-	r.sectionTools(ctx)
+	if o.Verbose {
+		r.sectionVersion()
+		r.sectionUpdate(ctx, cfg)
+		r.sectionConfigFiles(cfg, cfgErr)
+		r.sectionSettings(cfg, cfgErr)
+		r.sectionAdapter(cfg)
+		r.sectionToken(cfg)
+		r.sectionIgnore()
+		r.sectionDisallow(cfg)
+		r.sectionEnvironment()
+		r.sectionTools(ctx)
+	} else {
+		r.compact(ctx, cfg, cfgErr)
+	}
 
 	fmt.Fprintln(r.w)
 	for _, p := range r.problems {
@@ -255,27 +260,27 @@ type candidate struct {
 	label, path string
 }
 
-func (r *report) sectionConfigFiles(cfg *config.Config, err error) {
+// lookup lists the four places a config file may live and which one wins, mirroring config.Load: an
+// explicit file (flag, else env) always wins; else the first existing one.
+func (r *report) lookup() (cands []candidate, winner int, exists func(string) bool) {
 	o := r.o
-	r.head("config:")
 	env := o.env
-	var repoPath, xdgPath string
-	repoPath = filepath.Join(o.InstallRoot, config.ConfigName)
+	repoPath := filepath.Join(o.InstallRoot, config.ConfigName)
+	var xdgPath string
 	if h := config.ConfigHome(env); h != "" {
 		xdgPath = filepath.Join(h, "bbapprove", "config.toml")
 	}
-	cands := []candidate{
+	cands = []candidate{
 		{"--config flag", o.ConfigFlag},
 		{"BBAPPROVE_CONFIG", env("BBAPPROVE_CONFIG")},
 		{"repo root", repoPath},
 		{"XDG config", xdgPath},
 	}
-	exists := func(p string) bool {
+	exists = func(p string) bool {
 		st, err := os.Stat(p)
 		return err == nil && !st.IsDir()
 	}
-	// Winner, mirroring config.Load: an explicit file (flag, else env) always wins; else the first existing one.
-	winner := -1
+	winner = -1
 	switch {
 	case cands[0].path != "":
 		winner = 0
@@ -289,6 +294,11 @@ func (r *report) sectionConfigFiles(cfg *config.Config, err error) {
 			}
 		}
 	}
+	return cands, winner, exists
+}
+
+// printLookup prints the lookup order with the state of every candidate.
+func (r *report) printLookup(cands []candidate, winner int, exists func(string) bool) {
 	fmt.Fprintf(r.w, "     %s\n", r.p(style.Dim, "lookup order (an explicit file wins, else the first one found):"))
 	for i, c := range cands {
 		if c.path == "" {
@@ -312,6 +322,12 @@ func (r *report) sectionConfigFiles(cfg *config.Config, err error) {
 		}
 		fmt.Fprintf(r.w, "        %d. %s %s  %s\n", i+1, r.pad(labelClass(c.label), c.label, 17), r.p(style.Path, c.path), r.p(stateClass, "["+state+"]"))
 	}
+}
+
+func (r *report) sectionConfigFiles(cfg *config.Config, err error) {
+	r.head("config:")
+	cands, winner, exists := r.lookup()
+	r.printLookup(cands, winner, exists)
 
 	if err != nil {
 		r.kv("fail", "in use", "%v", err)
@@ -350,6 +366,11 @@ func (r *report) sectionSettings(cfg *config.Config, cfgErr error) {
 	for _, l := range strings.Split(strings.TrimRight(cfg.SettingsThemed(r.t), "\n"), "\n") {
 		fmt.Fprintf(r.w, "        %s\n", l)
 	}
+	r.checkSettings(cfg)
+}
+
+// checkSettings records the problems with the settings: no usable config file, repository or author_email unset.
+func (r *report) checkSettings(cfg *config.Config) {
 	if cfg.File == "" {
 		if cfg.Repository.Value == "" || cfg.AuthorEmail.Value == "" {
 			r.fail("no config file found (searched "+strings.Join(cfg.Searched, ", ")+") and repository/author_email are not both set",

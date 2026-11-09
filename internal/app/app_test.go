@@ -695,11 +695,19 @@ func TestDoctorSubcommand(t *testing.T) {
 	if code != 0 || errOut != "" { // settings come from the environment: only a warning
 		t.Fatalf("code %d err %q\n%s", code, errOut, out)
 	}
-	if !strings.Contains(out, "bbapprove dev  (linux/amd64, go") || !strings.Contains(out, "skipped (--offline)") || strings.Contains(out, "tok-must-not-print") {
+	if !strings.Contains(out, "bbapprove dev (linux/amd64, go") || !strings.Contains(out, "skipped (--offline)") || strings.Contains(out, "tok-must-not-print") {
 		t.Errorf("doctor output:\n%s", out)
 	}
 	if readLog(t, log) != "" {
 		t.Errorf("doctor ran the adapter: %s", readLog(t, log))
+	}
+	// -v is the full report
+	code, full, _ := doctorCLI(t, env, "doctor", "-v", "--offline")
+	if code != 0 || !strings.Contains(full, "lookup order") || !strings.Contains(full, "VISUAL not set") || strings.Contains(full, "tok-must-not-print") {
+		t.Errorf("doctor -v: code %d\n%s", code, full)
+	}
+	if strings.Contains(out, "VISUAL") || len(full) <= len(out) {
+		t.Errorf("the default report must be shorter than -v:\n%s", out)
 	}
 	// no settings at all: a FAIL, exit 1, still not a usage error
 	if code, out, _ := doctorCLI(t, []string{"NO_COLOR=1", "XDG_CONFIG_HOME=" + t.TempDir()}, "--offline", "doctor", "-i"); code != 1 || !strings.Contains(out, "FAIL no config file found") {

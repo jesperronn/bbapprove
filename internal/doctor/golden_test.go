@@ -45,15 +45,15 @@ func goldenRig(t *testing.T) *rig {
 
 func TestGoldenPlainDoctor(t *testing.T) {
 	r := goldenRig(t)
-	_, out := r.doctor(func(o *Options) { o.Offline = true })
-	checkGolden(t, "doctor_ok.golden", r.normalize(out))
+	_, out := r.doctorV(func(o *Options) { o.Offline = true })
+	checkGolden(t, "doctor_ok_verbose.golden", r.normalize(out))
 }
 
 func TestGoldenPlainDoctorUpdateAvailable(t *testing.T) {
 	r := goldenRig(t)
 	r.run.releases = `[{"tagName":"v1.2.0","isPrerelease":false,"isDraft":false}]`
-	_, out := r.doctor(nil)
-	checkGolden(t, "doctor_update.golden", r.normalize(out))
+	_, out := r.doctorV(nil)
+	checkGolden(t, "doctor_update_verbose.golden", r.normalize(out))
 }
 
 func TestGoldenPlainDoctorProblems(t *testing.T) {
@@ -63,6 +63,6 @@ func TestGoldenPlainDoctorProblems(t *testing.T) {
 	os.MkdirAll(filepath.Join(r.xdg, "bbapprove"), 0o755)
 	os.WriteFile(r.ignorePath(), []byte("x\n"), 0o600)
 	os.Remove(filepath.Join(r.root, "adapters", "bitbucket"))
-	_, out := r.doctor(nil)
-	checkGolden(t, "doctor_problems.golden", r.normalize(out))
+	_, out := r.doctorV(nil)
+	checkGolden(t, "doctor_problems_verbose.golden", r.normalize(out))
 }

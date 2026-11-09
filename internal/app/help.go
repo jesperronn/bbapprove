@@ -67,6 +67,7 @@ approved, merged, declined or commented, in a dry run and with {flag:--apply}. I
 hidden on demand and i edits the list. A title matching an entry (case-insensitive substring) is IGNORED
 whatever else applies; removing the entry restores the PR's own SKIP reason. A missing file is an empty list;
 a file that exists but cannot be read stops the run (exit 1) rather than risk acting on an ignored PR.
+{cmd:doctor} {flag:-v} lists the entries and repeats this.
 {flag:--hide-ignored} leaves ignored rows out of the table. The footer names the file:
 "N ignored via FILE (see: bbapprove doctor)", or "N ignored (hidden) via FILE" with {flag:--hide-ignored}.
 
@@ -229,7 +230,7 @@ const envMarkup = `{title:bbapprove help env — environment variables and exit 
 // doctorUsageMarkup is the help for `bbapprove doctor`, in the markup of package style.
 const doctorUsageMarkup = `{title:bbapprove doctor — diagnose the installation and the configuration.}
 
-{h:Usage:} bbapprove {cmd:doctor} [{flag:--offline}] [{flag:--config} {val:FILE}] [{flag:--disallow} {val:a,b}]
+{h:Usage:} bbapprove {cmd:doctor} [{flag:-v}] [{flag:--offline}] [{flag:--config} {val:FILE}] [{flag:--disallow} {val:a,b}]
                          [{flag:--token-name} {val:NAME}]
        bbapprove {cmd:doctor} {flag:--help}
 
@@ -237,6 +238,8 @@ Read-only: prints a report, changes nothing, never prints a secret, and needs no
 forge access or config file. It also works when the configuration is broken: that is what it reports.
 
 {h:Options:}
+  {flag:-v}              the full report: every ok line, the lookup order, the ignore and disallow entries,
+                       the environment and the tool paths (the default report is one line per area)
   {flag:--offline}       skip the update check (nothing leaves this machine)
   {flag:--config} {val:FILE}   diagnose this config file ({env:BBAPPROVE_CONFIG} does the same; the flag wins)
   {flag:--disallow} {val:a,b}  add disallowed dependencies, as for a normal run
@@ -244,23 +247,25 @@ forge access or config file. It also works when the configuration is broken: tha
                          and user_token_name do the same); only used when {env:BBAPPROVE_TOKEN} is unset
   {flag:-h}, {flag:--help}      show this help
 
-{h:Sections:} one block each, in this order
+{h:Sections:} one line each in the default report, a block each with {flag:-v}, in this order. A problem
+(warn or FAIL) is always printed; only ok lines and explanations are left out of the default report.
   version      bbapprove version, platform, git checkout or release archive, the running binary,
                and whether the bbapprove on your PATH is that binary
   update       asks gh (or git in a checkout) for a newer release; skipped with {flag:--offline}
   config       every candidate config file ({flag:--config}, {env:BBAPPROVE_CONFIG}, repo root,
-               {path:$XDG_CONFIG_HOME/bbapprove/config.toml}) and which one wins, its mode, whether it is
+               {path:$XDG_CONFIG_HOME/bbapprove/config.toml}) and which one wins (the default report
+               lists them only when no file is found), its mode ({flag:-v}), whether it is
                valid TOML and still holds the template's example values; then every effective
-               setting with its source: {src-flag:[flag]}, {src-env:[env]}, {src-file:[file]} or {src-default:[default]}
-  adapter      the forge type, the adapter path, and that it exists and is executable
+               setting with its source: {src-flag:[flag]}, {src-env:[env]}, {src-file:[file]} or {src-default:[default]}.
+               A forge adapter that is missing or not executable is reported under the forge type
   token        where the token comes from: {env:BBAPPROVE_TOKEN} (wins), else the 1Password item named by
                {flag:--token-name} / {env:BBAPPROVE_TOKEN_NAME} / user_token_name; never a value, and doctor
                does not run op. FAIL when there is neither
   ignore list  the per-user ignore file, whether it is readable (an unreadable list is a problem:
                bbapprove then refuses to run), and its entries
   disallow     the disallow lists from the config file, {env:BBAPPROVE_DISALLOW} and the disallow file
-  environment  the {env:BBAPPROVE_*} variables that are set, plus {env:NO_COLOR}, {env:FORCE_COLOR},
-               {env:XDG_CONFIG_HOME}, {env:EDITOR} and {env:VISUAL}
+  environment  the {env:BBAPPROVE_*} variables that are set, plus {env:NO_COLOR} and {env:FORCE_COLOR}
+               (nothing when none is set); {flag:-v} adds {env:XDG_CONFIG_HOME}, {env:EDITOR} and {env:VISUAL}
   tools        git, gh and op on PATH, and whether gh is logged in
 
 {h:Markers:} {ok:ok} / {ok:✓} fine, {warn:warn} / {warn:!} worth a look, {fail:FAIL} / {fail:✗} a problem.

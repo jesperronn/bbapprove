@@ -411,6 +411,9 @@ var pathCases = []pathCase{
 	{"offline-without-doctor", []string{"--offline"}, func(t *testing.T, fx *fixture) Options {
 		return Options{Args: []string{"--offline"}, Environ: fx.env(), RepoDir: fx.repo}
 	}},
+	{"verbose-without-doctor", []string{"-v"}, func(t *testing.T, fx *fixture) Options {
+		return Options{Args: []string{"-v"}, Environ: fx.env(), RepoDir: fx.repo}
+	}},
 	{"not-a-pr-url", nil, func(t *testing.T, fx *fixture) Options {
 		return Options{Args: []string{"nonsense"}, Environ: fx.env(), RepoDir: fx.repo}
 	}},

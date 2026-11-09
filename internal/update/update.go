@@ -14,6 +14,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"bbapprove/internal/style"
 )
 
 // DefaultSlug is the project's own home; override with BBAPPROVE_UPDATE_REPO or config update_repo.
@@ -76,6 +78,23 @@ type Options struct {
 	Yes         bool          // --yes: skip the confirmation
 	Timeout     time.Duration // per network lookup; default 10s
 	MaxExtract  int64         // cap on extracted bytes; default 200 MiB
+	// OutTheme paints what goes to Stdout, ErrTheme what goes to Stderr. The zero value is plain text; each
+	// stream has its own theme because only one of them may be a terminal.
+	OutTheme, ErrTheme style.Theme
+}
+
+// outln and errln print markup (see package style) with escaped arguments to the respective stream.
+func (o Options) outln(markup string, a ...any) {
+	fmt.Fprintln(o.Stdout, o.OutTheme.Sprintf(markup, a...))
+}
+
+func (o Options) errln(markup string, a ...any) {
+	fmt.Fprintln(o.Stderr, o.ErrTheme.Sprintf(markup, a...))
+}
+
+// failln prints "bbapprove: <message>" with the prefix painted as an error; the message is data.
+func (o Options) failln(format string, a ...any) {
+	o.errln("{fail:bbapprove:} %s", fmt.Sprintf(format, a...))
 }
 
 func (o *Options) fill() {
@@ -249,21 +268,22 @@ func parseLsRemote(s string) []Release {
 	return rels
 }
 
+// describeCurrent is the running version as markup (versions highlighted); outdated text is data.
 func (o Options) describeCurrent(c Current) string {
 	if c.Dev && c.Known {
-		s := fmt.Sprintf("bbapprove %s is a development build (base %s, %d commits ahead", c.Raw, c.Base, c.Ahead)
+		s := o.OutTheme.Sprintf("bbapprove {ver:%s} is a development build (base {ver:%s}, %s commits ahead", c.Raw, c.Base, fmt.Sprint(c.Ahead))
 		if c.Dirty {
-			s += ", uncommitted changes"
+			s += o.OutTheme.Sprintf(", {warn:uncommitted changes}")
 		}
 		return s + ")"
 	}
-	return "bbapprove " + c.Raw
+	return o.OutTheme.Sprintf("bbapprove {ver:%s}", c.Raw)
 }
 
-func latestText(r Release) string {
-	s := "latest " + r.Tag
+func (o Options) latestText(r Release) string {
+	s := o.OutTheme.Sprintf("latest {ver:%s}", r.Tag)
 	if r.Pre {
-		s += " (pre-release)"
+		s += o.OutTheme.Sprintf(" {dim:(pre-release)}")
 	}
 	return s
 }
@@ -273,7 +293,7 @@ func Outdated(ctx context.Context, o Options) int {
 	o.fill()
 	res, err := check(ctx, o)
 	if err != nil {
-		fmt.Fprintf(o.Stderr, "bbapprove: %v\n", err)
+		o.failln("%v", err)
 		return 2
 	}
 	o.printCheck(res)
@@ -287,23 +307,23 @@ func (o Options) printCheck(res *Result) {
 	cur := o.describeCurrent(res.Current)
 	if !res.Outdated {
 		if res.Current.Dev {
-			fmt.Fprintf(o.Stdout, "%s — %s: up to date\n", cur, latestText(res.Latest))
+			fmt.Fprintf(o.Stdout, "%s — %s: %s\n", cur, o.latestText(res.Latest), o.OutTheme.Paint(style.OK, "up to date"))
 		} else {
-			fmt.Fprintf(o.Stdout, "bbapprove %s is up to date\n", res.Current.Raw)
+			o.outln("bbapprove {ver:%s} is {ok:up to date}", res.Current.Raw)
 		}
 		return
 	}
-	fmt.Fprintf(o.Stdout, "%s — %s: update available\n", cur, latestText(res.Latest))
+	fmt.Fprintf(o.Stdout, "%s — %s: %s\n", cur, o.latestText(res.Latest), o.OutTheme.Paint(style.Warn, "update available"))
 	if res.Install == Checkout {
-		fmt.Fprintln(o.Stdout, "  update with: bbapprove --update   (or: git pull --ff-only --tags && bin/build)")
+		o.outln("  update with: bbapprove {flag:--update}   (or: {cmd:git pull --ff-only --tags && bin/build})")
 	} else {
-		fmt.Fprintf(o.Stdout, "  update with: bbapprove --update   (release: %s/tag/%s)\n", o.releasesURL(), res.Latest.Tag)
+		o.outln("  update with: bbapprove {flag:--update}   (release: {path:%s/tag/%s})", o.releasesURL(), res.Latest.Tag)
 	}
 }
 
 // confirm asks "Proceed? [y/N]"; anything but y/yes (including EOF) is no.
 func (o Options) confirm() bool {
-	fmt.Fprint(o.Stdout, "Proceed? [y/N] ")
+	fmt.Fprint(o.Stdout, o.OutTheme.Sprintf("{h:Proceed?} {dim:[y/N]} "))
 	if o.Stdin == nil {
 		fmt.Fprintln(o.Stdout)
 		return false
@@ -322,12 +342,12 @@ func (o Options) proceed() (ok bool, code int) {
 	case o.Yes:
 		return true, 0
 	case !o.IsTTY:
-		fmt.Fprintln(o.Stderr, "bbapprove: not a terminal, nothing changed; re-run with --yes to apply")
+		o.errln("{fail:bbapprove:} not a terminal, nothing changed; re-run with {flag:--yes} to apply")
 		return false, 2
 	case o.confirm():
 		return true, 0
 	}
-	fmt.Fprintln(o.Stdout, "Aborted, nothing changed.")
+	o.outln("{warn:Aborted, nothing changed.}")
 	return false, 1
 }
 
@@ -336,12 +356,10 @@ func Update(ctx context.Context, o Options) int {
 	o.fill()
 	res, err := check(ctx, o)
 	if err != nil {
+		o.failln("%v", err)
 		if o.Install() == Archive && errors.Is(err, exec.ErrNotFound) {
-			fmt.Fprintf(o.Stderr, "bbapprove: %v\n", err)
 			o.manualSteps("<tag>")
-			return 2
 		}
-		fmt.Fprintf(o.Stderr, "bbapprove: %v\n", err)
 		return 2
 	}
 	o.printCheck(res)

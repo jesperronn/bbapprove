@@ -2,7 +2,6 @@ package update
 
 import (
 	"context"
-	"fmt"
 	"path/filepath"
 	"strings"
 )
@@ -19,7 +18,7 @@ func (o Options) updateCheckout(ctx context.Context, res *Result) int {
 		return o.Runner.Run(ctx, Cmd{Dir: root, Name: "git", Args: args})
 	}
 	fail := func(format string, a ...any) int {
-		fmt.Fprintf(o.Stderr, "bbapprove: "+format+"\n", a...)
+		o.failln(format, a...)
 		return 1
 	}
 	out, err := git("status", "--porcelain", "--untracked-files=no")
@@ -37,10 +36,10 @@ func (o Options) updateCheckout(ctx context.Context, res *Result) int {
 		return fail("%s is on branch %q, not %q; run `git switch %s` first (nothing changed)", root, b, defaultBranch, defaultBranch)
 	}
 
-	fmt.Fprintf(o.Stdout, "\nPlan: update the checkout %s in place (%s -> %s)\n", root, res.Current.Raw, res.Latest.Tag)
-	fmt.Fprintln(o.Stdout, "  1. git fetch --tags")
-	fmt.Fprintln(o.Stdout, "  2. git pull --ff-only   (stops if main cannot be fast-forwarded)")
-	fmt.Fprintln(o.Stdout, "  3. bin/build")
+	o.outln("\n{h:Plan:} update the checkout {path:%s} in place ({ver:%s} -> {ver:%s})", root, res.Current.Raw, res.Latest.Tag)
+	o.outln("  1. {cmd:git fetch --tags}")
+	o.outln("  2. {cmd:git pull --ff-only}   {dim:(stops if main cannot be fast-forwarded)}")
+	o.outln("  3. {cmd:bin/build}")
 	if ok, code := o.proceed(); !ok {
 		return code
 	}
@@ -65,6 +64,6 @@ func (o Options) updateCheckout(ctx context.Context, res *Result) int {
 	if err != nil {
 		return fail("updated and built, but `bbapprove --version` failed: %v", err)
 	}
-	fmt.Fprintf(o.Stdout, "Updated: %s\n", strings.TrimSpace(string(v)))
+	o.outln("{ok:Updated:} %s", strings.TrimSpace(string(v)))
 	return 0
 }

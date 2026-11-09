@@ -13,6 +13,8 @@ import (
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
+
+	"bbapprove/internal/style"
 )
 
 // Template is the example config embedded in the binary, so first-run setup works from a release
@@ -170,6 +172,9 @@ type FirstRun struct {
 	In     io.Reader
 	Out    io.Writer // prompts and messages (stderr)
 	Editor EditorRunner
+	// ErrTheme paints what goes to Out (stderr), OutTheme what Init writes to stdout. The zero value is
+	// plain text; each stream gets its own theme because only one of them may be a terminal.
+	ErrTheme, OutTheme style.Theme
 }
 
 func (f FirstRun) interactive() bool { return f.IsTTY != nil && f.IsTTY() }
@@ -196,13 +201,14 @@ func Setup(ctx context.Context, in Input, cfg *Config, f FirstRun) (_ *Config, c
 	if out == nil {
 		out = io.Discard
 	}
+	t := f.ErrTheme
 	def := DefaultPath(in.Env)
 	if !f.interactive() || def == "" {
-		fmt.Fprintln(out, cfg.Missing())
+		fmt.Fprintln(out, cfg.MissingFor(t))
 		return cfg, 1, false
 	}
-	fmt.Fprintln(out, "bbapprove: no config file found.")
-	fmt.Fprintf(out, "Create %s from the template and open it in your editor? [Y/n] ", def)
+	fmt.Fprintln(out, t.Sprintf("{warn:bbapprove: no config file found.}"))
+	fmt.Fprint(out, t.Sprintf("Create {path:%s} from the template and open it in your editor? {dim:[Y/n]} ", def))
 	var rd *bufio.Reader
 	if f.In != nil {
 		rd = bufio.NewReader(f.In)
@@ -210,47 +216,47 @@ func Setup(ctx context.Context, in Input, cfg *Config, f FirstRun) (_ *Config, c
 	if !askYes(rd) {
 		fmt.Fprintln(out)
 		fmt.Fprintln(out, "Not creating it. To do it yourself:")
-		fmt.Fprint(out, createHint(def))
+		fmt.Fprint(out, createHint(t, def))
 		return cfg, 1, false
 	}
 	if err := WriteTemplate(def, false); err != nil {
-		fmt.Fprintf(out, "bbapprove: cannot create %s: %v\n", def, err)
+		fmt.Fprintln(out, t.Sprintf("{fail:bbapprove:} cannot create {path:%s}: %s", def, err))
 		return cfg, 1, false
 	}
-	fmt.Fprintf(out, "Created %s (mode 0600).\n", def)
+	fmt.Fprintln(out, t.Sprintf("{ok:Created} {path:%s} (mode 0600).", def))
 	for round := 1; ; round++ {
 		opened, err := f.runEditor(ctx, in.Env, def)
 		switch {
 		case err != nil:
-			fmt.Fprintf(out, "bbapprove: editor failed: %v\nEdit %s, then run the same command again.\n", err, def)
+			fmt.Fprintln(out, t.Sprintf("{fail:bbapprove:} editor failed: %s\nEdit {path:%s}, then run the same command again.", err, def))
 			return cfg, 1, false
 		case !opened:
-			fmt.Fprintf(out, "No $VISUAL or $EDITOR is set. Edit %s, then run the same command again.\n", def)
+			fmt.Fprintln(out, t.Sprintf("No {env:$VISUAL} or {env:$EDITOR} is set. Edit {path:%s}, then run the same command again.", def))
 			return cfg, 1, false
 		}
 		newCfg, err := Load(in)
 		if err == nil {
-			err = newCfg.Missing()
+			err = newCfg.MissingFor(t)
 		}
 		if err != nil {
-			fmt.Fprintf(out, "%v\nconfig still not valid: edit %s and run the same command again.\n", err, def)
+			fmt.Fprintln(out, t.Sprintf("%s\n{fail:config still not valid:} edit {path:%s} and run the same command again.", err, def))
 			return cfg, 1, false
 		}
 		ph := Placeholders(def)
 		if len(ph) == 0 {
-			fmt.Fprintln(out, "config OK")
+			fmt.Fprintln(out, t.Sprintf("{ok:config OK}"))
 			return newCfg, 0, true
 		}
 		for _, p := range ph {
-			fmt.Fprintln(out, "bbapprove: "+p)
+			fmt.Fprintln(out, t.Sprintf("{warn:bbapprove:} %s", p))
 		}
 		if round >= maxEditRounds {
-			fmt.Fprintf(out, "Giving up after %d rounds; %s was left in place. Edit it, or run: bbapprove --init --force\n", round, def)
+			fmt.Fprintln(out, t.Sprintf("Giving up after %s rounds; {path:%s} was left in place. Edit it, or run: bbapprove {flag:--init} {flag:--force}", round, def))
 			return cfg, 1, false
 		}
-		fmt.Fprint(out, "Edit again? [Y/n] ")
+		fmt.Fprint(out, t.Sprintf("Edit again? {dim:[Y/n]} "))
 		if !askYes(rd) {
-			fmt.Fprintf(out, "\n%s was left in place. Edit it, or run: bbapprove --init --force\n", def)
+			fmt.Fprintln(out, t.Sprintf("\n{path:%s} was left in place. Edit it, or run: bbapprove {flag:--init} {flag:--force}", def))
 			return cfg, 1, false
 		}
 	}
@@ -269,9 +275,9 @@ func askYes(rd *bufio.Reader) bool {
 	return a == "" || a == "y" || a == "yes"
 }
 
-// createHint is the manual two-line instruction for creating the config at path.
-func createHint(path string) string {
-	return fmt.Sprintf("  mkdir -p %s && cp bbapprove.config.template %s\n  (or: bbapprove --init), then edit it.\n",
+// createHint is the manual two-line instruction for creating the config at path, painted by t.
+func createHint(t style.Theme, path string) string {
+	return t.Sprintf("  {cmd:mkdir -p} {path:%s} && {cmd:cp} bbapprove.config.template {path:%s}\n  (or: bbapprove {flag:--init}), then edit it.\n",
 		shellQuote(filepath.Dir(path)), shellQuote(path))
 }
 
@@ -289,6 +295,7 @@ func Init(ctx context.Context, env func(string) string, path string, force bool,
 	if out == nil {
 		out = io.Discard
 	}
+	et, ot := f.ErrTheme, f.OutTheme
 	if path == "" {
 		path = env("BBAPPROVE_CONFIG") // flag > env > default
 	}
@@ -297,28 +304,28 @@ func Init(ctx context.Context, env func(string) string, path string, force bool,
 	}
 	if err := WriteTemplate(path, force); err != nil {
 		if errors.Is(err, ErrExists) {
-			fmt.Fprintf(out, "bbapprove: %s already exists; not overwriting (use --init --force to replace it).\n", path)
+			fmt.Fprintln(out, et.Sprintf("{fail:bbapprove:} {path:%s} already exists; not overwriting (use {flag:--init} {flag:--force} to replace it).", path))
 		} else {
-			fmt.Fprintf(out, "bbapprove: --init: %v\n", err)
+			fmt.Fprintln(out, et.Sprintf("{fail:bbapprove:} {flag:--init}: %s", err))
 		}
 		return 1
 	}
-	fmt.Fprintf(stdout, "Wrote %s (mode 0600).\n", path)
+	fmt.Fprintln(stdout, ot.Sprintf("{ok:Wrote} {path:%s} (mode 0600).", path))
 	if f.interactive() {
 		opened, err := f.runEditor(ctx, env, path)
 		if err != nil {
-			fmt.Fprintf(out, "bbapprove: editor failed: %v\n", err)
+			fmt.Fprintln(out, et.Sprintf("{fail:bbapprove:} editor failed: %s", err))
 			return 1
 		}
 		if !opened {
-			fmt.Fprintf(stdout, "No $VISUAL or $EDITOR is set; edit %s yourself.\n", path)
+			fmt.Fprintln(stdout, ot.Sprintf("No {env:$VISUAL} or {env:$EDITOR} is set; edit {path:%s} yourself.", path))
 		}
 		for _, p := range Placeholders(path) {
-			fmt.Fprintln(stdout, "warning: "+p)
+			fmt.Fprintln(stdout, ot.Sprintf("{warn:warning:} %s", p))
 		}
 	} else {
-		fmt.Fprintf(stdout, "Edit %s to set repository and author_email.\n", path)
+		fmt.Fprintln(stdout, ot.Sprintf("Edit {path:%s} to set {val:repository} and {val:author_email}.", path))
 	}
-	fmt.Fprintln(stdout, "Next: bbapprove --print-config   (shows the effective settings and where each came from)")
+	fmt.Fprintln(stdout, ot.Sprintf("{h:Next:} bbapprove {flag:--print-config}   {dim:(shows the effective settings and where each came from)}"))
 	return 0
 }

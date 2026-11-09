@@ -52,7 +52,8 @@ type Options struct {
 }
 
 func (o Options) firstRun() config.FirstRun {
-	return config.FirstRun{IsTTY: o.Interactive, In: o.Stdin, Out: o.Stderr, Editor: o.Editor}
+	return config.FirstRun{IsTTY: o.Interactive, In: o.Stdin, Out: o.Stderr, Editor: o.Editor,
+		ErrTheme: o.errTheme(), OutTheme: o.outTheme()}
 }
 
 // ignorePath is the per-user ignore list: Options.IgnorePath, else $XDG_CONFIG_HOME/bbapprove/ignore.
@@ -64,6 +65,12 @@ func (o Options) ignorePath() string {
 		return filepath.Join(x, "bbapprove", "ignore")
 	}
 	return ignore.DefaultPath()
+}
+
+// errf prints a message to stderr, painted with the stderr theme. markup is in the {class:text} syntax of
+// package style; the arguments are data and are escaped. Plain output is the markup without its tags.
+func (o Options) errf(markup string, a ...any) {
+	fmt.Fprintln(o.Stderr, o.errTheme().Sprintf(markup, a...))
 }
 
 func (o Options) env(key string) string {
@@ -186,7 +193,8 @@ func Run(ctx context.Context, o Options) int {
 				io.WriteString(o.Stdout, text)
 				return 0
 			}
-			fmt.Fprintf(o.Stderr, "Unknown help topic: %s\n%s", args[i+1], topicListFor(style.Theme{}, o.Version))
+			et := o.errTheme()
+			fmt.Fprintf(o.Stderr, "%s\n%s", et.Sprintf("{fail:Unknown help topic:} {fail:%s}", args[i+1]), topicListFor(et, o.Version))
 			return 2
 		case a == "--apply":
 			apply = true
@@ -197,7 +205,7 @@ func Run(ctx context.Context, o Options) int {
 		case a == "--disallow" || strings.HasPrefix(a, "--disallow="):
 			v, ok := val()
 			if !ok {
-				fmt.Fprintln(o.Stderr, "--disallow needs a value")
+				o.errf("{flag:--disallow} {fail:needs a value}")
 				return 2
 			}
 			disallow = v
@@ -220,22 +228,23 @@ func Run(ctx context.Context, o Options) int {
 		case a == "--token-name" || strings.HasPrefix(a, "--token-name="):
 			v, ok := val()
 			if !ok {
-				fmt.Fprintln(o.Stderr, "--token-name needs a value")
+				o.errf("{flag:--token-name} {fail:needs a value}")
 				return 2
 			}
 			tokName = v
 		case a == "--config" || strings.HasPrefix(a, "--config="):
 			v, ok := val()
 			if !ok {
-				fmt.Fprintln(o.Stderr, "--config needs a value")
+				o.errf("{flag:--config} {fail:needs a value}")
 				return 2
 			}
 			cfgFile = v
 		case config.IsRemovedTokenFlag(a):
-			fmt.Fprintln(o.Stderr, config.RemovedTokenFlagHelp)
+			fmt.Fprintln(o.Stderr, config.RemovedTokenFlagHelpFor(o.errTheme()))
 			return 2
 		case strings.HasPrefix(a, "-"):
-			fmt.Fprintf(o.Stderr, "Unknown option: %s\n%s", a, usage(o.Version))
+			et := o.errTheme()
+			fmt.Fprintf(o.Stderr, "%s\n%s", et.Sprintf("Unknown option: {fail:%s}", a), usageFor(et, o.Version))
 			return 2
 		case a == "doctor" && len(targets) == 0 && !doDoctor:
 			doDoctor = true
@@ -246,18 +255,18 @@ func Run(ctx context.Context, o Options) int {
 
 	if doDoctor {
 		if apply || hideIgn || initCfg || force || outdated || doUpdate || pre || yes || printCfg || len(targets) > 0 {
-			fmt.Fprintln(o.Stderr, "doctor only takes --offline, --config, --token-name and --disallow")
+			o.errf("{cmd:doctor} {fail:only takes} {flag:--offline}, {flag:--config}, {flag:--token-name} and {flag:--disallow}")
 			return 2
 		}
 		return runDoctor(ctx, o, cfgFile, tokName, disallow, offline)
 	}
 	if offline {
-		fmt.Fprintln(o.Stderr, "--offline only applies to doctor")
+		o.errf("{flag:--offline} {fail:only applies to} {cmd:doctor}")
 		return 2
 	}
 	for _, t := range targets {
 		if !strings.Contains(t, "://") {
-			fmt.Fprintf(o.Stderr, "Not a PR URL: %s\n(subcommands: doctor; see bbapprove --help)\n", t)
+			o.errf("{fail:Not a PR URL:} {fail:%s}\n(subcommands: {cmd:doctor}; see bbapprove {flag:--help})", t)
 			return 2
 		}
 	}
@@ -269,18 +278,18 @@ func Run(ctx context.Context, o Options) int {
 		})
 	}
 	if pre || yes {
-		fmt.Fprintln(o.Stderr, "--pre and --yes only apply to --outdated / --update")
+		o.errf("{flag:--pre} and {flag:--yes} {fail:only apply to} {flag:--outdated} / {flag:--update}")
 		return 2
 	}
 	if initCfg {
 		return config.Init(ctx, o.env, cfgFile, force, o.firstRun(), o.Stdout)
 	}
 	if force {
-		fmt.Fprintln(o.Stderr, "--force only applies to --init")
+		o.errf("{flag:--force} {fail:only applies to} {flag:--init}")
 		return 2
 	}
 	if wantTUI && !printCfg {
-		fmt.Fprintln(o.Stderr, "interactive mode: not implemented yet")
+		o.errf("{fail:interactive mode: not implemented yet}")
 		return 2
 	}
 	cin := config.Input{
@@ -288,19 +297,19 @@ func Run(ctx context.Context, o Options) int {
 	}
 	cfg, err := config.Load(cin)
 	if err != nil {
-		fmt.Fprintf(o.Stderr, "bbapprove: %v\n", err)
+		o.errf("{fail:bbapprove:} %s", err)
 		return 1
 	}
 	for _, w := range cfg.Warnings {
-		fmt.Fprintf(o.Stderr, "bbapprove: warning: %s\n", w)
+		o.errf("{warn:bbapprove: warning:} %s", w)
 	}
 	if printCfg {
 		io.WriteString(o.Stdout, cfg.DescribeThemed(o.outTheme()))
 		return 0
 	}
-	if err := cfg.Missing(); err != nil {
+	if err := cfg.MissingFor(o.errTheme()); err != nil {
 		if cfg.File != "" {
-			fmt.Fprintln(o.Stderr, err)
+			o.errf("{err:%s}", err)
 			return 1
 		}
 		var code int
@@ -310,7 +319,7 @@ func Run(ctx context.Context, o Options) int {
 		}
 	}
 	if token == "" && cfg.TokenName.Value == "" { // fail fast, before the adapter or the ignore list is touched
-		fmt.Fprintln(o.Stderr, config.TokenMissingHelp)
+		fmt.Fprintln(o.Stderr, config.TokenMissingHelpFor(o.errTheme()))
 		return 1
 	}
 	adapterPath := cfg.Adapter.Value
@@ -323,7 +332,7 @@ func Run(ctx context.Context, o Options) int {
 	// Fail closed: an unreadable ignore list must never be treated as empty, or an ignored PR could be merged.
 	ignored, err := ignore.Load(ignorePath)
 	if err != nil {
-		fmt.Fprintf(o.Stderr, "cannot read ignore list: %v\n", err)
+		o.errf("{fail:cannot read ignore list:} %s", err)
 		return 1
 	}
 
@@ -333,7 +342,7 @@ func Run(ctx context.Context, o Options) int {
 	if token == "" { // BBAPPROVE_TOKEN wins; otherwise look the named 1Password item up
 		t, err := client.AuthToken(ctx)
 		if err != nil {
-			fmt.Fprintln(o.Stderr, err)
+			o.errf("{err:%s}", err)
 			return 1
 		}
 		client.Token = t
@@ -344,14 +353,14 @@ func Run(ctx context.Context, o Options) int {
 		var err error
 		prs, err = fetchAll(ctx, client, targets, jobs)
 		if err != nil {
-			fmt.Fprintln(o.Stderr, err)
+			o.errf("{err:%s}", err)
 			return 1
 		}
 	} else {
 		var err error
 		prs, err = client.List(ctx)
 		if err != nil {
-			fmt.Fprintln(o.Stderr, err)
+			o.errf("{err:%s}", err)
 			return 1
 		}
 	}
@@ -391,7 +400,7 @@ func Run(ctx context.Context, o Options) int {
 	}
 
 	if !apply {
-		out.line("Dry run — pass --apply to approve and merge.")
+		out.line(o.outTheme().Sprintf("Dry run — pass {flag:--apply} to approve and merge."))
 		return 0
 	}
 
@@ -462,13 +471,13 @@ type updateFlags struct {
 func runUpdate(ctx context.Context, o Options, f updateFlags) int {
 	switch {
 	case f.outdated && f.update:
-		fmt.Fprintln(o.Stderr, "--outdated and --update cannot be combined (--update checks first anyway)")
+		o.errf("{flag:--outdated} and {flag:--update} {fail:cannot be combined} ({flag:--update} checks first anyway)")
 		return 2
 	case f.apply || f.targets > 0 || f.init || f.printCfg:
-		fmt.Fprintln(o.Stderr, "--outdated / --update cannot be combined with --apply, --init, --print-config or PR URLs")
+		o.errf("{flag:--outdated} / {flag:--update} {fail:cannot be combined with} {flag:--apply}, {flag:--init}, {flag:--print-config} or PR URLs")
 		return 2
 	case f.yes && !f.update:
-		fmt.Fprintln(o.Stderr, "--yes only applies to --update")
+		o.errf("{flag:--yes} {fail:only applies to} {flag:--update}")
 		return 2
 	}
 	slug := o.env("BBAPPROVE_UPDATE_REPO")
@@ -476,7 +485,7 @@ func runUpdate(ctx context.Context, o Options, f updateFlags) int {
 		slug = config.DefaultUpdateRepo
 		cfg, err := config.Load(config.Input{Env: o.env, RepoDir: o.RepoDir, ConfigFlag: f.cfgFile})
 		if err != nil {
-			fmt.Fprintf(o.Stderr, "bbapprove: warning: %v; using the default update repository\n", err)
+			o.errf("{warn:bbapprove: warning:} %s; using the default update repository", err)
 		} else {
 			slug = cfg.UpdateRepo.Value
 		}
@@ -485,7 +494,7 @@ func runUpdate(ctx context.Context, o Options, f updateFlags) int {
 		Runner: o.UpdateRunner, Stdin: o.Stdin, Stdout: o.Stdout, Stderr: o.Stderr,
 		IsTTY: o.IsTTY && o.Interactive != nil && o.Interactive(),
 		GOOS:  o.GOOS, GOARCH: o.GOARCH, InstallRoot: o.RepoDir, Version: o.Version, Slug: slug,
-		PathEnv: o.env("PATH"), Pre: f.pre, Yes: f.yes,
+		PathEnv: o.env("PATH"), Pre: f.pre, Yes: f.yes, OutTheme: o.outTheme(), ErrTheme: o.errTheme(),
 	}
 	if uo.GOOS == "" {
 		uo.GOOS = runtime.GOOS

@@ -18,6 +18,12 @@ All notable changes to this project are documented here. The format follows
   to `bbapprove --help` and its topics instead of repeating flag and variable tables. `bbapprove help` without a
   topic now lists the topics instead of repeating `--help`.
 
+- `--outdated`, `--update`, `--init`, the first-run prompts and every error message (unknown option with its usage,
+  unknown help topic, missing config, missing token) are coloured like `--help` and `doctor`: version numbers, paths,
+  flags and the printed `ln -sfn` switch and roll-back commands are highlighted, "up to date" is green, "update
+  available" yellow, errors red. Colour is decided per stream (a terminal on stdout does not colour stderr); `NO_COLOR`
+  wins, `FORCE_COLOR=1` forces. Without colour the text is byte-for-byte what it was; `--version` stays plain.
+
 ### Added
 - `bbapprove help TOPIC` for `rules`, `tui`, `config`, `token`, `update` and `env` (next to `doctor`); `bbapprove help`
   lists them. The top-level `--help` now fits one screen and points at the topics.

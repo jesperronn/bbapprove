@@ -39,12 +39,12 @@ const notesLines = 25
 func (o Options) updateArchive(ctx context.Context, res *Result) int {
 	tag := res.Latest.Tag
 	fail := func(format string, a ...any) int {
-		fmt.Fprintf(o.Stderr, "bbapprove: "+format+"\n", a...)
+		o.failln(format, a...)
 		return 1
 	}
 	asset, err := AssetName(tag, o.GOOS, o.GOARCH)
 	if err != nil {
-		fmt.Fprintf(o.Stderr, "bbapprove: %v\n", err)
+		o.failln("%v", err)
 		return 2
 	}
 	oldRoot := o.InstallRoot
@@ -61,12 +61,12 @@ func (o Options) updateArchive(ctx context.Context, res *Result) int {
 		o.manualSteps(tag)
 		return 2
 	case err != nil:
-		fmt.Fprintf(o.Stderr, "bbapprove: cannot read release %s: %v\n", tag, err)
+		o.failln("cannot read release %s: %v", tag, err)
 		return 2
 	}
 	var rv struct{ Body, URL string }
 	if err := json.Unmarshal(out, &rv); err != nil {
-		fmt.Fprintf(o.Stderr, "bbapprove: unexpected gh output for release %s: %v\n", tag, err)
+		o.failln("unexpected gh output for release %s: %v", tag, err)
 		return 2
 	}
 	body = rv.Body
@@ -74,11 +74,11 @@ func (o Options) updateArchive(ctx context.Context, res *Result) int {
 		url = rv.URL
 	}
 
-	fmt.Fprintf(o.Stdout, "\nPlan: install %s -> %s side by side (the running install is not modified)\n", res.Current.Raw, tag)
-	fmt.Fprintf(o.Stdout, "  release notes (%s):\n%s\n", url, notes(body))
-	fmt.Fprintf(o.Stdout, "  asset:   %s (+ SHA256SUMS, verified before unpacking)\n", asset)
-	fmt.Fprintf(o.Stdout, "  into:    %s   (new directory next to %s)\n", dest, oldRoot)
-	fmt.Fprintln(o.Stdout, "  then:    nothing is switched automatically; the commands to switch and to roll back are printed")
+	o.outln("\n{h:Plan:} install {ver:%s} -> {ver:%s} side by side (the running install is not modified)", res.Current.Raw, tag)
+	o.outln("  release notes ({path:%s}):\n%s", url, notes(body))
+	o.outln("  {dim:asset:}   {path:%s} (+ SHA256SUMS, verified before unpacking)", asset)
+	o.outln("  {dim:into:}    {path:%s}   (new directory next to {path:%s})", dest, oldRoot)
+	o.outln("  {dim:then:}    nothing is switched automatically; the commands to switch and to roll back are printed")
 	if ok, code := o.proceed(); !ok {
 		return code
 	}
@@ -92,7 +92,7 @@ func (o Options) updateArchive(ctx context.Context, res *Result) int {
 	if err := os.Mkdir(dl, 0o700); err != nil {
 		return fail("%v", err)
 	}
-	fmt.Fprintf(o.Stdout, "Downloading %s ...\n", asset)
+	o.outln("{dim:Downloading %s ...}", asset)
 	if _, err := o.Runner.Run(ctx, Cmd{Name: "gh", Args: []string{"release", "download", tag, "--repo", o.Slug,
 		"-p", asset, "-p", "SHA256SUMS", "-D", dl}}); err != nil {
 		return fail("download failed: %v (nothing changed)", err)
@@ -100,7 +100,7 @@ func (o Options) updateArchive(ctx context.Context, res *Result) int {
 	if err := VerifyChecksum(filepath.Join(dl, asset), filepath.Join(dl, "SHA256SUMS"), asset); err != nil {
 		return fail("%v; aborting, download deleted, nothing changed", err)
 	}
-	fmt.Fprintln(o.Stdout, "Checksum OK. Unpacking ...")
+	o.outln("{ok:Checksum OK.} {dim:Unpacking ...}")
 	f, err := os.Open(filepath.Join(dl, asset))
 	if err != nil {
 		return fail("%v", err)
@@ -160,39 +160,38 @@ func (o Options) manualSteps(tag string) {
 	if a, err := AssetName(tag, o.GOOS, o.GOARCH); err == nil {
 		asset = a
 	}
-	fmt.Fprintf(o.Stdout, `
-The GitHub CLI (gh) is not installed, so bbapprove cannot download the release for you. Manually:
-  1. open %s/latest and note the tag (%s)
-  2. download %s and SHA256SUMS from that release page into an empty directory
-  3. verify:  shasum -a 256 -c SHA256SUMS --ignore-missing
-  4. extract: tar -xzf %s   (creates a new directory; do not unpack over the current install %s)
-  5. switch by re-pointing your bbapprove symlink to <new>/bin/bbapprove; keep the old tree for rollback
-Or install gh (https://cli.github.com), run `+"`gh auth login`"+` and re-run bbapprove --update.
-`, o.releasesURL(), tag, asset, asset, o.InstallRoot)
+	o.outln(`
+The GitHub CLI ({cmd:gh}) is not installed, so bbapprove cannot download the release for you. Manually:
+  1. open {path:%s/latest} and note the tag (%s)
+  2. download {path:%s} and {path:SHA256SUMS} from that release page into an empty directory
+  3. verify:  {cmd:shasum -a 256 -c SHA256SUMS --ignore-missing}
+  4. extract: {cmd:tar -xzf %s}   (creates a new directory; do not unpack over the current install {path:%s})
+  5. switch by re-pointing your bbapprove symlink to {path:<new>/bin/bbapprove}; keep the old tree for rollback
+Or install gh ({path:https://cli.github.com}), run `+"`{cmd:gh auth login}`"+` and re-run bbapprove {flag:--update}.`,
+		o.releasesURL(), tag, asset, asset, o.InstallRoot)
 }
 
 // printSwitch tells where the new tree is and how to switch to it and back. It never switches itself.
 func (o Options) printSwitch(oldRoot, dest string) {
-	w := o.Stdout
-	fmt.Fprintf(w, "\nInstalled the new release into %s\n", dest)
-	fmt.Fprintln(w, "Config: $XDG_CONFIG_HOME/bbapprove/config.toml (default ~/.config/bbapprove/config.toml) is untouched and shared by both trees.")
+	o.outln("\n{ok:Installed the new release} into {path:%s}", dest)
+	o.outln("Config: {path:$XDG_CONFIG_HOME/bbapprove/config.toml} (default {path:~/.config/bbapprove/config.toml}) is untouched and shared by both trees.")
 	oldCfg := filepath.Join(oldRoot, "bbapprove.config.toml")
 	if _, err := os.Stat(oldCfg); err == nil {
-		fmt.Fprintf(w, "The old tree has its own %s: copy it into the new tree (cp %s %s/) or into the XDG path above.\n", oldCfg, oldCfg, dest)
+		o.outln("The old tree has its own {path:%s}: copy it into the new tree ({cmd:cp} {path:%s} {path:%s/}) or into the XDG path above.", oldCfg, oldCfg, dest)
 	}
 	link, mapped := o.findSymlink(oldRoot)
 	if link == "" {
-		fmt.Fprintf(w, "To switch: point your bbapprove command at %s/bin/bbapprove (ln -sfn %s/bin/bbapprove <path of your symlink>).\n", dest, dest)
-		fmt.Fprintf(w, "To roll back: point it at %s/bin/bbapprove again. The old tree is kept at %s.\n", oldRoot, oldRoot)
+		o.outln("{h:To switch:} point your bbapprove command at {path:%s/bin/bbapprove} ({cmd:ln -sfn} {path:%s/bin/bbapprove} {val:<path of your symlink>}).", dest, dest)
+		o.outln("{h:To roll back:} point it at {path:%s/bin/bbapprove} again. The old tree is kept at {path:%s}.", oldRoot, oldRoot)
 		return
 	}
 	newTarget := filepath.Join(dest, mapped)
 	if _, err := os.Stat(newTarget); err != nil {
 		newTarget = filepath.Join(dest, "bin", "bbapprove")
 	}
-	fmt.Fprintf(w, "To switch:    ln -sfn %s %s\n", newTarget, link)
-	fmt.Fprintf(w, "To roll back: ln -sfn %s %s\n", filepath.Join(oldRoot, mapped), link)
-	fmt.Fprintf(w, "The old tree is kept at %s.\n", oldRoot)
+	o.outln("{h:To switch:}    {cmd:ln -sfn} {path:%s} {path:%s}", newTarget, link)
+	o.outln("{h:To roll back:} {cmd:ln -sfn} {path:%s} {path:%s}", filepath.Join(oldRoot, mapped), link)
+	o.outln("The old tree is kept at {path:%s}.", oldRoot)
 }
 
 // findSymlink looks up `bbapprove` on PATH; when it is a symlink resolving into oldRoot it returns the

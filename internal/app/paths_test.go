@@ -72,8 +72,17 @@ func (r result) String() string {
 // runPathCase builds and runs c with extra environment (NO_COLOR / FORCE_COLOR) appended.
 func runPathCase(t *testing.T, c pathCase, extraEnv ...string) result {
 	t.Helper()
+	return runPathCaseWith(t, c, nil, extraEnv...)
+}
+
+// runPathCaseWith is runPathCase with a hook to change the options (for example the TTY flags).
+func runPathCaseWith(t *testing.T, c pathCase, mod func(*Options), extraEnv ...string) result {
+	t.Helper()
 	fx := newFixture(t)
 	o := c.build(t, fx)
+	if mod != nil {
+		mod(&o)
+	}
 	var so, se bytes.Buffer
 	o.Stdout, o.Stderr = &so, &se
 	o.Environ = append(append([]string{}, o.Environ...), extraEnv...)
@@ -221,7 +230,7 @@ var pathCases = []pathCase{
 		o.Version = "v1.0.0-rc.3-2-gabc1234"
 		return o
 	}},
-	{"outdated-pre", []string{"--outdated --pre"}, func(t *testing.T, fx *fixture) Options {
+	{"outdated-pre", []string{"--pre"}, func(t *testing.T, fx *fixture) Options {
 		o := updateOpts(t, fx, false, ghOnly(`[{"tagName":"v1.0.0","isPrerelease":false,"isDraft":false},{"tagName":"v1.1.0-rc.1","isPrerelease":true,"isDraft":false}]`), "--outdated", "--pre")
 		o.Version = "v1.0.0"
 		return o
@@ -238,7 +247,7 @@ var pathCases = []pathCase{
 		return updateOpts(t, fx, false, ghOnly("[]"), "--outdated")
 	}},
 	// --update
-	{"update-checkout-success", []string{"--update", "--yes"}, func(t *testing.T, fx *fixture) Options {
+	{"update-checkout-success", []string{"--update"}, func(t *testing.T, fx *fixture) Options {
 		return updateOpts(t, fx, true, checkoutRunner("", "main"), "--update", "--yes")
 	}},
 	{"update-checkout-dirty", nil, func(t *testing.T, fx *fixture) Options {
@@ -291,10 +300,10 @@ var pathCases = []pathCase{
 	{"update-conflicts-outdated-update", []string{"--outdated"}, func(t *testing.T, fx *fixture) Options {
 		return updateOpts(t, fx, true, ghOnly(ghRC3), "--outdated", "--update")
 	}},
-	{"update-conflicts-apply", nil, func(t *testing.T, fx *fixture) Options {
+	{"update-conflicts-apply", []string{"--apply"}, func(t *testing.T, fx *fixture) Options {
 		return updateOpts(t, fx, true, ghOnly(ghRC3), "--update", "--apply")
 	}},
-	{"update-yes-needs-update", nil, func(t *testing.T, fx *fixture) Options {
+	{"update-yes-needs-update", []string{"--yes"}, func(t *testing.T, fx *fixture) Options {
 		return updateOpts(t, fx, true, ghOnly(ghRC3), "--outdated", "--yes")
 	}},
 	{"update-bad-config-warning", nil, func(t *testing.T, fx *fixture) Options {
@@ -312,7 +321,7 @@ var pathCases = []pathCase{
 		os.WriteFile(filepath.Join(fx.xdg, "bbapprove", "config.toml"), []byte("x = 1\n"), 0o600)
 		return Options{Args: []string{"--init"}, Environ: fx.env(), RepoDir: fx.repo}
 	}},
-	{"init-force", []string{"--force"}, func(t *testing.T, fx *fixture) Options {
+	{"init-force", []string{"--init"}, func(t *testing.T, fx *fixture) Options {
 		os.MkdirAll(filepath.Join(fx.xdg, "bbapprove"), 0o700)
 		os.WriteFile(filepath.Join(fx.xdg, "bbapprove", "config.toml"), []byte("x = 1\n"), 0o600)
 		return Options{Args: []string{"--init", "--force"}, Environ: fx.env(), RepoDir: fx.repo}
@@ -383,34 +392,34 @@ var pathCases = []pathCase{
 	{"unknown-option", []string{"error:unknown-option"}, func(t *testing.T, fx *fixture) Options {
 		return Options{Args: []string{"--bogus"}, Environ: fx.env(), RepoDir: fx.repo}
 	}},
-	{"unknown-help-topic", []string{"error:unknown-topic"}, func(t *testing.T, fx *fixture) Options {
+	{"unknown-help-topic", []string{"error:unknown-topic", "help"}, func(t *testing.T, fx *fixture) Options {
 		return Options{Args: []string{"help", "nosuchtopic"}, Environ: fx.env(), RepoDir: fx.repo}
 	}},
-	{"flag-needs-value-disallow", nil, func(t *testing.T, fx *fixture) Options {
+	{"flag-needs-value-disallow", []string{"--disallow"}, func(t *testing.T, fx *fixture) Options {
 		return Options{Args: []string{"--disallow"}, Environ: fx.env(), RepoDir: fx.repo}
 	}},
-	{"flag-needs-value-token-name", nil, func(t *testing.T, fx *fixture) Options {
+	{"flag-needs-value-token-name", []string{"--token-name"}, func(t *testing.T, fx *fixture) Options {
 		return Options{Args: []string{"--token-name"}, Environ: fx.env(), RepoDir: fx.repo}
 	}},
-	{"flag-needs-value-config", nil, func(t *testing.T, fx *fixture) Options {
+	{"flag-needs-value-config", []string{"--config"}, func(t *testing.T, fx *fixture) Options {
 		return Options{Args: []string{"--config"}, Environ: fx.env(), RepoDir: fx.repo}
 	}},
-	{"doctor-with-apply", nil, func(t *testing.T, fx *fixture) Options {
+	{"doctor-with-apply", []string{"doctor"}, func(t *testing.T, fx *fixture) Options {
 		return Options{Args: []string{"doctor", "--apply"}, Environ: fx.env(), RepoDir: fx.repo}
 	}},
-	{"offline-without-doctor", nil, func(t *testing.T, fx *fixture) Options {
+	{"offline-without-doctor", []string{"--offline"}, func(t *testing.T, fx *fixture) Options {
 		return Options{Args: []string{"--offline"}, Environ: fx.env(), RepoDir: fx.repo}
 	}},
 	{"not-a-pr-url", nil, func(t *testing.T, fx *fixture) Options {
 		return Options{Args: []string{"nonsense"}, Environ: fx.env(), RepoDir: fx.repo}
 	}},
-	{"pre-without-update", nil, func(t *testing.T, fx *fixture) Options {
+	{"pre-without-update", []string{"--pre"}, func(t *testing.T, fx *fixture) Options {
 		return Options{Args: []string{"--pre"}, Environ: fx.env(), RepoDir: fx.repo}
 	}},
-	{"force-without-init", nil, func(t *testing.T, fx *fixture) Options {
+	{"force-without-init", []string{"--force"}, func(t *testing.T, fx *fixture) Options {
 		return Options{Args: []string{"--force"}, Environ: fx.env(), RepoDir: fx.repo}
 	}},
-	{"tui-not-implemented", nil, func(t *testing.T, fx *fixture) Options {
+	{"tui-not-implemented", []string{"-i"}, func(t *testing.T, fx *fixture) Options {
 		return Options{Args: []string{"-i"}, Environ: fx.env(), RepoDir: fx.repo}
 	}},
 	{"ignore-list-unreadable", nil, func(t *testing.T, fx *fixture) Options {

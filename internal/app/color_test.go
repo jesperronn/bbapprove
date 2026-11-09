@@ -221,3 +221,24 @@ func TestColouredPrintConfigWithoutFile(t *testing.T) {
 		t.Errorf("plain:\n%s\ncolour:\n%s", plain.String(), col.String())
 	}
 }
+
+// Colour is decided per stream: stdout by IsTTY, stderr by StderrTTY, NO_COLOR wins over both.
+func TestThemesAreDecidedPerStream(t *testing.T) {
+	for _, c := range []struct {
+		name         string
+		env          []string
+		out, err     bool
+		wantO, wantE bool
+	}{
+		{"pipes", nil, false, false, false, false},
+		{"stdout tty only", nil, true, false, true, false},
+		{"stderr tty only", nil, false, true, false, true},
+		{"force colour", []string{"FORCE_COLOR=1"}, false, false, true, true},
+		{"NO_COLOR wins", []string{"FORCE_COLOR=1", "NO_COLOR=1"}, true, true, false, false},
+	} {
+		o := Options{Environ: c.env, IsTTY: c.out, StderrTTY: c.err}
+		if o.outTheme().On != c.wantO || o.errTheme().On != c.wantE {
+			t.Errorf("%s: out %v err %v", c.name, o.outTheme().On, o.errTheme().On)
+		}
+	}
+}

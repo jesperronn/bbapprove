@@ -130,3 +130,14 @@ func TestStrippingColourEqualsPlain(t *testing.T) {
 		t.Errorf("%q", got)
 	}
 }
+
+func TestSprintfEscapesArguments(t *testing.T) {
+	in := "ran {cmd:%s} at {path:%s} in %s steps"
+	if got := New(false).Sprintf(in, "x{y}", "/a}b", 3); got != "ran x{y} at /a}b in 3 steps" {
+		t.Errorf("plain: %q", got)
+	}
+	want := "ran \x1b[1;35mx{y}\x1b[0m at \x1b[36m/a}b\x1b[0m in 3 steps"
+	if got := New(true).Sprintf(in, "x{y}", "/a}b", 3); got != want {
+		t.Errorf("colour: %q", got)
+	}
+}

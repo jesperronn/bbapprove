@@ -42,7 +42,7 @@ func main() {
 	}
 	os.Exit(app.Run(context.Background(), app.Options{
 		Args: os.Args[1:], Environ: os.Environ(), RepoDir: repoDir(),
-		Stdout: os.Stdout, Stderr: os.Stderr, IsTTY: tty, Width: width, Version: version,
+		Stdout: os.Stdout, Stderr: os.Stderr, IsTTY: tty, StderrTTY: term.IsTerminal(int(os.Stderr.Fd())), Width: width, Version: version,
 		Interactive: setupTTY, Stdin: os.Stdin,
 	}))
 }

@@ -183,6 +183,18 @@ func (t Theme) MustRender(markup string) string {
 	return s
 }
 
+// Sprintf renders markup like Render after substituting args for %s or %v verbs (no others: every
+// argument becomes a string). Every argument is
+// escaped first, so data (paths, versions, error text) can never be read as markup. It panics on
+// malformed markup, like MustRender.
+func (t Theme) Sprintf(markup string, args ...any) string {
+	esc := make([]any, len(args))
+	for i, a := range args {
+		esc[i] = Escape(fmt.Sprint(a))
+	}
+	return t.MustRender(fmt.Sprintf(markup, esc...))
+}
+
 // Check validates markup without rendering colours.
 func Check(markup string) error {
 	_, err := Theme{}.Render(markup)

@@ -1,0 +1,202 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# demo — bbapprove's adapter protocol over built-in fictional Renovate PRs, for screenshots and recordings.
+#
+#   demo auth token                                  prints demo-token
+#   demo pr list --reviewer @me --state open         JSON array of the open PRs
+#   demo pr view URL                                 one PR as compact JSON
+#   demo pr review URL --approve                     approve (recorded in the state file)
+#   demo pr merge URL                                merge, or exit 1 with the forge's 409 text while builds, approvals or review block it
+#   demo pr comment URL --body TEXT | --body-file F  accepted; the text is not stored
+#   demo pr close URL [--comment TEXT]               decline; the PR leaves the list
+#
+# No network, no token, no real host. The only state is the file named by BBAPPROVE_DEMO_STATE (default
+# ${TMPDIR:-/tmp}/bbapprove-demo-state): approvals, merges and declines show in the next pr list.
+# Reset to the starting data with: rm -f "${TMPDIR:-/tmp}/bbapprove-demo-state"
+# Exit: 0 ok, 1 the forge refused or the PR is not open, 2 usage error.
+
+set -euo pipefail
+
+BASE="https://bitbucket.example.com"
+STATE="${BBAPPROVE_DEMO_STATE:-${TMPDIR:-/tmp}/bbapprove-demo-state}"
+
+usage() {
+  cat >&2 <<'EOF_USAGE'
+Usage: demo auth token
+       demo pr list --reviewer @me --state open
+       demo pr view URL
+       demo pr review URL --approve
+       demo pr merge URL
+       demo pr comment URL (--body TEXT | --body-file FILE)
+       demo pr close URL [--comment TEXT]
+EOF_USAGE
+}
+
+# Fictional open PRs. Fields: number|repo|title|head branch|build|quality gate|approvals by others|needsWork|commentCount|openTasks|approved by me (yes|no)
+fixtures() {
+  cat <<'ROWS'
+101|shop|chore(deps): update dependency fmt-lite to v1.4.2|renovate/fmt-lite-1.x|passed|passed|0|0|0|0|no
+102|shop|chore(deps): update dependency http-kit to v2.0.3|renovate/http-kit-2.x|passed|passed|1|0|2|0|no
+103|billing|chore(deps): update dependency ledger-core to v3.0.0|renovate/major-ledger-core|passed|passed|0|0|0|0|no
+104|billing|chore(deps): update dependency pay-sdk to v2.4.1|renovate/pay-sdk-2.x|passed|passed|1|0|0|0|no
+105|shop|chore(deps): update dependency test-runner to v0.9.4|renovate/test-runner-0.x|failed|failed|0|0|0|0|no
+106|billing|chore(deps): update dependency date-utils to v1.8.0|renovate/date-utils-1.x|passed|passed|1|1|3|2|no
+107|shop|chore(deps): update dependency css-tools to v4.2.1|renovate/css-tools-4.x|passed|passed|1|0|5|0|yes
+108|billing|chore(deps): update dependency log-kit to v5.1.0|renovate/log-kit-5.x|running|unknown|0|0|0|0|no
+ROWS
+}
+
+# state_has LINE: true when the state file holds LINE exactly ("approved 101", "merged 101", "closed 101").
+state_has() {
+  [[ -f "$STATE" ]] && grep -qxF -- "$1" "$STATE"
+}
+
+# record LINE: append one event to the state file.
+record() {
+  mkdir -p "$(dirname "$STATE")"
+  printf '%s\n' "$1" >>"$STATE"
+}
+
+# find_row NUMBER REPO: prints the fixture row of an open PR; exit 1 when it is unknown, merged or declined.
+find_row() {
+  local want="$1" repo="$2" line n r
+  while IFS= read -r line; do
+    IFS='|' read -r n r _ <<<"$line"
+    if [[ "$n" == "$want" && "$r" == "$repo" ]]; then
+      if state_has "merged $n" || state_has "closed $n"; then return 1; fi
+      printf '%s\n' "$line"
+      return 0
+    fi
+  done < <(fixtures)
+  return 1
+}
+
+# pr_json ROW: the normalized PR as one compact JSON object, the same keys in the same order as adapters/bitbucket.
+pr_json() {
+  local n repo title head build qg others needs comments tasks me approved=false approvals
+  IFS='|' read -r n repo title head build qg others needs comments tasks me <<<"$1"
+  if [[ "$me" == yes ]] || state_has "approved $n"; then approved=true; fi
+  approvals=$others
+  if [[ "$approved" == true ]]; then approvals=$((others + 1)); fi
+  printf '{"url":"%s/projects/ACME/repos/%s/pull-requests/%s","number":%s,"project":"ACME","repo":"%s","title":"%s","author":{"email":"renovate-bot@example.com","login":"renovate-bot"},"headBranch":"%s","approvedByMe":%s,"build":"%s","qualityGate":"%s","approvals":%s,"needsWork":%s,"commentCount":%s,"openTasks":%s}' \
+    "$BASE" "$repo" "$n" "$n" "$repo" "$title" "$head" "$approved" "$build" "$qg" "$approvals" "$needs" "$comments" "$tasks"
+}
+
+# parse_url URL: sets REPO and NUM from a .../projects/KEY/repos/REPO/pull-requests/NUM URL, or exits 2.
+parse_url() {
+  if [[ "$1" =~ ^https?://[^/]+/projects/[^/]+/repos/([^/]+)/pull-requests/([0-9]+)/?$ ]]; then
+    REPO="${BASH_REMATCH[1]}"
+    NUM="${BASH_REMATCH[2]}"
+  else
+    echo "Not a PR URL: $1" >&2
+    exit 2
+  fi
+}
+
+# open_pr URL: sets ROW to the open PR's fixture row; exit 1 when it is not open.
+open_pr() {
+  parse_url "$1"
+  ROW="$(find_row "$NUM" "$REPO")" || { echo "PR not found or no longer open: $1" >&2; exit 1; }
+}
+
+# non_empty TEXT: exit 2 with the adapter's message when TEXT is blank.
+non_empty() {
+  if [[ -z "${1//[[:space:]]/}" ]]; then
+    echo "demo: empty comment" >&2
+    exit 2
+  fi
+}
+
+cmd_list() {
+  if [[ $# -ne 4 || "$1 $2 $3 $4" != "--reviewer @me --state open" ]]; then
+    echo "demo: pr list takes exactly: --reviewer @me --state open" >&2
+    exit 2
+  fi
+  local line n sep=""
+  printf '['
+  while IFS= read -r line; do
+    n="${line%%|*}"
+    if state_has "merged $n" || state_has "closed $n"; then continue; fi
+    printf '%s' "$sep"; pr_json "$line"
+    sep=","
+  done < <(fixtures)
+  printf ']\n'
+}
+
+cmd_view() {
+  [[ $# -eq 1 ]] || { echo "demo: pr view takes one URL" >&2; exit 2; }
+  open_pr "$1"
+  pr_json "$ROW"
+  printf '\n'
+}
+
+cmd_review() {
+  [[ $# -eq 2 && "$2" == --approve ]] || { echo "demo: pr review takes URL --approve" >&2; exit 2; }
+  open_pr "$1"
+  record "approved $NUM"
+}
+
+cmd_merge() {
+  [[ $# -eq 1 ]] || { echo "demo: pr merge takes one URL" >&2; exit 2; }
+  open_pr "$1"
+  local n repo title head build qg others needs comments tasks me approvals=0
+  IFS='|' read -r n repo title head build qg others needs comments tasks me <<<"$ROW"
+  if state_has "approved $n"; then me=yes; fi
+  approvals=$others
+  if [[ "$me" == yes ]]; then approvals=$((others + 1)); fi
+  if [[ "$build" == failed ]]; then
+    echo "merge HTTP 409: Not all required builds are successful yet" >&2; exit 1
+  fi
+  if [[ "$build" == running ]]; then
+    echo "merge HTTP 409: A required build is still running" >&2; exit 1
+  fi
+  if [[ "$needs" -gt 0 ]]; then
+    echo "merge HTTP 409: Changes were requested by a reviewer" >&2; exit 1
+  fi
+  if [[ "$approvals" -lt 1 ]]; then
+    echo "merge HTTP 409: Needs 1 more approval" >&2; exit 1
+  fi
+  record "merged $n"
+}
+
+cmd_comment() {
+  [[ $# -eq 3 ]] || { echo "demo: pr comment takes URL --body TEXT or URL --body-file FILE" >&2; exit 2; }
+  local text
+  case "$2" in
+    --body) text="$3" ;;
+    --body-file) text="$(cat -- "$3")" ;;
+    *) echo "demo: pr comment takes --body or --body-file" >&2; exit 2 ;;
+  esac
+  non_empty "$text"
+  open_pr "$1"
+}
+
+cmd_close() {
+  local url="${1:-}" text=""
+  case "$#" in
+    1) ;;
+    3) [[ "$2" == --comment ]] || { echo "demo: pr close takes URL [--comment TEXT]" >&2; exit 2; }
+       text="$3"; non_empty "$text" ;;
+    *) echo "demo: pr close takes URL [--comment TEXT]" >&2; exit 2 ;;
+  esac
+  open_pr "$url"
+  record "closed $NUM"
+}
+
+[[ $# -ge 1 ]] || { usage; exit 2; }
+if [[ "$1 ${2:-}" == "auth token" ]]; then
+  printf 'demo-token\n'
+  exit 0
+fi
+[[ $# -ge 2 && "$1" == pr ]] || { usage; exit 2; }
+sub="$2"
+shift 2
+case "$sub" in
+  list) cmd_list "$@" ;;
+  view) cmd_view "$@" ;;
+  review) cmd_review "$@" ;;
+  merge) cmd_merge "$@" ;;
+  comment) cmd_comment "$@" ;;
+  close) cmd_close "$@" ;;
+  *) usage; exit 2 ;;
+esac

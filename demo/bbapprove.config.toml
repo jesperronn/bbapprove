@@ -1,0 +1,18 @@
+# Demo configuration: fictional PRs served by adapters/demo, no server and no real token.
+# Used by bin/demo (run, list, record, shots) and for trying bbapprove without a server:
+#   bbapprove --config demo/bbapprove.config.toml
+
+type = "demo"
+
+# The demo adapter ignores the URL and builds its own fictional links.
+repository = "https://bitbucket.example.com/projects/ACME"
+
+# Named token item: the demo adapter answers `auth token` with demo-token, so no 1Password lookup happens.
+user_token_name = "demo-token"
+
+author_email = "renovate-bot@example.com"
+
+# The fictional PR "pay-sdk" is skipped by this rule.
+disallow = ["pay-sdk"]
+
+delete_source_branch = true

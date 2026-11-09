@@ -8,6 +8,7 @@ All notable changes to this project are documented here. The format follows
 ### Added
 - `bbapprove doctor` prints one line per area; every problem carries its fix on its own line and the last line only counts them. `bbapprove doctor -v` adds the lookup order, file mode, tool paths and environment, without printing any fact twice.
 - Maintainers: `bin/test --timings` prints the slowest shell suites, Go packages and Go tests and the total run time.
+- Maintainers: `bin/demo` runs bbapprove on fictional PRs with no server, and records the demo GIF (`vhs`) or SVG screenshots (`freeze`).
 
 ### Internal
 - A fake Bitbucket Server (`internal/bbfake`) and golden characterization tests that pin the bash Bitbucket adapter's exact behaviour, as a safety net for porting it to Go.

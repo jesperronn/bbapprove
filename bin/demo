@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# demo — bbapprove on fictional PRs with no server: run it, list them, record the demo GIF or make the SVG screenshots
+#
+# Usage: bin/demo run [ARGS...]   the TUI (bbapprove -i) with no ARGS; with ARGS, bbapprove with exactly those
+#        bin/demo list           the plain list (a dry run), as in the README
+#        bin/demo record         vhs demo/demo.tape writes demo/demo.gif (starts from the fresh demo data)
+#        bin/demo shots          freeze writes demo/list.svg and demo/print-config.svg (fresh demo data)
+#   Data: adapters/demo (built-in fictional PRs; approvals and merges are kept in a temp file, reset with
+#   rm -f "${TMPDIR:-/tmp}/bbapprove-demo-state"). Config: demo/bbapprove.config.toml.
+#   record needs vhs (brew install vhs); shots needs freeze (brew install charmbracelet/tap/freeze).
+#   Exit: 0 ok, 2 usage error, 127 the tool is not installed.
+
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'EOF_USAGE'
+Usage: bin/demo run [ARGS...]
+       bin/demo list
+       bin/demo record
+       bin/demo shots
+EOF_USAGE
+}
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+CONFIG="demo/bbapprove.config.toml"
+STATE="${BBAPPROVE_DEMO_STATE:-${TMPDIR:-/tmp}/bbapprove-demo-state}"
+
+# bbapprove_demo ARGS...: runs bbapprove on the demo config. The caller's BBAPPROVE_* settings and XDG config
+# are dropped, so the demo's own config, adapter and data are what show, and the real ignore list is not read.
+bbapprove_demo() {
+  local v
+  while IFS= read -r v; do
+    case "$v" in BBAPPROVE_*) [[ "$v" == BBAPPROVE_DEMO_STATE ]] || unset "$v" ;; esac
+  done < <(compgen -e)
+  export BBAPPROVE_DEMO_STATE="$STATE"
+  export XDG_CONFIG_HOME="${TMPDIR:-/tmp}/bbapprove-demo-config"
+  cd "$ROOT"
+  exec "$ROOT/bin/bbapprove" --config "$CONFIG" "$@"
+}
+
+# need TOOL HINT: exit 127 with HINT when TOOL is not on PATH.
+need() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "demo: $1 is not installed; $2" >&2
+    exit 127
+  fi
+}
+
+# reset_state: the next run starts from the built-in data.
+reset_state() {
+  rm -f -- "$STATE"
+}
+
+cmd_record() {
+  need vhs "install it with: brew install vhs"
+  reset_state
+  cd "$ROOT"
+  vhs demo/demo.tape
+}
+
+cmd_shots() {
+  need freeze "install it with: brew install charmbracelet/tap/freeze"
+  reset_state
+  cd "$ROOT"
+  freeze --execute "bin/demo list" -o demo/list.svg
+  freeze --execute "bin/demo run --print-config" -o demo/print-config.svg
+}
+
+cmd="${1:-}"
+[[ $# -eq 0 ]] || shift
+case "$cmd" in
+  run)
+    if [[ $# -eq 0 ]]; then set -- -i; fi
+    bbapprove_demo "$@"
+    ;;
+  list)
+    [[ $# -eq 0 ]] || { echo "demo: list takes no arguments" >&2; exit 2; }
+    bbapprove_demo
+    ;;
+  record) [[ $# -eq 0 ]] || { echo "demo: record takes no arguments" >&2; exit 2; }; cmd_record ;;
+  shots) [[ $# -eq 0 ]] || { echo "demo: shots takes no arguments" >&2; exit 2; }; cmd_shots ;;
+  -h|--help) usage; exit 0 ;;
+  *) usage; exit 2 ;;
+esac

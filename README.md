@@ -41,6 +41,8 @@ bbapprove --apply PR_URL...      # only these PRs
 
 Eligibility, the ignore list and the STATUS words: `bbapprove help rules`.
 
+**Try it without a server:** `bin/demo run` opens the TUI on fictional PRs (`bin/demo list` prints the list). Start over with `rm -f "${TMPDIR:-/tmp}/bbapprove-demo-state"`.
+
 ## Using the TUI
 
 `bbapprove -i` lists the same PRs with live status and stays open after every action. **Lowercase keys act on the

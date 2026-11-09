@@ -32,6 +32,38 @@ adapter pr close URL [--comment TEXT]               # decline; the comment is po
 
 Normalized PR: `{url, number, project, repo, title, author:{email,login}, headBranch, approvedByMe, build: passed|failed|running|none, qualityGate: passed|failed|unknown, approvals, needsWork, commentCount, openTasks}`. Errors go to stderr with a non-zero exit.
 
+## The Go Bitbucket adapter (`internal/forge/bitbucket`)
+
+A native Go port of `adapters/bitbucket`, so a Windows build needs no bash, curl or jq. It is a library (`Client` with `ListPRs`, `ViewPR`, `Approve`, `Merge` (and `MergeWarn`), `Comment`, `Close`, plus `AuthToken`) and a `Run(ctx, args, env, stdout, stderr)` entry that speaks the same CLI protocol (exit 0/1/2, same commands, same normalized JSON with the same key order). It uses only the standard library (`net/http`, `encoding/json`, `os/exec` for `op`). The bearer token goes only into the `Authorization` header and is never printed. Every request has a 2.7 s connect and 3.5 s total timeout, one connection per request, and redirects are not followed. It is not wired into the core yet: the core still runs the bash adapter.
+
+`cmd/bbapprove-bitbucket` is a thin `main` around `Run`. It exists only so the tests can run the Go adapter as a process; the release builds `./cmd/bbapprove` alone, so it is never shipped.
+
+### How it is tested against the bash adapter
+
+`internal/bbfake/adapter_char_test.go` runs every case twice: against the real bash script and against the Go binary (built once in `TestMain`). The goldens in `internal/bbfake/testdata/adapter` pin exit code, stdout, stderr (after redactions) and the recorded requests. The Go run must equal `<case>.golden.json` exactly. A case that differs on purpose carries `goDiff` (the decision numbers below) and a separate `<case>.go.golden.json`; `goOnly` cases exercise Go behaviour that has no bash counterpart. `TestGoGoldensHaveCases` fails on a Go golden without such a case, and a `goDiff` whose Go output equals the bash golden fails too, so every difference is explicit. The bash side skips when bash, curl or jq is missing; the Go side always runs. Refresh with `go test ./internal/bbfake -run Char -update`.
+
+### Deliberate differences from the bash adapter
+
+1. The token is never on a command line (curl's argv exposed it); no golden shows a difference because the tests do not read `ps`.
+2. A missing URL argument on `view`, `merge`, `review`, `comment` and `close` is one usage error (`pr <cmd>: missing PR URL`), exit 2, instead of bash's `unbound variable`.
+3. `pr list` accepts only `--reviewer @me --state open` (either order) and every command rejects unknown or extra arguments with exit 2; bash ignored them.
+4. Dashboard paging stops with an error when `isLastPage` is false and there is no `nextPageStart` greater than the current start; bash looped on `null`.
+5. A 200 reply that is not JSON gives `unexpected response from <endpoint>: not JSON`, exit 1 (also for the stats call and the version read of merge and close); bash printed a jq error. The activity and blocker-comment calls stay soft, as in bash.
+6. Activities and blocker comments are paged (`isLastPage` / `nextPageStart`, at most 50 pages of 100) so `commentCount` and `openTasks` are right on busy PRs. A failed page makes that count 0, as a failed call did in bash; a page without a usable `nextPageStart`, or the 50-page cap, ends the paging with what was counted.
+7. Trailing slashes on `BBAPPROVE_BASE_URL` are trimmed; bash produced `//projects` and a 404.
+8. `auth token` does not need `BBAPPROVE_BASE_URL`.
+9. A transport failure prints one clean line, `<METHOD> <url path>: connection failed` or `timed out after 3.5s` (2.7 s when connecting), instead of curl's text plus an `HTTP 000` line. A failed stats call is silent.
+10. Merge and decline bodies are built from an integer version, never by pasting server text into JSON.
+11. `BBAPPROVE_MERGE_RETRIES` and `BBAPPROVE_RETRY_SLEEP` must be non-negative integers, else exit 2 with a message (checked by `merge` and `close`).
+12. A 3xx reply is reported as `redirect to <Location>; check BBAPPROVE_BASE_URL / repository`, not as a bare HTTP code, for the commands that fail on a bad status. Whoami and stats stay soft.
+12b. `pr close` retries a declined 409 `out-of-date` like `pr merge` (same attempts and sleep, version re-read each time); a comment posted first stays posted. The whoami reply is trimmed at both ends only (bash deleted all whitespace).
+
+One more difference follows from dropping `cat`: a missing `--body-file` reports `pr comment: cannot read FILE: no such file or directory` without cat's own line. Fields the server leaves out (a null title, project key or slug) become empty strings where jq printed `null`; a real server always sends them.
+
+Kept as in bash, on purpose: stats in one POST with every sha; dashboard page limit 100 and no page cap; merge retries only on 409 `out-of-date` (never on 5xx or timeouts) and do not re-check mergeability; `close --comment` posts the comment first and a failed comment aborts the decline; `--body-file -` reads stdin; the dim `Waiting for 1Password` notice and its `NO_COLOR` / `FORCE_COLOR` rules; the `auth token` order (`BBAPPROVE_TOKEN`, then the `token` field, then `credential`).
+
+Undecided, kept as in bash: `pr view` reports `qualityGate: unknown` because the single-PR GET carries no `qgStatus`, while `pr list` reports the real value. This needs a check against a real server (a TODO in `ViewPR`).
+
 ## Classification
 
 `rules.Classify` is the one function behind CLI and TUI (`internal/rules`). Order:
@@ -53,7 +85,7 @@ Lookup, precedence and defaults: `bbapprove help config`. The adapter never read
 
 The `delete_source_branch` setting (default true) reaches the adapter as the environment variable `BBAPPROVE_DELETE_SOURCE_BRANCH=true|false`, not as a command-line flag, so an external adapter that has never heard of it keeps working. A hand-run adapter treats an unset variable as true and rejects any value other than true, false, 1, 0, yes or no with exit 2 before it touches the forge.
 
-After the merge call has succeeded, `adapters/bitbucket` deletes the PR's source branch with `DELETE /rest/branch-utils/1.0/projects/KEY/repos/SLUG/branches` and the JSON body `{"name":"refs/heads/<branch>","dryRun":false}`. It does so once, after the successful attempt (the stale-version retry loop is unchanged), and only when the source branch lives in the same repository as the target, the source ref is a branch, and it is not the target branch itself. A fork's branch is never deleted. An HTTP 404 means the branch is already gone and is silent. Any other failure, including a dropped connection, leaves the merge successful (exit 0) and prints `merge ok, but could not delete branch <name> (HTTP <code>)` on stderr. A failed merge never deletes anything. The call needs repository write permission for the token.
+After the merge call has succeeded, `adapters/bitbucket` and the Go adapter delete the PR's source branch with `DELETE /rest/branch-utils/1.0/projects/KEY/repos/SLUG/branches` and the JSON body `{"name":"refs/heads/<branch>","dryRun":false}`. It does so once, after the successful attempt (the stale-version retry loop is unchanged), and only when the source branch lives in the same repository as the target, the source ref is a branch, and it is not the target branch itself. A fork's branch is never deleted. An HTTP 404 means the branch is already gone and is silent. Any other failure, including a dropped connection, leaves the merge successful (exit 0) and prints `merge ok, but could not delete branch <name> (HTTP <code>)` on stderr. A failed merge never deletes anything. The call needs repository write permission for the token. The Go adapter reads the variable into `Env.DeleteSourceBranch`; with a dropped connection it also prints its one-line transport error before the warning (decision 9).
 
 ## Adding a forge adapter
 

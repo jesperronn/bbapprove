@@ -21,18 +21,20 @@ The app resolves the config, runs `adapter pr list --reviewer @me --state open` 
 ## Adapter contract
 
 ```
-adapter auth token                                  # prints the token: BBAPPROVE_TOKEN, else 1Password item BBAPPROVE_TOKEN_NAME (token, then credential); no default name; run by the core only when BBAPPROVE_TOKEN is empty and a name is set
+adapter auth token                                  # prints the token from the 1Password item BBAPPROVE_TOKEN_NAME; the core runs it only when BBAPPROVE_TOKEN is empty and a name is set (order: `bbapprove help token`)
 adapter pr list --reviewer @me --state open         # JSON array of normalized PRs
 adapter pr view URL | pr review URL --approve | pr merge URL
-adapter pr comment URL --body TEXT | --body-file FILE
-adapter pr close URL [--comment TEXT]               # decline
+adapter pr comment URL --body TEXT | --body-file FILE   # an empty body exits 2
+adapter pr close URL [--comment TEXT]               # decline; the comment is posted first and a failed comment aborts the decline
 ```
+
+`pr merge` retries stale PR versions itself. The core sets `BBAPPROVE_BASE_URL` (required by the adapter, exit 2 when unset) and `BBAPPROVE_TOKEN_NAME` from the configuration; `BBAPPROVE_TOKEN` is required by the `pr` commands (exit 2 when unset). Adapter tunables (`BBAPPROVE_MERGE_RETRIES`, `BBAPPROVE_RETRY_SLEEP`): `bbapprove help env`.
 
 Normalized PR: `{url, number, project, repo, title, author:{email,login}, headBranch, approvedByMe, build: passed|failed|running|none, qualityGate: passed|failed|unknown, approvals, needsWork, commentCount, openTasks}`. Errors go to stderr with a non-zero exit.
 
 ## Classification
 
-`rules.Classify` is the one function behind CLI and TUI. Order:
+`rules.Classify` is the one function behind CLI and TUI (`internal/rules`). Order:
 1. ignore list match: `IGNORED` (wins over everything, never acted on)
 2. author is not `author_email`
 3. subject does not start `chore(deps):` / `fix(deps):`
@@ -41,11 +43,11 @@ Normalized PR: `{url, number, project, repo, title, author:{email,login}, headBr
 6. already approved by me
 Otherwise eligible. Steps 2-6 give `SKIP` with a reason.
 
-Two lists: `disallow` (config file plus `--disallow`/`BBAPPROVE_DISALLOW`) is a repo-wide hard block shown as `SKIP`; the ignore file (`$XDG_CONFIG_HOME/bbapprove/ignore`, default `~/.config/bbapprove/ignore`) is personal, edited with `i` in the TUI, and shown as `IGNORED`.
+What each rule means for users, and the difference between the `disallow` and ignore lists: `bbapprove help rules`. The CLI footer, the table and the TUI all take their result from this one function.
 
 ## Config
 
-Per setting: flag > environment (`BBAPPROVE_*`) > file > default. File lookup: `--config`, `$BBAPPROVE_CONFIG`, `<repo root>/bbapprove.config.toml`, `$XDG_CONFIG_HOME/bbapprove/config.toml`. Only `type` and `update_repo` have defaults (`user_token_name` has none). The adapter never reads TOML. First-run creation and `--init` write the embedded template (`internal/config/setup.go`).
+Lookup, precedence and defaults: `bbapprove help config`. The adapter never reads TOML: the core hands it resolved values. First-run creation and `--init` write the embedded template (`internal/config/setup.go`); `internal/config/bbapprove.config.template` must stay byte-identical to the root template.
 
 ## Adding a forge adapter
 
@@ -60,7 +62,7 @@ Per setting: flag > environment (`BBAPPROVE_*`) > file > default. File lookup: `
 tests inject a fake. A checkout is updated in place; any other install gets a verified release unpacked side by side
 into a sibling directory, and the running tree is never touched. Archive extraction refuses absolute paths, `..`,
 links that leave the release directory, devices and other special files, and stops at 200 MiB or 50,000 entries.
-setuid, setgid and sticky bits are dropped. Details and the limits of `SHA256SUMS`: [README](../README.md#updating).
+setuid, setgid and sticky bits are dropped. Behaviour and the limits of `SHA256SUMS`: `bbapprove help update`.
 
 ## Diagnostics (`internal/doctor`)
 
@@ -72,7 +74,7 @@ sources via `config.Settings`, adapter, the token source (BBAPPROVE_TOKEN set / 
 ## Colour (`internal/style`)
 
 One shared package decides whether to colour (`style.Enabled`: `NO_COLOR` wins, else a TTY or `FORCE_COLOR`) and maps token
-classes to 16-colour SGR codes (`Theme`). Help texts are written as `{class:text}` markup and rendered by it; doctor and
+classes to 16-colour SGR codes (`Theme`), so output follows the terminal theme: headings bold cyan, subcommands bold magenta, flags green, placeholders bright blue, environment variables yellow, paths cyan, notes dim, `ok`/`warn`/`FAIL` green/yellow/bold red, and the sources `[flag]` `[env]` `[file]` `[default]` magenta/yellow/green/dim. Help texts are written as `{class:text}` markup and rendered by it; doctor and
 `--print-config` paint through the same `Theme`, so plain output (no colour) equals the markup with the tags removed.
 
 ## Safety principles
@@ -81,6 +83,6 @@ classes to 16-colour SGR codes (`Theme`). Help texts are written as `{class:text
 - Ignored PRs are never approved, merged, declined or commented.
 - Fail closed: an unreadable ignore file stops the run.
 - Decline and batch actions ask for confirmation; empty comments are refused.
-- The token is `BBAPPROVE_TOKEN`, or else a 1Password item looked up by name; with neither the core exits 1 before any adapter call. There is no `--token` flag.
+- The token never appears on a command line (no `--token` flag); with no token source the core exits 1 before any adapter call.
 - No secrets in logs or `--print-config`; the core hands the token to the adapter via `BBAPPROVE_TOKEN`.
 - The config lives outside the tree (`~/.config/bbapprove`), mode 0600, and is never overwritten without `--force`.

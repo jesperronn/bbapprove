@@ -1,17 +1,6 @@
 # Development
 
-From clone to green, where things live, and how to add to them. Run `bin/help` for the command list; every command takes `--help`.
-
-## Clone to green
-
-```
-git clone https://github.com/jesperronn/bbapprove.git && cd bbapprove
-bin/setup                 # checks go, git, jq, shellcheck, rg (gh, podman optional), go mod download, bin/build
-bin/lint                  # gofmt -l, go vet, shellcheck; bin/lint --autofix runs gofmt -w; bin/lint PATH... lints only those
-bin/test                  # go test ./... -count=1 -race, then every test/*.test.sh
-```
-
-`bin/test` options: `--verbose` (shell `[RUN]`/`[TIME]` lines, `go test -v`), `--no-go`, `--no-shell`, or targets:
+Run `bin/help` for the commands; every one takes `--help`. Start with `bin/setup`, then `bin/lint` and `bin/test` must be green. Rules for contributors: [../AGENTS.md](../AGENTS.md).
 
 ```
 bin/test test/release.test.sh     # one shell suite
@@ -19,8 +8,8 @@ bin/test ./internal/tui           # one Go package
 bin/test --no-go 2>&1 | grep -E 'FAIL|TEST SUMMARY'
 ```
 
-Build and install: `bin/build` (`--test` runs gofmt, vet and tests first, `--version` prints the version, `-o FILE`), `bin/install [--prefix DIR] [--force]` links the launcher `bin/bbapprove` into `~/.local/bin`.
-The launcher rebuilds `bin/bbapprove-go` whenever `go.mod`, `go.sum` or any `cmd/`/`internal/` `.go` file is newer than it, so edit, run `bin/bbapprove`, repeat. Without Go and without a binary it exits 127.
+The launcher `bin/bbapprove` rebuilds `bin/bbapprove-go` whenever `go.mod`, `go.sum` or any `cmd/`/`internal/` `.go` file is newer than it, so edit, run `bin/bbapprove`, repeat. Without Go and without a binary it exits 127.
+`bin/install` (or `bin/build --install`) links the launcher, not the Go binary, into the prefix (default `~/.local/bin`) because the launcher resolves `adapters/` and `bbapprove.config.toml` relative to the repo and rebuilds on change. An existing link to this launcher is left alone, any other file at the target is refused unless `--force`, and the build warns when another `bbapprove` earlier on `PATH` shadows the link.
 
 ## Layout
 
@@ -46,6 +35,7 @@ test/                *.test.sh suites; test/lib/bash_test.sh is the shared harne
 - Go code takes injected seams (TTY check, editor runner, env lookup, stdin/stdout) instead of touching the real terminal or environment.
 - Make waits configurable env vars and set them to `0` in tests (for example `RELEASE_RUN_WAIT_SECONDS`).
 - Budget about 1-2 s per suite. Every assertion prints a `[PASS]`; a silent conditional is not a test.
+- Help and docs must not drift: `internal/app/docs_test.go` fails when the README and `bbapprove help` disagree about flags or environment variables. Help texts are golden-tested; refresh with `go test ./internal/app -run Golden -update`.
 - Real-terminal checks (TUI, prompts): run in a tmux session and send keys ONE AT A TIME with a short sleep between them; batched keys race the renderer. Wait for a marker in `tmux capture-pane` output before asserting.
 
 ## Adding a `bin/` script

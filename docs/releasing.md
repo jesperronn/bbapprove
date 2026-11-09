@@ -23,12 +23,12 @@ The release notes are the matching CHANGELOG section, printed by `bin/release-no
 
 ## How users update
 
-Users update with `bbapprove --update`, described in [README](../README.md#updating). It consumes the release assets
+Users update with `bbapprove --update` (`bbapprove help update`). It consumes the release assets
 named `bbapprove-<tag>-<os>-<arch>.tar.gz` plus `SHA256SUMS`, so renaming those assets in `release.yml` breaks it.
 
 ## Versioning
 
-Semver. The version comes from git: `git describe --tags --always --dirty` (for example `v1.0.0-rc.2`, `v1.0.0-rc.2-3-gabc1234`), injected with `-ldflags "-X main.version=..."` by `bin/build`; `bin/build --version` prints it without building. Without git it is `dev`. `BBAPPROVE_VERSION` overrides it (the release workflow sets it to the tag). `bbapprove --version` shows it.
+Semver. The version comes from git: `git describe --tags --always --dirty` (for example `v1.0.0-rc.2`, `v1.0.0-rc.2-3-gabc1234`), injected with `-ldflags "-X main.version=..."` by `bin/build`; `bin/build --version` prints it without building. Without git it is `dev`. `BBAPPROVE_VERSION` overrides it (the release workflow sets it to the tag). `bbapprove --version` prints it; it is also on the first line of `--help` and dim in the TUI footer.
 
 ## Post-release checklist
 

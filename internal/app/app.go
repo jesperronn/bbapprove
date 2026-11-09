@@ -74,74 +74,83 @@ func (o Options) env(key string) string {
 	return v
 }
 
-const usageBody = `approve and merge Renovate PRs on Bitbucket Server.
+// usageMarkup is the help text after its first line, in the {class:text} markup of package style (braces
+// are escaped as {{ and }}). Plain output equals the text with every tag removed.
+const usageMarkup = `
+{h:Usage:} bbapprove [{flag:--apply}] [{flag:--hide-ignored}] [{flag:--disallow} {val:a,b}] [{flag:--token} {val:T}] [{flag:--token-name} {val:NAME}]
+                 [{flag:--config} {val:FILE}] [{flag:--print-config}] [{val:PR_URL...}]
+       bbapprove {flag:--init} [{flag:--force}] [{flag:--config} {val:FILE}]
+       bbapprove {cmd:doctor} [{flag:--offline}] [{flag:--config} {val:FILE}]
+       bbapprove {flag:--outdated} [{flag:--pre}]
+       bbapprove {flag:--update} [{flag:--yes}] [{flag:--pre}]
 
-Usage: bbapprove [--apply] [--hide-ignored] [--disallow a,b] [--token T] [--token-name NAME]
-                 [--config FILE] [--print-config] [PR_URL...]
-       bbapprove --init [--force] [--config FILE]
-       bbapprove doctor [--offline] [--config FILE]
-       bbapprove --outdated [--pre]
-       bbapprove --update [--yes] [--pre]
-
-With no PR_URL, every open PR where you are a reviewer is considered.
-Without --apply nothing is changed; eligibility is only reported.
-Your per-user ignore list ($XDG_CONFIG_HOME/bbapprove/ignore, default ~/.config/bbapprove/ignore) is
+With no {val:PR_URL}, every open PR where you are a reviewer is considered.
+Without {flag:--apply} nothing is changed; eligibility is only reported.
+Your per-user ignore list ({path:$XDG_CONFIG_HOME/bbapprove/ignore}, default {path:~/.config/bbapprove/ignore}) is
 honoured: a PR whose title matches an entry is shown dim as IGNORED and is never approved, merged,
-declined or commented, with or without --apply. --hide-ignored leaves those rows out of the table
+declined or commented, with or without {flag:--apply}. {flag:--hide-ignored} leaves those rows out of the table
 (the footer then says "N ignored (hidden)").
 The STATUS column is blank for an eligible, untouched PR; otherwise SKIP, IGNORED, or the result of
 an action (APPROVING… MERGED, NOT MERGED, DECLINING… DECLINED, COMMENTING… COMMENTED, FAIL).
--i opens an interactive TUI: x/space mark, ctrl+a mark all eligible, a approve+merge, d decline,
+{flag:-i} opens an interactive TUI: x/space mark, ctrl+a mark all eligible, a approve+merge, d decline,
 c comment (cursor row); A/D/C act on the marked rows; i ignore dependency, h or . show/hide ignored
-rows, r reload, o open, ? help, q quit (prints a summary of what was done). --no-mouse (or
-BBAPPROVE_MOUSE=0) turns mouse capture off.
+rows, r reload, o open, ? help, q quit (prints a summary of what was done). {flag:--no-mouse} (or
+{env:BBAPPROVE_MOUSE}=0) turns mouse capture off.
 
-A PR is eligible when ALL hold:
-  - author email is the configured author_email (config file, BBAPPROVE_AUTHOR_EMAIL; no default)
+{h:A PR is eligible when ALL hold:}
+  - author email is the configured author_email (config file, {env:BBAPPROVE_AUTHOR_EMAIL}; no default)
   - title starts with "chore(deps):" or "fix(deps):"
-  - title does not mention a disallowed dependency (config "disallow", --disallow)
+  - title does not mention a disallowed dependency (config "disallow", {flag:--disallow})
   - update is minor/patch/digest (title "to vN" only, or branch renovate/major-*, is major)
   - not already approved by you
   - not on your ignore list (a PR on it is IGNORED whatever else applies, and never acted on)
 
-Configuration: a TOML file (see bbapprove.config.template) with type, repository, user_token_name,
-author_email, disallow. Found via --config / BBAPPROVE_CONFIG, else <repo>/bbapprove.config.toml, else
-$XDG_CONFIG_HOME/bbapprove/config.toml (default ~/.config/...). Precedence: command line > env > file >
+{h:Configuration:} a TOML file (see {path:bbapprove.config.template}) with type, repository, user_token_name,
+author_email, disallow. Found via {flag:--config} / {env:BBAPPROVE_CONFIG}, else {path:<repo>/bbapprove.config.toml}, else
+{path:$XDG_CONFIG_HOME/bbapprove/config.toml} (default {path:~/.config/...}). Precedence: command line > env > file >
 default. repository and author_email have no default. With no config file at all, an interactive run
-offers to create $XDG_CONFIG_HOME/bbapprove/config.toml from the template and open it in $VISUAL/$EDITOR;
---init does that on request (never overwrites an existing file unless --force; --config FILE or BBAPPROVE_CONFIG picks the
-path). The template is built into the binary. --print-config shows the effective settings
-(no secrets) and where each came from. --token-name NAME overrides the 1Password item name.
+offers to create {path:$XDG_CONFIG_HOME/bbapprove/config.toml} from the template and open it in ${env:VISUAL}/${env:EDITOR};
+{flag:--init} does that on request (never overwrites an existing file unless {flag:--force}; {flag:--config} {val:FILE} or {env:BBAPPROVE_CONFIG} picks the
+path). The template is built into the binary. {flag:--print-config} shows the effective settings
+{dim:(no secrets)} and where each came from. {flag:--token-name} {val:NAME} overrides the 1Password item name.
 
-doctor prints diagnostics and needs no token or forge access: version and update status, which config
+{cmd:doctor} prints diagnostics and needs no token or forge access: version and update status, which config
 file is in use (every candidate path and why), where each setting came from, the adapter, the token
-sources (never the token), the ignore list (path and entries: what makes a row IGNORED), the disallow
-lists, BBAPPROVE_* variables and tools (git, gh, op). Read-only; --offline skips the update check.
-Exit 0 all good (warnings allowed), 1 a problem was found.
+sources {dim:(never the token)}, the ignore list (path and entries: what makes a row IGNORED), the disallow
+lists, {env:BBAPPROVE_*} variables and tools (git, gh, op). Read-only; {flag:--offline} skips the update check.
+Exit 0 all good {dim:(warnings allowed)}, 1 a problem was found.
 
---outdated checks (read-only) whether a newer release exists: it asks "gh release list" for
-jesperronn/bbapprove (override: update_repo in the config, BBAPPROVE_UPDATE_REPO) and, in a git
+{flag:--outdated} checks (read-only) whether a newer release exists: it asks "gh release list" for
+jesperronn/bbapprove (override: update_repo in the config, {env:BBAPPROVE_UPDATE_REPO}) and, in a git
 checkout without gh, "git ls-remote --tags origin". A pre-release build compares against the newest
-release including pre-releases; a stable build against the newest stable one unless --pre. Exit 0 up to
-date, 1 outdated, 2 could not check. bbapprove never checks by itself. --update does the same check,
-prints a plan and asks "Proceed? [y/N]" (--yes skips the prompt; without a terminal it needs --yes).
+release including pre-releases; a stable build against the newest stable one unless {flag:--pre}. Exit 0 up to
+date, 1 outdated, 2 could not check. bbapprove never checks by itself. {flag:--update} does the same check,
+prints a plan and asks "Proceed? [y/N]" ({flag:--yes} skips the prompt; without a terminal it needs {flag:--yes}).
 A checkout is updated in place (git fetch --tags, git pull --ff-only, bin/build; needs a clean tree on
-main). Any other install gets the new release unpacked next to it (bbapprove-<tag>-<os>-<arch>, SHA-256
+main). Any other install gets the new release unpacked next to it ({path:bbapprove-<tag>-<os>-<arch>}, SHA-256
 verified, needs gh): the running tree is never modified, the commands to switch and to roll back are
-printed. Neither flag needs a config file, token or forge access; both are exclusive with --apply and PR_URLs.
+printed. Neither flag needs a config file, token or forge access; both are exclusive with {flag:--apply} and {val:PR_URL}s.
 
-Env: BBAPPROVE_CONFIG, BBAPPROVE_UPDATE_REPO, BBAPPROVE_REPOSITORY, BBAPPROVE_AUTHOR_EMAIL, BBAPPROVE_TOKEN_NAME,
-     BBAPPROVE_DISALLOW, BBAPPROVE_DISALLOW_FILE, BBAPPROVE_JOBS, BBAPPROVE_ADAPTER, BBAPPROVE_TOKEN,
-     BBAPPROVE_MOUSE, BBAPPROVE_KITTY; NO_COLOR, FORCE_COLOR.
+{h:Env:} {env:BBAPPROVE_CONFIG}, {env:BBAPPROVE_UPDATE_REPO}, {env:BBAPPROVE_REPOSITORY}, {env:BBAPPROVE_AUTHOR_EMAIL}, {env:BBAPPROVE_TOKEN_NAME},
+     {env:BBAPPROVE_DISALLOW}, {env:BBAPPROVE_DISALLOW_FILE}, {env:BBAPPROVE_JOBS}, {env:BBAPPROVE_ADAPTER}, {env:BBAPPROVE_TOKEN},
+     {env:BBAPPROVE_MOUSE}, {env:BBAPPROVE_KITTY}; {env:NO_COLOR}, {env:FORCE_COLOR}.
 `
 
-// usage returns the help text; the first line carries the version when known.
-func usage(version string) string {
+// helpTitle is the first help line; the version is escaped because it is data, not markup.
+func helpTitle(version string) string {
 	if version == "" {
 		version = "dev"
 	}
-	return "bbapprove " + version + " — " + usageBody
+	return "{title:bbapprove " + style.Escape(version) + " — approve and merge Renovate PRs on Bitbucket Server.}\n"
 }
+
+// usageFor renders the top-level help with the given theme.
+func usageFor(t style.Theme, version string) string {
+	return t.MustRender(helpTitle(version) + usageMarkup)
+}
+
+// usage returns the plain help text; the first line carries the version when known.
+func usage(version string) string { return usageFor(style.Theme{}, version) }
 
 type printer struct {
 	mu sync.Mutex
@@ -191,7 +200,7 @@ func Run(ctx context.Context, o Options) int {
 		}
 		switch {
 		case a == "-h" || a == "--help":
-			io.WriteString(o.Stdout, usage(o.Version))
+			io.WriteString(o.Stdout, usageFor(style.New(color(o)), o.Version))
 			return 0
 		case a == "--apply":
 			apply = true
@@ -304,7 +313,7 @@ func Run(ctx context.Context, o Options) int {
 		fmt.Fprintf(o.Stderr, "bbapprove: warning: %s\n", w)
 	}
 	if printCfg {
-		io.WriteString(o.Stdout, cfg.Describe())
+		io.WriteString(o.Stdout, cfg.DescribeThemed(style.New(color(o))))
 		return 0
 	}
 	if err := cfg.Missing(); err != nil {

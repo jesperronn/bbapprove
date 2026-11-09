@@ -16,6 +16,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 
 	"bbapprove/internal/rules"
+	"bbapprove/internal/style"
 )
 
 // Where a setting's value came from.
@@ -283,28 +284,44 @@ func (c *Config) ChildEnv(environ []string) []string {
 }
 
 // Describe renders the effective settings and their sources. It never includes a token.
-func (c *Config) Describe() string {
+func (c *Config) Describe() string { return c.DescribeThemed(style.Theme{}) }
+
+// DescribeThemed is Describe with colour: labels dim, paths cyan, sources by origin. With the zero
+// Theme the text is byte-identical to the plain form.
+func (c *Config) DescribeThemed(t style.Theme) string {
 	var b strings.Builder
-	file := c.File
-	if file == "" {
-		file = "(none found; searched " + strings.Join(c.Searched, ", ") + ")"
-	}
-	fmt.Fprintf(&b, "config file:     %s\n", file)
+	file := t.Paint(style.Path, c.File)
 	if c.File == "" {
-		fmt.Fprintf(&b, "                 no config file found: create one from the template with: bbapprove --init\n")
+		var searched []string
+		for _, s := range c.Searched {
+			searched = append(searched, t.Paint(style.Path, s))
+		}
+		file = t.Paint(style.Dim, "(none found; searched ") + strings.Join(searched, t.Paint(style.Dim, ", ")) + t.Paint(style.Dim, ")")
 	}
-	return b.String() + c.Settings()
+	fmt.Fprintf(&b, "%s%s\n", t.Paint(style.Dim, "config file:")+"     ", file)
+	if c.File == "" {
+		fmt.Fprintf(&b, "                 %s\n", t.Paint(style.Dim, "no config file found: create one from the template with: bbapprove --init"))
+	}
+	return b.String() + c.SettingsThemed(t)
 }
 
 // Settings renders the effective settings table (one row per setting with its source). No secrets.
-func (c *Config) Settings() string {
+func (c *Config) Settings() string { return c.SettingsThemed(style.Theme{}) }
+
+// SettingsThemed is Settings with colour: setting names dim, values in the default colour, "[source]"
+// coloured by origin (flag, env, file, default; anything else dim).
+func (c *Config) SettingsThemed(t style.Theme) string {
 	var b strings.Builder
+	label := func(name string) string {
+		l := name + ":"
+		return t.Paint(style.Dim, l) + strings.Repeat(" ", max(16-len(l), 0)) + " "
+	}
 	row := func(name string, v Value) {
 		val := v.Value
 		if val == "" {
 			val = "(not set)"
 		}
-		fmt.Fprintf(&b, "%-16s %s  [%s]\n", name+":", val, v.Source)
+		fmt.Fprintf(&b, "%s%s  %s\n", label(name), val, t.Source(v.Source))
 	}
 	row("type", c.Type)
 	row("adapter", c.Adapter)
@@ -313,6 +330,6 @@ func (c *Config) Settings() string {
 	row("author_email", c.AuthorEmail)
 	row("update_repo", c.UpdateRepo)
 	row("disallow_file", c.DisallowFile)
-	fmt.Fprintf(&b, "%-16s %s\n", "disallow:", strings.Join(c.Disallow, ", "))
+	fmt.Fprintf(&b, "%s%s\n", label("disallow"), strings.Join(c.Disallow, ", "))
 	return b.String()
 }

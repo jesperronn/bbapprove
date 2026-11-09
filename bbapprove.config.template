@@ -12,10 +12,6 @@ type = "bitbucket"
 # base URL of the forge (no built-in default; required). Env: BBAPPROVE_REPOSITORY
 repository = "https://bitbucket.example.com"
 
-# name of the 1Password item holding the API token (field "token"). Default: BITBUCKET_TOKEN.
-# Env: BBAPPROVE_TOKEN_NAME; the command line (--token-name NAME) wins over the file.
-user_token_name = "BITBUCKET_TOKEN"
-
 # only PRs authored by this bot are eligible (no built-in default; required). Env: BBAPPROVE_AUTHOR_EMAIL
 author_email = "renovate-bot@example.com"
 

@@ -86,15 +86,6 @@ func (c *Client) runFor(ctx context.Context, def time.Duration, args ...string) 
 	return strings.TrimSpace(out.String()), nil
 }
 
-// AuthToken runs `auth token`.
-func (c *Client) AuthToken(ctx context.Context) (string, error) {
-	tok, err := c.run(ctx, "auth", "token")
-	if err == nil && tok == "" {
-		return "", errors.New("adapter returned an empty token")
-	}
-	return tok, err
-}
-
 // List runs `pr list --reviewer @me --state open`.
 func (c *Client) List(ctx context.Context) ([]PR, error) {
 	out, err := c.run(ctx, "pr", "list", "--reviewer", "@me", "--state", "open")

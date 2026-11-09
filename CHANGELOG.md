@@ -5,10 +5,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed (BREAKING)
+- The token now comes only from `BBAPPROVE_TOKEN`; removed `--token`, `--token-name`, `user_token_name`,
+  `BBAPPROVE_TOKEN_NAME`, the 1Password lookup and the adapter's `auth token` command. Migrate:
+  `export BBAPPROVE_TOKEN=...` (a leftover `user_token_name` only warns). Without the token, runs that need the
+  forge exit 1 before calling the adapter; `bbapprove doctor` reports it as a problem.
+
 ### Added
 - `bbapprove doctor [--offline] [--config FILE]`: read-only diagnostics (version and update status, every config
-  file candidate and which one is used, setting sources, adapter, token sources without the token, ignore and
-  disallow lists, `BBAPPROVE_*` variables, `git`/`gh`/`op`). Exit 1 when a problem is found. A non-URL argument
+  file candidate and which one is used, setting sources, adapter, whether `BBAPPROVE_TOKEN` is set without its value, ignore and
+  disallow lists, `BBAPPROVE_*` variables, `git`/`gh`). Exit 1 when a problem is found. A non-URL argument
   now fails early with `Not a PR URL: <x>` and a hint at the subcommands (exit 2).
 - The CLI footer names the ignore file: `N ignored via <path> (see: bbapprove doctor)`; `--hide-ignored` adds the
   path to its `N ignored (hidden)` line.

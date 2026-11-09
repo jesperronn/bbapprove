@@ -29,9 +29,8 @@ func fake(t *testing.T) (path, log string) {
 	path = filepath.Join(dir, "adapter")
 	script := `#!/bin/sh
 echo "$* token=$BBAPPROVE_TOKEN" >> "$FAKE_LOG"
-echo "base=$BBAPPROVE_BASE_URL name=$BBAPPROVE_TOKEN_NAME" >> "$FAKE_LOG.env"
+echo "base=$BBAPPROVE_BASE_URL" >> "$FAKE_LOG.env"
 case "$1 $2" in
-  "auth token") echo tok-from-adapter ;;
   "pr list") if [ -n "$FAKE_LIST_FAIL" ]; then echo "boom: list failed" >&2; exit 1; fi; printf '%s' "$FAKE_LIST" ;;
   "pr view") printf '{"url":"%s","number":9,"project":"P","repo":"v","title":"chore(deps): update v","author":{"email":"` + bot + `"},"headBranch":"renovate/v"}' "$3" ;;
   "pr review") case "$3" in *pull-requests/3) echo "approve denied" >&2; exit 1;; esac; sleep 0.05 ;;
@@ -57,7 +56,7 @@ func baseEnv(t *testing.T) ([]string, string) {
 	ad, log := fake(t)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // never read the real per-user ignore list
 	return []string{"BBAPPROVE_ADAPTER=" + ad, "FAKE_LOG=" + log, "FAKE_LIST=" + listJSON, "NO_COLOR=1", "BBAPPROVE_JOBS=4",
-		"BBAPPROVE_REPOSITORY=https://bitbucket.example.com", "BBAPPROVE_AUTHOR_EMAIL=" + bot}, log
+		"BBAPPROVE_REPOSITORY=https://bitbucket.example.com", "BBAPPROVE_AUTHOR_EMAIL=" + bot, "BBAPPROVE_TOKEN=tok-env"}, log
 }
 
 func readLog(t *testing.T, p string) string {
@@ -92,21 +91,78 @@ func TestDryRun(t *testing.T) {
 	if strings.Contains(l, "pr review") || strings.Contains(l, "pr merge") {
 		t.Errorf("dry run mutated: %s", l)
 	}
-	if !strings.Contains(l, "auth token") || !strings.Contains(l, "pr list --reviewer @me --state open token=tok-from-adapter") {
-		t.Errorf("token not fetched/passed once: %s", l)
-	}
-	if strings.Count(l, "auth token") != 1 {
-		t.Errorf("auth token called %d times", strings.Count(l, "auth token"))
+	if !strings.Contains(l, "pr list --reviewer @me --state open token=tok-env") || strings.Contains(l, "auth") {
+		t.Errorf("token not passed from the environment: %s", l)
 	}
 }
 
-func TestEnvTokenSkipsAuth(t *testing.T) {
-	env, log := baseEnv(t)
-	if code, _, _ := run(t, append(env, "BBAPPROVE_TOKEN=given")); code != 0 {
-		t.Fatal(code)
+const canary = "CANARY-SECRET-123"
+
+// envWithout returns env minus the BBAPPROVE_TOKEN entry.
+func envWithout(env []string) []string {
+	var out []string
+	for _, kv := range env {
+		if !strings.HasPrefix(kv, "BBAPPROVE_TOKEN=") {
+			out = append(out, kv)
+		}
 	}
-	if l := readLog(t, log); strings.Contains(l, "auth token") || !strings.Contains(l, "token=given") {
-		t.Errorf("log: %s", l)
+	return out
+}
+
+func TestMissingTokenFailsFast(t *testing.T) {
+	env, log := baseEnv(t)
+	env = envWithout(env)
+	for _, args := range [][]string{nil, {"--apply"}, {"http://h/projects/P/repos/a/pull-requests/1"}} {
+		code, out, errOut := run(t, env, args...)
+		if code != 1 || out != "" || !strings.HasPrefix(errOut, "bbapprove: BBAPPROVE_TOKEN is not set.") ||
+			!strings.Contains(errOut, "export BBAPPROVE_TOKEN=") || !strings.Contains(errOut, "run: bbapprove doctor") {
+			t.Errorf("%v: code %d out %q err %q", args, code, out, errOut)
+		}
+		if l := readLog(t, log); l != "" {
+			t.Errorf("%v: adapter was called before the token check: %s", args, l)
+		}
+	}
+	// an empty value counts as unset
+	if code, _, errOut := run(t, append(env, "BBAPPROVE_TOKEN="), "--apply"); code != 1 || !strings.Contains(errOut, "BBAPPROVE_TOKEN is not set") {
+		t.Errorf("empty token: code %d err %q", code, errOut)
+	}
+}
+
+func TestNoForgeCommandsNeedNoToken(t *testing.T) {
+	env, log := baseEnv(t)
+	env = envWithout(env)
+	for _, args := range [][]string{{"--help"}, {"--print-config"}, {"doctor", "--offline"}} {
+		code, _, errOut := run(t, env, args...)
+		if strings.Contains(errOut, "BBAPPROVE_TOKEN is not set") || code == 2 {
+			t.Errorf("%v needs no token: code %d err %q", args, code, errOut)
+		}
+	}
+	if l := readLog(t, log); l != "" {
+		t.Errorf("adapter called: %s", l)
+	}
+}
+
+func TestRemovedTokenFlags(t *testing.T) {
+	env, log := baseEnv(t)
+	for _, args := range [][]string{{"--token", "x"}, {"--token=x"}, {"--token-name", "N"}, {"--token-name=N"}, {"doctor", "--token", "x"}, {"--print-config", "--token", "x"}} {
+		code, _, errOut := run(t, env, args...)
+		if code != 2 || !strings.Contains(errOut, "--token and --token-name were removed") || !strings.Contains(errOut, "BBAPPROVE_TOKEN") || strings.Contains(errOut, "Unknown option") {
+			t.Errorf("%v: code %d err %q", args, code, errOut)
+		}
+	}
+	if l := readLog(t, log); l != "" {
+		t.Errorf("adapter called: %s", l)
+	}
+}
+
+func TestLeftoverUserTokenNameOnlyWarns(t *testing.T) {
+	env, _ := baseEnv(t)
+	f := filepath.Join(t.TempDir(), "c.toml")
+	os.WriteFile(f, []byte("repository = \"https://h.example.com\"\nauthor_email = \""+bot+"\"\nuser_token_name = \"ITEM\"\n"), 0o644)
+	code, _, errOut := run(t, env, "--config", f)
+	want := "user_token_name in " + f + " is no longer used; set BBAPPROVE_TOKEN instead (see README)"
+	if code != 0 || strings.Count(errOut, "user_token_name") != 1 || !strings.Contains(errOut, want) || strings.Contains(errOut, "unknown key") {
+		t.Errorf("code %d err %q", code, errOut)
 	}
 }
 
@@ -434,7 +490,7 @@ func TestFirstRunWithoutConfigFailsHelpfully(t *testing.T) {
 func TestConfigFileDrivesRunAndAdapterEnv(t *testing.T) {
 	env, log := bareEnv(t)
 	repo := t.TempDir()
-	cfg := "repository = \"https://file.example.com\"\nuser_token_name = \"FILE_ITEM\"\nauthor_email = \"" + bot + "\"\ndisallow = [\"some-library\"]\n"
+	cfg := "repository = \"https://file.example.com\"\nauthor_email = \"" + bot + "\"\ndisallow = [\"some-library\"]\n"
 	os.WriteFile(filepath.Join(repo, "bbapprove.config.toml"), []byte(cfg), 0o644)
 	code, out, errOut := runIn(t, repo, env)
 	if code != 0 || errOut != "" {
@@ -444,18 +500,18 @@ func TestConfigFileDrivesRunAndAdapterEnv(t *testing.T) {
 		t.Errorf("disallow from the file not applied:\n%s", out)
 	}
 	envLog, _ := os.ReadFile(log + ".env")
-	if !strings.Contains(string(envLog), "base=https://file.example.com name=FILE_ITEM") {
+	if !strings.Contains(string(envLog), "base=https://file.example.com") {
 		t.Errorf("adapter child env:\n%s", envLog)
 	}
 
-	// flag beats env beats file for the item name, and reaches the adapter
+	// env beats file for the repository, and reaches the adapter
 	os.Remove(log + ".env")
-	code, _, errOut = runIn(t, repo, append(env, "BBAPPROVE_TOKEN_NAME=ENV_ITEM", "BBAPPROVE_REPOSITORY=https://env.example.com"), "--token-name", "FLAG_ITEM")
+	code, _, errOut = runIn(t, repo, append(env, "BBAPPROVE_REPOSITORY=https://env.example.com"))
 	if code != 0 {
 		t.Fatalf("code %d err %q", code, errOut)
 	}
 	envLog, _ = os.ReadFile(log + ".env")
-	if !strings.Contains(string(envLog), "base=https://env.example.com name=FLAG_ITEM") {
+	if !strings.Contains(string(envLog), "base=https://env.example.com") {
 		t.Errorf("adapter child env:\n%s", envLog)
 	}
 }
@@ -483,10 +539,8 @@ func TestConfigFlagAndErrors(t *testing.T) {
 	if code != 1 || !strings.Contains(errOut, bad) || !strings.Contains(errOut, "line 2") {
 		t.Fatalf("malformed: code %d err %q", code, errOut)
 	}
-	for _, flag := range []string{"--config", "--token-name"} {
-		if code, _, errOut = runIn(t, repo, env, flag); code != 2 || !strings.Contains(errOut, flag+" needs a value") {
-			t.Errorf("%s: code %d err %q", flag, code, errOut)
-		}
+	if code, _, errOut = runIn(t, repo, env, "--config"); code != 2 || !strings.Contains(errOut, "--config needs a value") {
+		t.Errorf("--config: code %d err %q", code, errOut)
 	}
 }
 
@@ -495,8 +549,8 @@ func TestPrintConfig(t *testing.T) {
 	repo := t.TempDir()
 	os.WriteFile(filepath.Join(repo, "bbapprove.config.toml"),
 		[]byte("repository = \"https://file.example.com\"\nauthor_email = \"file-bot@example.com\"\ndisallow = [\"some-library\"]\n"), 0o644)
-	code, out, errOut := runIn(t, repo, append(env, "BBAPPROVE_TOKEN=s3cret-value", "BBAPPROVE_AUTHOR_EMAIL=env-bot@example.com"),
-		"--print-config", "--token-name", "FLAG_ITEM", "--token", "also-secret")
+	code, out, errOut := runIn(t, repo, append(env, "BBAPPROVE_TOKEN="+canary, "BBAPPROVE_AUTHOR_EMAIL=env-bot@example.com"),
+		"--print-config")
 	if code != 0 || errOut != "" {
 		t.Fatalf("code %d err %q", code, errOut)
 	}
@@ -504,7 +558,6 @@ func TestPrintConfig(t *testing.T) {
 		"update_repo:     jesperronn/bbapprove  [default]",
 		"config file:     " + filepath.Join(repo, "bbapprove.config.toml"),
 		"repository:      https://file.example.com  [file]",
-		"user_token_name: FLAG_ITEM  [flag]",
 		"author_email:    env-bot@example.com  [env]",
 		"type:            bitbucket  [default]",
 		"disallow:        some-library",
@@ -513,7 +566,7 @@ func TestPrintConfig(t *testing.T) {
 			t.Errorf("output lacks %q:\n%s", w, out)
 		}
 	}
-	if strings.Contains(out, "secret") {
+	if strings.Contains(out, canary) || strings.Contains(out, "user_token_name") {
 		t.Errorf("secret leaked:\n%s", out)
 	}
 	if readLog(t, log) != "" {

@@ -62,7 +62,7 @@ func newRig(t *testing.T) *rig {
 	ad := filepath.Join(r.root, "adapters", "bitbucket")
 	os.MkdirAll(filepath.Dir(ad), 0o755)
 	os.WriteFile(ad, []byte("#!/bin/sh\n"), 0o755)
-	r.env = []string{"NO_COLOR=1", "XDG_CONFIG_HOME=" + r.xdg}
+	r.env = []string{"NO_COLOR=1", "XDG_CONFIG_HOME=" + r.xdg, "BBAPPROVE_TOKEN=tok-" + canary}
 	return r
 }
 
@@ -311,37 +311,45 @@ func TestDisallowSources(t *testing.T) {
 	mustContain(t, out, "config file:", "left-pad", "env-dep", "other-dep", df+"  [env, found]", "file-dep", "--disallow:", "flag only")
 }
 
-func TestTokenSectionNeverLeaks(t *testing.T) {
-	const secret = "s3cr3t-token-VALUE-123"
-	for _, tc := range []struct {
-		name    string
-		env     []string
-		tools   map[string]string
-		wants   []string
-		unwants []string
-	}{
-		{"env set, op present", []string{"BBAPPROVE_TOKEN=" + secret}, nil,
-			[]string{"BBAPPROVE_TOKEN env set", "op: found at /usr/bin/op", `item "BITBUCKET_TOKEN"`, "BBAPPROVE_TOKEN=set (value hidden)"}, []string{"NOT found"}},
-		{"env unset, op missing", nil, map[string]string{"git": "/usr/bin/git"},
-			[]string{"BBAPPROVE_TOKEN env not set", "op: NOT found on PATH", "no token source here"}, nil},
-		{"custom item name", []string{"BBAPPROVE_TOKEN_NAME=MY_ITEM"}, nil, []string{`item "MY_ITEM"`}, nil},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			r := newRig(t)
-			r.writeXDG(validCfg)
-			r.env = append(r.env, tc.env...)
-			if tc.tools != nil {
-				r.tools = tc.tools
-			}
-			_, out := r.doctor(nil)
-			mustContain(t, out, tc.wants...)
-			mustNotContain(t, out, append(tc.unwants, secret, "s3cr3t")...)
-			for _, c := range r.run.calls {
-				if strings.HasPrefix(c, "op") || strings.Contains(c, secret) {
-					t.Errorf("runner called with %q", c)
-				}
-			}
-		})
+const canary = "CANARY-SECRET-123"
+
+func TestTokenSection(t *testing.T) {
+	r := newRig(t)
+	r.writeXDG(validCfg)
+	code, out := r.doctor(nil)
+	mustContain(t, out, "BBAPPROVE_TOKEN: set (value hidden, 21 chars)", "BBAPPROVE_TOKEN=set (value hidden)", "all good")
+	mustNotContain(t, out, canary, "CANARY", "--token", "1Password")
+	if code != 0 {
+		t.Errorf("code %d", code)
+	}
+	for _, c := range r.run.calls {
+		if strings.HasPrefix(c, "op") {
+			t.Errorf("runner called %q", c)
+		}
+	}
+	mustNotContain(t, out, "\n"+"     op:", " op ")
+}
+
+func TestMissingTokenIsAProblem(t *testing.T) {
+	for _, env := range [][]string{nil, {"BBAPPROVE_TOKEN="}} {
+		r := newRig(t)
+		r.writeXDG(validCfg)
+		r.env = append([]string{"NO_COLOR=1", "XDG_CONFIG_HOME=" + r.xdg}, env...)
+		code, out := r.doctor(nil)
+		if code != 1 {
+			t.Errorf("code %d\n%s", code, out)
+		}
+		mustContain(t, out, "FAIL BBAPPROVE_TOKEN: NOT SET", "export BBAPPROVE_TOKEN=", "FAIL BBAPPROVE_TOKEN is not set", "1 problem(s) found")
+	}
+}
+
+func TestLeftoverUserTokenNameWarns(t *testing.T) {
+	r := newRig(t)
+	p := r.writeXDG(validCfg + "user_token_name = \"X\"\n")
+	code, out := r.doctor(nil)
+	mustContain(t, out, "warn user_token_name in "+p+" is no longer used; set BBAPPROVE_TOKEN instead (see README)")
+	if code != 0 || strings.Count(out, "user_token_name") != 1 {
+		t.Errorf("code %d\n%s", code, out)
 	}
 }
 

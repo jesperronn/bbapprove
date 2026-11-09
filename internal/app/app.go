@@ -75,8 +75,8 @@ func (o Options) env(key string) string {
 
 const usageBody = `approve and merge Renovate PRs on Bitbucket Server.
 
-Usage: bbapprove [--apply] [--hide-ignored] [--disallow a,b] [--token T] [--token-name NAME]
-                 [--config FILE] [--print-config] [PR_URL...]
+Usage: bbapprove [--apply] [--hide-ignored] [--disallow a,b] [--config FILE]
+                 [--print-config] [PR_URL...]
        bbapprove --init [--force] [--config FILE]
        bbapprove doctor [--offline] [--config FILE]
        bbapprove --outdated [--pre]
@@ -103,19 +103,21 @@ A PR is eligible when ALL hold:
   - not already approved by you
   - not on your ignore list (a PR on it is IGNORED whatever else applies, and never acted on)
 
-Configuration: a TOML file (see bbapprove.config.template) with type, repository, user_token_name,
-author_email, disallow. Found via --config / BBAPPROVE_CONFIG, else <repo>/bbapprove.config.toml, else
+Configuration: a TOML file (see bbapprove.config.template) with type, repository,
+author_email, disallow, update_repo. Found via --config / BBAPPROVE_CONFIG, else <repo>/bbapprove.config.toml, else
 $XDG_CONFIG_HOME/bbapprove/config.toml (default ~/.config/...). Precedence: command line > env > file >
 default. repository and author_email have no default. With no config file at all, an interactive run
 offers to create $XDG_CONFIG_HOME/bbapprove/config.toml from the template and open it in $VISUAL/$EDITOR;
 --init does that on request (never overwrites an existing file unless --force; --config FILE or BBAPPROVE_CONFIG picks the
 path). The template is built into the binary. --print-config shows the effective settings
-(no secrets) and where each came from. --token-name NAME overrides the 1Password item name.
+(no secrets) and where each came from.
+The API token comes only from the environment: export BBAPPROVE_TOKEN=... (see README, section Token).
+Without it a run that needs the forge fails at once; --token / --token-name no longer exist.
 
 doctor prints diagnostics and needs no token or forge access: version and update status, which config
-file is in use (every candidate path and why), where each setting came from, the adapter, the token
-sources (never the token), the ignore list (path and entries: what makes a row IGNORED), the disallow
-lists, BBAPPROVE_* variables and tools (git, gh, op). Read-only; --offline skips the update check.
+file is in use (every candidate path and why), where each setting came from, the adapter, whether
+BBAPPROVE_TOKEN is set (never its value), the ignore list (path and entries: what makes a row IGNORED), the disallow
+lists, BBAPPROVE_* variables and tools (git, gh). Read-only; --offline skips the update check.
 Exit 0 all good (warnings allowed), 1 a problem was found.
 
 --outdated checks (read-only) whether a newer release exists: it asks "gh release list" for
@@ -129,8 +131,8 @@ main). Any other install gets the new release unpacked next to it (bbapprove-<ta
 verified, needs gh): the running tree is never modified, the commands to switch and to roll back are
 printed. Neither flag needs a config file, token or forge access; both are exclusive with --apply and PR_URLs.
 
-Env: BBAPPROVE_CONFIG, BBAPPROVE_UPDATE_REPO, BBAPPROVE_REPOSITORY, BBAPPROVE_AUTHOR_EMAIL, BBAPPROVE_TOKEN_NAME,
-     BBAPPROVE_DISALLOW, BBAPPROVE_DISALLOW_FILE, BBAPPROVE_JOBS, BBAPPROVE_ADAPTER, BBAPPROVE_TOKEN,
+Env: BBAPPROVE_CONFIG, BBAPPROVE_UPDATE_REPO, BBAPPROVE_REPOSITORY, BBAPPROVE_AUTHOR_EMAIL,
+     BBAPPROVE_DISALLOW, BBAPPROVE_DISALLOW_FILE, BBAPPROVE_JOBS, BBAPPROVE_ADAPTER, BBAPPROVE_TOKEN (required to talk to the forge),
      BBAPPROVE_MOUSE, BBAPPROVE_KITTY; NO_COLOR, FORCE_COLOR.
 `
 
@@ -160,8 +162,6 @@ func Run(ctx context.Context, o Options) int {
 		apply    bool
 		hideIgn  bool
 		disallow string
-		token    = o.env("BBAPPROVE_TOKEN")
-		tokName  string
 		cfgFile  string
 		printCfg bool
 		initCfg  bool
@@ -221,13 +221,9 @@ func Run(ctx context.Context, o Options) int {
 			yes = true
 		case a == "--print-config":
 			printCfg = true
-		case a == "--token-name" || strings.HasPrefix(a, "--token-name="):
-			v, ok := val()
-			if !ok {
-				fmt.Fprintln(o.Stderr, "--token-name needs a value")
-				return 2
-			}
-			tokName = v
+		case config.IsRemovedTokenFlag(a):
+			fmt.Fprintln(o.Stderr, config.RemovedTokenFlagHelp)
+			return 2
 		case a == "--config" || strings.HasPrefix(a, "--config="):
 			v, ok := val()
 			if !ok {
@@ -235,13 +231,6 @@ func Run(ctx context.Context, o Options) int {
 				return 2
 			}
 			cfgFile = v
-		case a == "--token" || strings.HasPrefix(a, "--token="):
-			v, ok := val()
-			if !ok {
-				fmt.Fprintln(o.Stderr, "--token needs a value")
-				return 2
-			}
-			token = v
 		case strings.HasPrefix(a, "-"):
 			fmt.Fprintf(o.Stderr, "Unknown option: %s\n%s", a, usage(o.Version))
 			return 2
@@ -254,10 +243,10 @@ func Run(ctx context.Context, o Options) int {
 
 	if doDoctor {
 		if apply || hideIgn || initCfg || force || outdated || doUpdate || pre || yes || printCfg || len(targets) > 0 {
-			fmt.Fprintln(o.Stderr, "doctor only takes --offline, --config, --token-name and --disallow")
+			fmt.Fprintln(o.Stderr, "doctor only takes --offline, --config and --disallow")
 			return 2
 		}
-		return runDoctor(ctx, o, cfgFile, tokName, disallow, offline)
+		return runDoctor(ctx, o, cfgFile, disallow, offline)
 	}
 	if offline {
 		fmt.Fprintln(o.Stderr, "--offline only applies to doctor")
@@ -292,7 +281,7 @@ func Run(ctx context.Context, o Options) int {
 		return 2
 	}
 	cin := config.Input{
-		Env: o.env, RepoDir: o.RepoDir, ConfigFlag: cfgFile, TokenNameFlag: tokName, DisallowFlag: disallow,
+		Env: o.env, RepoDir: o.RepoDir, ConfigFlag: cfgFile, DisallowFlag: disallow,
 	}
 	cfg, err := config.Load(cin)
 	if err != nil {
@@ -317,6 +306,11 @@ func Run(ctx context.Context, o Options) int {
 			return code
 		}
 	}
+	token := o.env("BBAPPROVE_TOKEN")
+	if token == "" { // fail fast, before the adapter or the ignore list is touched
+		fmt.Fprintln(o.Stderr, config.TokenMissingHelp)
+		return 1
+	}
 	adapterPath := cfg.Adapter.Value
 	jobs := runtime.NumCPU()
 	if n, err := strconv.Atoi(o.env("BBAPPROVE_JOBS")); err == nil && n > 0 {
@@ -333,15 +327,6 @@ func Run(ctx context.Context, o Options) int {
 
 	rc := rules.Config{AuthorEmail: cfg.AuthorEmail.Value, Disallow: cfg.Disallow}
 	client := &adapter.Client{Path: adapterPath, Token: token, Environ: cfg.ChildEnv(o.Environ)}
-
-	if token == "" {
-		t, err := client.AuthToken(ctx)
-		if err != nil {
-			fmt.Fprintln(o.Stderr, err)
-			return 1
-		}
-		client.Token = t
-	}
 
 	var prs []adapter.PR
 	if len(targets) > 0 {
@@ -502,12 +487,12 @@ func runUpdate(ctx context.Context, o Options, f updateFlags) int {
 }
 
 // runDoctor wires the real process seams into package doctor.
-func runDoctor(ctx context.Context, o Options, cfgFile, tokName, disallow string, offline bool) int {
+func runDoctor(ctx context.Context, o Options, cfgFile, disallow string, offline bool) int {
 	d := doctor.Options{
 		Environ: o.Environ, Stdout: o.Stdout, Stderr: o.Stderr, IsTTY: o.IsTTY,
 		Runner: o.UpdateRunner, LookPath: o.LookPath, Executable: o.Executable,
 		Version: o.Version, GOOS: o.GOOS, GOARCH: o.GOARCH, GoVersion: runtime.Version(),
-		InstallRoot: o.RepoDir, ConfigFlag: cfgFile, TokenNameFlag: tokName, DisallowFlag: disallow,
+		InstallRoot: o.RepoDir, ConfigFlag: cfgFile, DisallowFlag: disallow,
 		IgnorePath: o.ignorePath(), Offline: offline, Getwd: os.Getwd, HomeDir: os.UserHomeDir,
 	}
 	if d.LookPath == nil {

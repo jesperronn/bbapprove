@@ -8,7 +8,7 @@ bin/bbapprove (launcher: rebuild if stale, exec)
 bin/bbapprove-go  =  cmd/bbapprove -> internal/app
       |   config (internal/config)  rules (internal/rules)  ignore list (internal/ignore)
       |   CLI table / TUI (internal/tui)
-      v   subprocess, token in BBAPPROVE_TOKEN, BBAPPROVE_BASE_URL / _TOKEN_NAME in env
+      v   subprocess, token in BBAPPROVE_TOKEN, BBAPPROVE_BASE_URL in env
 adapters/<type>   (gh-style CLI, internal/adapter is the client)
       v
 forge REST API
@@ -21,7 +21,7 @@ The app resolves the config, runs `adapter pr list --reviewer @me --state open` 
 ## Adapter contract
 
 ```
-adapter auth token                                  # prints the token (BBAPPROVE_TOKEN or the password manager)
+# the token is only ever BBAPPROVE_TOKEN in the environment (exit 2 if unset); there is no token command
 adapter pr list --reviewer @me --state open         # JSON array of normalized PRs
 adapter pr view URL | pr review URL --approve | pr merge URL
 adapter pr comment URL --body TEXT | --body-file FILE
@@ -45,12 +45,12 @@ Two lists: `disallow` (config file plus `--disallow`/`BBAPPROVE_DISALLOW`) is a 
 
 ## Config
 
-Per setting: flag > environment (`BBAPPROVE_*`) > file > default. File lookup: `--config`, `$BBAPPROVE_CONFIG`, `<repo root>/bbapprove.config.toml`, `$XDG_CONFIG_HOME/bbapprove/config.toml`. Only `type` and `user_token_name` have defaults. The adapter never reads TOML. First-run creation and `--init` write the embedded template (`internal/config/setup.go`).
+Per setting: flag > environment (`BBAPPROVE_*`) > file > default. File lookup: `--config`, `$BBAPPROVE_CONFIG`, `<repo root>/bbapprove.config.toml`, `$XDG_CONFIG_HOME/bbapprove/config.toml`. Only `type` and `update_repo` have defaults. The adapter never reads TOML. First-run creation and `--init` write the embedded template (`internal/config/setup.go`).
 
 ## Adding a forge adapter
 
 1. Create `adapters/<type>` (executable, `# shellcheck shell=bash` if bash) implementing the contract above; it is selected by `type = "<type>"` (or `BBAPPROVE_ADAPTER`).
-2. Read `BBAPPROVE_BASE_URL`, `BBAPPROVE_TOKEN_NAME`, `BBAPPROVE_TOKEN`; fail with a message and non-zero exit when the base URL is unset (exit 2).
+2. Read `BBAPPROVE_BASE_URL`, `BBAPPROVE_TOKEN`; print a message on stderr and exit 2 when either is unset.
 3. Add `test/<type>-adapter.test.sh` modelled on `test/bitbucket-adapter.test.sh`: stub `curl` on `PATH`, check each command's JSON shape and error paths.
 4. Add the file to the release archive step in `.github/workflows/release.yml` and mention it in README and CHANGELOG.
 
@@ -65,9 +65,9 @@ setuid, setgid and sticky bits are dropped. Details and the limits of `SHA256SUM
 ## Diagnostics (`internal/doctor`)
 
 `bbapprove doctor` is a read-only report (version, update status, config candidates and the one in use, setting
-sources via `config.Settings`, adapter, token sources, ignore and disallow lists, tools). Every process seam
+sources via `config.Settings`, adapter, whether `BBAPPROVE_TOKEN` is set, ignore and disallow lists, tools). Every process seam
 (environment, `LookPath`, executable, the `update.Runner`) is injected via `doctor.Options`; the real wiring is
-`app.runDoctor`. It never prints a token and never runs `op`. Exit 1 when any FAIL was found.
+`app.runDoctor`. It never prints a token (only whether it is set) and never runs `op`. Exit 1 when any FAIL was found.
 
 ## Safety principles
 
@@ -75,5 +75,6 @@ sources via `config.Settings`, adapter, token sources, ignore and disallow lists
 - Ignored PRs are never approved, merged, declined or commented.
 - Fail closed: an unreadable ignore file stops the run.
 - Decline and batch actions ask for confirmation; empty comments are refused.
+- The token comes only from `BBAPPROVE_TOKEN`; the core exits 1 before any adapter call when it is empty.
 - No secrets in logs or `--print-config`; the core hands the token to the adapter via `BBAPPROVE_TOKEN`.
 - The config lives outside the tree (`~/.config/bbapprove`), mode 0600, and is never overwritten without `--force`.

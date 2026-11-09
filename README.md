@@ -18,7 +18,7 @@ bin/bbapprove -i                   # interactive TUI (see below)
 bin/bbapprove --help               # flags, eligibility rules, env vars
 ```
 
-Flags: `--apply`, `--hide-ignored`, `--disallow a,b` (adds to the disallow list), `--token T`, `--token-name NAME`,
+Flags: `--apply`, `--hide-ignored`, `--disallow a,b` (adds to the disallow list),
 `--config FILE`, `--print-config`, `--init [--force]`, `--outdated [--pre]`, `--update [--yes] [--pre]`,
 `-i/--interactive`, `-h/--help`.
 
@@ -69,8 +69,8 @@ bbapprove doctor [--offline] [--config FILE]
 
 Read-only diagnostics, no token and no forge access needed: version and whether a newer release exists, the
 config file in use and every candidate path with `used` / `shadowed` / `not found`, where each setting came from,
-the adapter, the token sources (never the token itself; `op` is only looked for on `PATH`, never run), the
-ignore and disallow lists, `BBAPPROVE_*` variables, and `git` / `gh` / `op`. Exit 0 when nothing FAILed, 1 otherwise;
+the adapter, whether `BBAPPROVE_TOKEN` is set (a FAIL when not; the value is never printed), the
+ignore and disallow lists, `BBAPPROVE_*` variables, and `git` / `gh`. Exit 0 when nothing FAILed, 1 otherwise;
 `--offline` skips the update check. Typical output:
 
 ```
@@ -130,7 +130,6 @@ cp bbapprove.config.template bbapprove.config.toml
 ```toml
 type = "bitbucket"                              # forge adapter: adapters/<type>; default "bitbucket"
 repository = "https://bitbucket.example.com"    # base URL of the forge; required, no default
-user_token_name = "BITBUCKET_TOKEN"             # 1Password item (field "token"); default BITBUCKET_TOKEN
 author_email = "renovate-bot@example.com"       # only PRs by this bot are eligible; required, no default
 disallow = ["some-library", "another-library"]  # never auto-approve; merged with --disallow
 update_repo = "jesperronn/bbapprove"            # GitHub owner/repo for --outdated and --update; this is the default
@@ -141,19 +140,40 @@ error), `<repo root>/bbapprove.config.toml` (the parent of the binary's director
 `$XDG_CONFIG_HOME/bbapprove/config.toml` (default `~/.config/bbapprove/config.toml`).
 
 **Precedence** per setting: command line > environment > config file > built-in default. The environment names are
-`BBAPPROVE_REPOSITORY`, `BBAPPROVE_TOKEN_NAME`, `BBAPPROVE_AUTHOR_EMAIL` and `BBAPPROVE_UPDATE_REPO`; the command line has `--token-name NAME`.
-Only `type`, `user_token_name` and `update_repo` have built-in defaults. `disallow` is the union of the file, `--disallow` /
+`BBAPPROVE_REPOSITORY`, `BBAPPROVE_AUTHOR_EMAIL` and `BBAPPROVE_UPDATE_REPO`.
+Only `type` and `update_repo` have built-in defaults. `disallow` is the union of the file, `--disallow` /
 `BBAPPROVE_DISALLOW` and the optional legacy `BBAPPROVE_DISALLOW_FILE` (one dependency per line; default `disallow.txt`
 in the repo root, git-ignored). `BBAPPROVE_ADAPTER` (an executable path) overrides what `type` selects.
 
 Unknown keys only print a warning (typo catching); malformed TOML stops the run and names the file and line.
-The bash adapter never reads TOML: the Go core hands it the resolved values as `BBAPPROVE_BASE_URL` and
-`BBAPPROVE_TOKEN_NAME`.
+The bash adapter never reads TOML: the Go core hands it the resolved values as `BBAPPROVE_BASE_URL`.
+A leftover `user_token_name` key only prints a warning and is ignored.
 
 Without `repository` or `author_email` bbapprove exits 1, names the missing setting and lists the paths it searched.
 
 **Debugging**: `bbapprove --print-config` prints the effective settings and whether each came from the flag, the
 environment, the file or a default. It never prints a token and never contacts the forge.
+
+### Token
+
+`BBAPPROVE_TOKEN` is the only token source. Without it every run that talks to the forge (the dry run, `--apply`,
+`-i`) stops at once with exit 1, before the adapter is called; `--help`, `--print-config`, `--init`, `--outdated`,
+`--update` and `doctor` do not need it, and `bbapprove doctor` flags a missing token as a problem.
+
+Create a Bitbucket Server / Data Center HTTP access token (personal access token) for the account that reviews
+the PRs. The adapter reads the PR dashboard, build status and PR details, so the token needs repository read
+access, and write access to approve, merge, comment on and decline PRs (`--apply`, TUI actions).
+
+Set it where you already keep secrets, for example:
+
+```
+export BBAPPROVE_TOKEN=...                                           # shell profile or direnv (.envrc)
+export BBAPPROVE_TOKEN="$(op item get '<item>' --fields label=<field> --reveal)"   # from a password manager
+```
+
+or put the second form in a tiny wrapper script that runs `bbapprove "$@"`. Never put the token on a command line:
+it is visible to every user in the process list and ends up in shell history, which is why `--token` was removed
+(as was `--token-name`, `user_token_name` and the 1Password lookup; a leftover `user_token_name` only warns).
 
 ## Interactive TUI (`-i`)
 
@@ -256,10 +276,9 @@ Fixed-width columns: `STATUS`, then the check glyphs, then the PR ref and title.
 
 | Variable | Purpose |
 | --- | --- |
-| `BBAPPROVE_TOKEN` | API token (also `--token`); the adapter's `auth token` prints it when unset |
+| `BBAPPROVE_TOKEN` | API token; the only token source, required for anything that talks to the forge (see [Token](#token)) |
 | `BBAPPROVE_CONFIG` | config file path (also `--config`); must exist |
 | `BBAPPROVE_REPOSITORY` | forge base URL (overrides `repository`) |
-| `BBAPPROVE_TOKEN_NAME` | 1Password item name (also `--token-name`; overrides `user_token_name`) |
 | `BBAPPROVE_AUTHOR_EMAIL` | author the eligibility check requires (overrides `author_email`) |
 | `BBAPPROVE_UPDATE_REPO` | GitHub `owner/repo` for `--outdated` and `--update` (overrides `update_repo`; default `jesperronn/bbapprove`) |
 | `BBAPPROVE_DISALLOW` | comma-separated extra disallow items |
@@ -271,7 +290,7 @@ Fixed-width columns: `STATUS`, then the check glyphs, then the PR ref and title.
 | `NO_COLOR`, `FORCE_COLOR` | colour control (colour only on a TTY by default) |
 
 Adapter-side (read by `adapters/bitbucket`; the core sets the first two from the configuration):
-`BBAPPROVE_BASE_URL` (required, no default), `BBAPPROVE_TOKEN_NAME` (default `BITBUCKET_TOKEN`),
+`BBAPPROVE_BASE_URL` (required, no default), `BBAPPROVE_TOKEN` (required, exit 2 when unset),
 `BBAPPROVE_MERGE_RETRIES` (default 4; merge retries when the PR version went stale), `BBAPPROVE_RETRY_SLEEP`
 (default 2 seconds between retries).
 
@@ -281,7 +300,6 @@ The Go code never talks to the forge directly. All forge access goes through an 
 (`BBAPPROVE_ADAPTER`), run as a subprocess with the token in `BBAPPROVE_TOKEN`:
 
 ```
-adapter auth token
 adapter pr list --reviewer @me --state open   # JSON array of normalized PRs
 adapter pr view URL                           # one normalized PR
 adapter pr review URL --approve

@@ -1,6 +1,6 @@
 // Package doctor implements `bbapprove doctor`: a read-only report on the installation, the config files
-// in use, the ignore and disallow lists, the token sources and the external tools. It needs no forge
-// access and no token, never prints a secret and never runs `op` (it only looks for it on PATH).
+// in use, the ignore and disallow lists, whether BBAPPROVE_TOKEN is set and the external tools. It needs no forge
+// access, never prints a secret (only whether the token is set and its length) and never runs `op`.
 //
 // Everything that touches the process (environment, PATH, running executable, external commands) is
 // injected through Options so tests are hermetic. The real wiring lives in internal/app.
@@ -47,11 +47,10 @@ type Options struct {
 	GoVersion   string
 	InstallRoot string // parent of the directory holding the binary
 
-	ConfigFlag    string // --config
-	TokenNameFlag string // --token-name
-	DisallowFlag  string // --disallow
-	IgnorePath    string // the ignore list the app will read
-	Offline       bool   // skip the update check
+	ConfigFlag   string // --config
+	DisallowFlag string // --disallow
+	IgnorePath   string // the ignore list the app will read
+	Offline      bool   // skip the update check
 }
 
 func (o Options) env(key string) string {
@@ -146,7 +145,7 @@ func Run(ctx context.Context, o Options) int {
 
 	r.sectionVersion()
 	cfg, cfgErr := config.Load(config.Input{
-		Env: o.env, RepoDir: o.InstallRoot, ConfigFlag: o.ConfigFlag, TokenNameFlag: o.TokenNameFlag, DisallowFlag: o.DisallowFlag,
+		Env: o.env, RepoDir: o.InstallRoot, ConfigFlag: o.ConfigFlag, DisallowFlag: o.DisallowFlag,
 	})
 	if cfgErr != nil {
 		cfg = nil
@@ -155,7 +154,7 @@ func Run(ctx context.Context, o Options) int {
 	r.sectionConfigFiles(cfg, cfgErr)
 	r.sectionSettings(cfg, cfgErr)
 	r.sectionAdapter(cfg)
-	r.sectionToken(cfg)
+	r.sectionToken()
 	r.sectionIgnore()
 	r.sectionDisallow(cfg)
 	r.sectionEnvironment()
@@ -390,28 +389,15 @@ func (r *report) sectionAdapter(cfg *config.Config) {
 	}
 }
 
-func (r *report) sectionToken(cfg *config.Config) {
-	r.head("token (never printed; in order of precedence):")
-	r.line("", "%-22s %s", "1. --token flag", "per run only; not visible to doctor")
-	envState := "not set"
-	if r.o.env("BBAPPROVE_TOKEN") != "" {
-		envState = "set"
+func (r *report) sectionToken() {
+	r.head("token:")
+	if t := r.o.env("BBAPPROVE_TOKEN"); t != "" {
+		r.line("ok", "BBAPPROVE_TOKEN: set (value hidden, %d chars)", len([]rune(t)))
+		return
 	}
-	r.line("", "%-22s %s", "2. BBAPPROVE_TOKEN env", envState)
-	name := config.DefaultTokenName
-	if cfg != nil {
-		name = cfg.TokenName.Value
-	}
-	opState := "op: NOT found on PATH"
-	have := false
-	if p, err := r.o.LookPath("op"); err == nil {
-		opState = "op: found at " + p
-		have = true
-	}
-	r.line("", "%-22s item %q via adapter (%s)", "3. 1Password", name, opState)
-	if envState == "not set" && !have {
-		r.line("warn", "no token source here: pass --token, set BBAPPROVE_TOKEN or install the 1Password CLI")
-	}
+	r.line("fail", "BBAPPROVE_TOKEN: NOT SET")
+	r.line("", "export BBAPPROVE_TOKEN=...   (see README, section Token; e.g. from a password manager: export BBAPPROVE_TOKEN=\"$(op item get '<item>' --fields label=<field> --reveal)\")")
+	r.fail("BBAPPROVE_TOKEN is not set", "export BBAPPROVE_TOKEN=<Bitbucket HTTP access token> (see README, section Token)")
 }
 
 func (r *report) sectionIgnore() {
@@ -530,7 +516,7 @@ func (r *report) sectionEnvironment() {
 
 func (r *report) sectionTools(ctx context.Context) {
 	r.head("tools:")
-	for _, t := range []string{"git", "gh", "op"} {
+	for _, t := range []string{"git", "gh"} {
 		p, err := r.o.LookPath(t)
 		if err != nil {
 			note := ""

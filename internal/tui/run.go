@@ -48,8 +48,7 @@ func Run(ctx context.Context, o RunOptions) int {
 		}
 		return v
 	}
-	var disallow, tokName, cfgFile string
-	token := env("BBAPPROVE_TOKEN")
+	var disallow, cfgFile string
 	for i := 0; i < len(o.Args); i++ {
 		a := o.Args[i]
 		next := func() string {
@@ -65,16 +64,15 @@ func Run(ctx context.Context, o RunOptions) int {
 		switch {
 		case a == "--disallow" || strings.HasPrefix(a, "--disallow="):
 			disallow = next()
-		case a == "--token-name" || strings.HasPrefix(a, "--token-name="):
-			tokName = next()
+		case config.IsRemovedTokenFlag(a):
+			fmt.Fprintln(o.Stderr, config.RemovedTokenFlagHelp)
+			return 2
 		case a == "--config" || strings.HasPrefix(a, "--config="):
 			cfgFile = next()
-		case a == "--token" || strings.HasPrefix(a, "--token="):
-			token = next()
 		}
 	}
 	cin := config.Input{
-		Env: env, RepoDir: o.RepoDir, ConfigFlag: cfgFile, TokenNameFlag: tokName, DisallowFlag: disallow,
+		Env: env, RepoDir: o.RepoDir, ConfigFlag: cfgFile, DisallowFlag: disallow,
 	}
 	cfg, err := config.Load(cin)
 	if err != nil {
@@ -95,6 +93,11 @@ func Run(ctx context.Context, o RunOptions) int {
 			return code
 		}
 	}
+	token := env("BBAPPROVE_TOKEN")
+	if token == "" { // fail fast, before the adapter is touched
+		fmt.Fprintln(o.Stderr, config.TokenMissingHelp)
+		return 1
+	}
 	path := cfg.Adapter.Value
 	jobs := runtime.NumCPU()
 	if n, err := strconv.Atoi(env("BBAPPROVE_JOBS")); err == nil && n > 0 {
@@ -102,14 +105,6 @@ func Run(ctx context.Context, o RunOptions) int {
 	}
 	rc := rules.Config{AuthorEmail: cfg.AuthorEmail.Value, Disallow: cfg.Disallow}
 	client := &adapter.Client{Path: path, Token: token, Environ: cfg.ChildEnv(o.Environ)}
-	if token == "" {
-		t, err := client.AuthToken(ctx)
-		if err != nil {
-			fmt.Fprintln(o.Stderr, err)
-			return 1
-		}
-		client.Token = t
-	}
 	mouse := MouseEnabled(env("BBAPPROVE_MOUSE"), o.Args)
 	m := New(Config{
 		Backend: ClientBackend{Client: client}, IgnorePath: ignore.DefaultPath(),

@@ -47,7 +47,6 @@ func (s sandbox) input(env map[string]string) Input {
 
 const fileA = `type = "bitbucket"
 repository = "https://file.example.com"
-user_token_name = "FILE_ITEM"
 author_email = "file-bot@example.com"
 disallow = ["Some-Library", "another-library"]
 `
@@ -109,20 +108,16 @@ func TestPrecedence(t *testing.T) {
 		name   string
 		file   string
 		env    map[string]string
-		flag   string
 		repo   Value
-		token  Value
 		author Value
 	}{
-		{"defaults only", "", nil, "", val("", FromNone), val(DefaultTokenName, FromDefault), val("", FromNone)},
-		{"file", fileA, nil, "", val("https://file.example.com", FromFile), val("FILE_ITEM", FromFile), val("file-bot@example.com", FromFile)},
+		{"defaults only", "", nil, val("", FromNone), val("", FromNone)},
+		{"file", fileA, nil, val("https://file.example.com", FromFile), val("file-bot@example.com", FromFile)},
 		{"env beats file", fileA, map[string]string{
-			"BBAPPROVE_REPOSITORY": "https://env.example.com", "BBAPPROVE_TOKEN_NAME": "ENV_ITEM", "BBAPPROVE_AUTHOR_EMAIL": "env-bot@example.com",
-		}, "", val("https://env.example.com", FromEnv), val("ENV_ITEM", FromEnv), val("env-bot@example.com", FromEnv)},
-		{"flag beats env and file", fileA, map[string]string{"BBAPPROVE_TOKEN_NAME": "ENV_ITEM"}, "FLAG_ITEM",
-			val("https://file.example.com", FromFile), val("FLAG_ITEM", FromFlag), val("file-bot@example.com", FromFile)},
-		{"env only", "", map[string]string{"BBAPPROVE_REPOSITORY": "https://env.example.com"}, "",
-			val("https://env.example.com", FromEnv), val(DefaultTokenName, FromDefault), val("", FromNone)},
+			"BBAPPROVE_REPOSITORY": "https://env.example.com", "BBAPPROVE_AUTHOR_EMAIL": "env-bot@example.com",
+		}, val("https://env.example.com", FromEnv), val("env-bot@example.com", FromEnv)},
+		{"env only", "", map[string]string{"BBAPPROVE_REPOSITORY": "https://env.example.com"},
+			val("https://env.example.com", FromEnv), val("", FromNone)},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -130,14 +125,12 @@ func TestPrecedence(t *testing.T) {
 			if tc.file != "" {
 				s.writeRepo(t, tc.file)
 			}
-			in := s.input(tc.env)
-			in.TokenNameFlag = tc.flag
-			c, err := Load(in)
+			c, err := Load(s.input(tc.env))
 			if err != nil {
 				t.Fatal(err)
 			}
-			if c.Repository != tc.repo || c.TokenName != tc.token || c.AuthorEmail != tc.author {
-				t.Errorf("repo %+v token %+v author %+v", c.Repository, c.TokenName, c.AuthorEmail)
+			if c.Repository != tc.repo || c.AuthorEmail != tc.author {
+				t.Errorf("repo %+v author %+v", c.Repository, c.AuthorEmail)
 			}
 		})
 	}
@@ -282,14 +275,17 @@ func TestChildEnvAndDescribe(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := c.ChildEnv([]string{"A=1", "BBAPPROVE_BASE_URL=stale"})
-	if got := env[len(env)-2:]; got[0] != "BBAPPROVE_BASE_URL=https://file.example.com" || got[1] != "BBAPPROVE_TOKEN_NAME=FILE_ITEM" {
+	if got := env[len(env)-1]; got != "BBAPPROVE_BASE_URL=https://file.example.com" {
 		t.Errorf("%v", env)
 	}
 	d := c.Describe()
-	for _, w := range []string{"repository:      https://file.example.com  [file]", "user_token_name: FILE_ITEM  [file]", "[default]"} {
+	for _, w := range []string{"repository:      https://file.example.com  [file]", "[default]"} {
 		if !strings.Contains(d, w) {
 			t.Errorf("describe lacks %q:\n%s", w, d)
 		}
+	}
+	if strings.Contains(d, "user_token_name") || strings.Contains(d, "TOKEN") {
+		t.Errorf("describe still mentions the token item:\n%s", d)
 	}
 	if strings.Contains(d, "s3cret") {
 		t.Error("describe leaked the token")
@@ -313,5 +309,26 @@ func TestUpdateRepoKey(t *testing.T) {
 	}
 	if d := c.Describe(); !strings.Contains(d, "update_repo:     env/repo  [env]") {
 		t.Errorf("Describe lacks update_repo:\n%s", d)
+	}
+}
+
+func TestLeftoverUserTokenNameWarnsOnce(t *testing.T) {
+	s := newSandbox(t)
+	p := s.writeRepo(t, "repository = \"https://h.example.com\"\nuser_token_name = \"X\"\nbogus = 1\n")
+	c, err := Load(s.input(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	for _, w := range c.Warnings {
+		if strings.Contains(w, "user_token_name") {
+			n++
+			if w != "user_token_name in "+p+" is no longer used; set BBAPPROVE_TOKEN instead (see README)" {
+				t.Errorf("warning text: %q", w)
+			}
+		}
+	}
+	if n != 1 || len(c.Warnings) != 2 {
+		t.Errorf("warnings: %q", c.Warnings)
 	}
 }

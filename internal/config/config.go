@@ -1,8 +1,8 @@
-// Package config resolves bbapprove's site-specific settings (forge type and URL, token item name,
+// Package config resolves bbapprove's site-specific settings (forge type and URL,
 // bot author email, disallow list) from flags, environment, a TOML config file and built-in defaults.
 //
 // Precedence per setting: command line > environment > config file > built-in default. Only `type` and
-// `user_token_name` have built-in defaults; `repository` and `author_email` must be configured.
+// has a built-in default; `repository` and `author_email` must be configured.
 package config
 
 import (
@@ -29,8 +29,7 @@ const (
 
 // Built-in defaults. There is deliberately none for repository or author_email.
 const (
-	DefaultType      = "bitbucket"
-	DefaultTokenName = "BITBUCKET_TOKEN"
+	DefaultType = "bitbucket"
 	// DefaultUpdateRepo is where --outdated/--update look for releases (owner/repo).
 	DefaultUpdateRepo = "jesperronn/bbapprove"
 	// TemplateName is the committed example config; the real file is TemplateName's sibling ConfigName.
@@ -39,16 +38,15 @@ const (
 )
 
 // knownKeys are the keys a config file may contain; anything else only draws a warning.
-var knownKeys = []string{"type", "repository", "user_token_name", "author_email", "disallow", "update_repo"}
+var knownKeys = []string{"type", "repository", "author_email", "disallow", "update_repo"}
 
 // fileData is the TOML file's shape.
 type fileData struct {
-	Type          string   `toml:"type"`
-	Repository    string   `toml:"repository"`
-	UserTokenName string   `toml:"user_token_name"`
-	AuthorEmail   string   `toml:"author_email"`
-	Disallow      []string `toml:"disallow"`
-	UpdateRepo    string   `toml:"update_repo"`
+	Type        string   `toml:"type"`
+	Repository  string   `toml:"repository"`
+	AuthorEmail string   `toml:"author_email"`
+	Disallow    []string `toml:"disallow"`
+	UpdateRepo  string   `toml:"update_repo"`
 }
 
 // Value is a resolved setting and where it came from.
@@ -63,19 +61,18 @@ type Input struct {
 	RepoDir string              // repo root: <repo>/bbapprove.config.toml, <repo>/adapters/<type>, <repo>/disallow.txt
 
 	// Command-line values; empty means "not given".
-	ConfigFlag    string
-	TokenNameFlag string
-	DisallowFlag  string
+	ConfigFlag   string
+	DisallowFlag string
 }
 
 // Config is the merged result.
 type Config struct {
-	Type, Repository, TokenName, AuthorEmail Value
-	UpdateRepo                               Value // GitHub owner/repo for --outdated/--update
-	Adapter                                  Value // adapter executable
-	Disallow                                 []string
-	FileDisallow                             []string // the `disallow` entries from the config file alone
-	DisallowFile                             Value
+	Type, Repository, AuthorEmail Value
+	UpdateRepo                    Value // GitHub owner/repo for --outdated/--update
+	Adapter                       Value // adapter executable
+	Disallow                      []string
+	FileDisallow                  []string // the `disallow` entries from the config file alone
+	DisallowFile                  Value
 
 	File        string   // config file in use ("" when none)
 	DefaultPath string   // where first-run setup would create it
@@ -154,7 +151,6 @@ func Load(in Input) (*Config, error) {
 	// `type` has no flag or env of its own: BBAPPROVE_ADAPTER (a path) overrides what it selects.
 	c.Type = pick("", "", data.Type, DefaultType)
 	c.Repository = pick("", in.Env("BBAPPROVE_REPOSITORY"), data.Repository, "")
-	c.TokenName = pick(in.TokenNameFlag, in.Env("BBAPPROVE_TOKEN_NAME"), data.UserTokenName, DefaultTokenName)
 	c.AuthorEmail = pick("", in.Env("BBAPPROVE_AUTHOR_EMAIL"), data.AuthorEmail, "")
 	c.UpdateRepo = pick("", in.Env("BBAPPROVE_UPDATE_REPO"), data.UpdateRepo, DefaultUpdateRepo)
 
@@ -211,8 +207,11 @@ func parseFile(path string, warnings *[]string) (fileData, error) {
 		return d, tomlErr(path, err)
 	}
 	var unknown []string
+	if _, ok := raw["user_token_name"]; ok {
+		*warnings = append(*warnings, fmt.Sprintf("user_token_name in %s is no longer used; set BBAPPROVE_TOKEN instead (see README)", path))
+	}
 	for k := range raw {
-		if !contains(knownKeys, k) {
+		if k != "user_token_name" && !contains(knownKeys, k) {
 			unknown = append(unknown, k)
 		}
 	}
@@ -275,11 +274,10 @@ func (c *Config) Missing() error {
 }
 
 // ChildEnv returns environ with the resolved settings the adapter needs appended (BBAPPROVE_BASE_URL,
-// BBAPPROVE_TOKEN_NAME); later entries win. The adapter never reads TOML.
+// nothing else); later entries win. The adapter never reads TOML.
 func (c *Config) ChildEnv(environ []string) []string {
 	return append(append([]string{}, environ...),
-		"BBAPPROVE_BASE_URL="+c.Repository.Value,
-		"BBAPPROVE_TOKEN_NAME="+c.TokenName.Value)
+		"BBAPPROVE_BASE_URL="+c.Repository.Value)
 }
 
 // Describe renders the effective settings and their sources. It never includes a token.
@@ -309,10 +307,31 @@ func (c *Config) Settings() string {
 	row("type", c.Type)
 	row("adapter", c.Adapter)
 	row("repository", c.Repository)
-	row("user_token_name", c.TokenName)
 	row("author_email", c.AuthorEmail)
 	row("update_repo", c.UpdateRepo)
 	row("disallow_file", c.DisallowFile)
 	fmt.Fprintf(&b, "%-16s %s\n", "disallow:", strings.Join(c.Disallow, ", "))
 	return b.String()
+}
+
+// TokenMissingHelp is printed when BBAPPROVE_TOKEN is unset or empty.
+const TokenMissingHelp = `bbapprove: BBAPPROVE_TOKEN is not set.
+The token is read only from the environment. Export a Bitbucket HTTP access token first:
+  export BBAPPROVE_TOKEN=...
+or take it from a password manager, for example:
+  export BBAPPROVE_TOKEN="$(op item get '<item>' --fields label=<field> --reveal)"
+run: bbapprove doctor`
+
+// RemovedTokenFlagHelp explains --token / --token-name, which no longer exist.
+const RemovedTokenFlagHelp = `bbapprove: --token and --token-name were removed (a token on the command line is visible to other users).
+Set the BBAPPROVE_TOKEN environment variable instead (see README, section Token); run: bbapprove doctor`
+
+// IsRemovedTokenFlag reports whether arg is the removed --token or --token-name option.
+func IsRemovedTokenFlag(arg string) bool {
+	for _, f := range []string{"--token", "--token-name"} {
+		if arg == f || strings.HasPrefix(arg, f+"=") {
+			return true
+		}
+	}
+	return false
 }

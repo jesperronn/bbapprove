@@ -72,9 +72,10 @@ type Config struct {
 	Disallow                                 []string
 	DisallowFile                             Value
 
-	File     string   // config file in use ("" when none)
-	Searched []string // paths looked at (for the first-run message)
-	Warnings []string // e.g. unknown keys; the caller prints them to stderr
+	File        string   // config file in use ("" when none)
+	DefaultPath string   // where first-run setup would create it
+	Searched    []string // paths looked at (for the first-run message)
+	Warnings    []string // e.g. unknown keys; the caller prints them to stderr
 }
 
 // ConfigHome returns $XDG_CONFIG_HOME or ~/.config as seen through env, falling back to the process.
@@ -124,6 +125,7 @@ func Load(in Input) (*Config, error) {
 			}
 		}
 	}
+	c.DefaultPath = DefaultPath(in.Env)
 	if c.File != "" {
 		var err error
 		if data, err = parseFile(c.File, &c.Warnings); err != nil {
@@ -251,10 +253,16 @@ func (c *Config) Missing() error {
 		if c.File != "" {
 			where = "config file " + c.File + " does not set it"
 		}
-		return fmt.Errorf("bbapprove: %q is not set (%s).\n"+
+		msg := fmt.Sprintf("bbapprove: %q is not set (%s).\n"+
 			"Set it in a config file (or via %s): cp %s %s and edit it.\n"+
 			"Searched: %s",
 			s.name, where, s.env, TemplateName, ConfigName, strings.Join(c.Searched, ", "))
+		if c.File == "" {
+			if def := c.DefaultPath; def != "" {
+				msg += "\nOr create it in the default location (kept across upgrades):\n" + createHint(def)
+			}
+		}
+		return errors.New(strings.TrimRight(msg, "\n"))
 	}
 	return nil
 }
@@ -275,6 +283,9 @@ func (c *Config) Describe() string {
 		file = "(none found; searched " + strings.Join(c.Searched, ", ") + ")"
 	}
 	fmt.Fprintf(&b, "config file:     %s\n", file)
+	if c.File == "" {
+		fmt.Fprintf(&b, "                 no config file found: create one from the template with: bbapprove --init\n")
+	}
 	row := func(name string, v Value) {
 		val := v.Value
 		if val == "" {

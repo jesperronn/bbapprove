@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"bbapprove/internal/update"
 )
 
 const bot = "renovate-bot@example.com"
@@ -499,6 +501,7 @@ func TestPrintConfig(t *testing.T) {
 		t.Fatalf("code %d err %q", code, errOut)
 	}
 	for _, w := range []string{
+		"update_repo:     jesperronn/bbapprove  [default]",
 		"config file:     " + filepath.Join(repo, "bbapprove.config.toml"),
 		"repository:      https://file.example.com  [file]",
 		"user_token_name: FLAG_ITEM  [flag]",
@@ -520,5 +523,104 @@ func TestPrintConfig(t *testing.T) {
 	code, out, _ = runIn(t, t.TempDir(), env, "-i", "--print-config")
 	if code != 0 || !strings.Contains(out, "repository:      (not set)  [unset]") {
 		t.Errorf("code %d out %q", code, out)
+	}
+}
+
+// fakeUpdateRunner answers gh/git for the update flags; it never executes anything.
+type fakeUpdateRunner struct{ calls []string }
+
+func (f *fakeUpdateRunner) Run(_ context.Context, c update.Cmd) ([]byte, error) {
+	f.calls = append(f.calls, c.Name+" "+strings.Join(c.Args, " "))
+	if len(c.Args) > 1 && c.Args[1] == "view" {
+		return []byte(`{"body":"notes","url":"https://example.invalid/r"}`), nil
+	}
+	return []byte(`[{"tagName":"v1.0.0-rc.3","isPrerelease":true,"isDraft":false,"publishedAt":"2026-01-01T00:00:00Z"}]`), nil
+}
+
+func runUpdateFlags(t *testing.T, env []string, version string, args ...string) (code int, out, errOut string, fr *fakeUpdateRunner) {
+	t.Helper()
+	fr = &fakeUpdateRunner{}
+	var so, se bytes.Buffer
+	code = Run(context.Background(), Options{Args: args, Environ: env, RepoDir: t.TempDir(), Stdout: &so, Stderr: &se,
+		Version: version, UpdateRunner: fr, GOOS: "linux", GOARCH: "amd64"})
+	return code, so.String(), se.String(), fr
+}
+
+func TestOutdatedNeedsNoConfigTokenOrAdapter(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	env := []string{"NO_COLOR=1", "XDG_CONFIG_HOME=" + t.TempDir(), "BBAPPROVE_ADAPTER=/nonexistent/adapter"}
+	code, out, errOut, fr := runUpdateFlags(t, env, "v1.0.0-rc.2", "--outdated")
+	if code != 1 || errOut != "" || !strings.Contains(out, "latest v1.0.0-rc.3 (pre-release): update available") {
+		t.Fatalf("code %d out %q err %q", code, out, errOut)
+	}
+	if len(fr.calls) != 1 || !strings.HasPrefix(fr.calls[0], "gh release list --repo jesperronn/bbapprove ") {
+		t.Errorf("calls: %v", fr.calls)
+	}
+	// -i is routed to the plain CLI too (app.Run never prints "not implemented" for it)
+	if code, _, errOut, _ = runUpdateFlags(t, env, "v1.0.0-rc.3", "-i", "--outdated"); code != 0 || errOut != "" {
+		t.Errorf("-i --outdated: code %d err %q", code, errOut)
+	}
+}
+
+func TestUpdateRepoPrecedence(t *testing.T) {
+	repo := t.TempDir()
+	os.WriteFile(filepath.Join(repo, "bbapprove.config.toml"), []byte("update_repo = \"file/repo\"\n"), 0o644)
+	run := func(env ...string) string {
+		fr := &fakeUpdateRunner{}
+		var so, se bytes.Buffer
+		Run(context.Background(), Options{Args: []string{"--outdated"}, Environ: append([]string{"XDG_CONFIG_HOME=" + t.TempDir()}, env...),
+			RepoDir: repo, Stdout: &so, Stderr: &se, Version: "v1.0.0-rc.2", UpdateRunner: fr})
+		return fr.calls[0]
+	}
+	if c := run(); !strings.Contains(c, "--repo file/repo ") {
+		t.Errorf("file: %s", c)
+	}
+	if c := run("BBAPPROVE_UPDATE_REPO=env/repo"); !strings.Contains(c, "--repo env/repo ") {
+		t.Errorf("env: %s", c)
+	}
+}
+
+func TestUpdateFlagConflicts(t *testing.T) {
+	env := []string{"XDG_CONFIG_HOME=" + t.TempDir()}
+	cases := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--outdated", "--apply"}, "cannot be combined"},
+		{[]string{"--update", "--apply"}, "cannot be combined"},
+		{[]string{"--update", "http://h/projects/P/repos/a/pull-requests/1"}, "cannot be combined"},
+		{[]string{"--outdated", "--update"}, "cannot be combined"},
+		{[]string{"--outdated", "--yes"}, "--yes only applies to --update"},
+		{[]string{"--yes"}, "only apply to --outdated / --update"},
+		{[]string{"--pre", "--apply"}, "only apply to --outdated / --update"},
+		{[]string{"--outdated", "--print-config"}, "cannot be combined"},
+	}
+	for _, c := range cases {
+		code, out, errOut, fr := runUpdateFlags(t, env, "v1.0.0", c.args...)
+		if code != 2 || out != "" || !strings.Contains(errOut, c.want) || len(fr.calls) != 0 {
+			t.Errorf("%v: code %d out %q err %q calls %v", c.args, code, out, errOut, fr.calls)
+		}
+	}
+}
+
+func TestUpdateNonTTYNeedsYes(t *testing.T) {
+	env := []string{"XDG_CONFIG_HOME=" + t.TempDir()}
+	code, _, errOut, fr := runUpdateFlags(t, env, "v1.0.0-rc.2", "--update")
+	if code != 2 || !strings.Contains(errOut, "re-run with --yes to apply") {
+		t.Errorf("code %d err %q", code, errOut)
+	}
+	for _, c := range fr.calls {
+		if strings.HasPrefix(c, "gh release download") {
+			t.Error("must not download without --yes")
+		}
+	}
+}
+
+func TestHelpMentionsUpdateFlags(t *testing.T) {
+	_, out, _ := run(t, nil, "--help")
+	for _, w := range []string{"--outdated [--pre]", "--update [--yes] [--pre]", "BBAPPROVE_UPDATE_REPO", "never checks by itself"} {
+		if !strings.Contains(out, w) {
+			t.Errorf("help lacks %q", w)
+		}
 	}
 }

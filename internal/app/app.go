@@ -15,6 +15,7 @@ import (
 	"bbapprove/internal/config"
 	"bbapprove/internal/ignore"
 	"bbapprove/internal/rules"
+	"bbapprove/internal/update"
 )
 
 // Options carries everything the process environment would otherwise provide.
@@ -35,6 +36,10 @@ type Options struct {
 	Interactive func() bool
 	Stdin       io.Reader
 	Editor      config.EditorRunner
+	// --outdated / --update (see package update). UpdateRunner nil runs gh/git for real; GOOS/GOARCH
+	// default to the running platform. RepoDir is the install root they inspect and never modify.
+	UpdateRunner update.Runner
+	GOOS, GOARCH string
 }
 
 func (o Options) firstRun() config.FirstRun {
@@ -56,6 +61,8 @@ const usageBody = `approve and merge Renovate PRs on Bitbucket Server.
 Usage: bbapprove [--apply] [--hide-ignored] [--disallow a,b] [--token T] [--token-name NAME]
                  [--config FILE] [--print-config] [PR_URL...]
        bbapprove --init [--force] [--config FILE]
+       bbapprove --outdated [--pre]
+       bbapprove --update [--yes] [--pre]
 
 With no PR_URL, every open PR where you are a reviewer is considered.
 Without --apply nothing is changed; eligibility is only reported.
@@ -87,7 +94,18 @@ offers to create $XDG_CONFIG_HOME/bbapprove/config.toml from the template and op
 path). The template is built into the binary. --print-config shows the effective settings
 (no secrets) and where each came from. --token-name NAME overrides the 1Password item name.
 
-Env: BBAPPROVE_CONFIG, BBAPPROVE_REPOSITORY, BBAPPROVE_AUTHOR_EMAIL, BBAPPROVE_TOKEN_NAME,
+--outdated checks (read-only) whether a newer release exists: it asks "gh release list" for
+jesperronn/bbapprove (override: update_repo in the config, BBAPPROVE_UPDATE_REPO) and, in a git
+checkout without gh, "git ls-remote --tags origin". A pre-release build compares against the newest
+release including pre-releases; a stable build against the newest stable one unless --pre. Exit 0 up to
+date, 1 outdated, 2 could not check. bbapprove never checks by itself. --update does the same check,
+prints a plan and asks "Proceed? [y/N]" (--yes skips the prompt; without a terminal it needs --yes).
+A checkout is updated in place (git fetch --tags, git pull --ff-only, bin/build; needs a clean tree on
+main). Any other install gets the new release unpacked next to it (bbapprove-<tag>-<os>-<arch>, SHA-256
+verified, needs gh): the running tree is never modified, the commands to switch and to roll back are
+printed. Neither flag needs a config file, token or forge access; both are exclusive with --apply and PR_URLs.
+
+Env: BBAPPROVE_CONFIG, BBAPPROVE_UPDATE_REPO, BBAPPROVE_REPOSITORY, BBAPPROVE_AUTHOR_EMAIL, BBAPPROVE_TOKEN_NAME,
      BBAPPROVE_DISALLOW, BBAPPROVE_DISALLOW_FILE, BBAPPROVE_JOBS, BBAPPROVE_ADAPTER, BBAPPROVE_TOKEN,
      BBAPPROVE_MOUSE, BBAPPROVE_KITTY; NO_COLOR, FORCE_COLOR.
 `
@@ -124,6 +142,10 @@ func Run(ctx context.Context, o Options) int {
 		printCfg bool
 		initCfg  bool
 		force    bool
+		outdated bool
+		doUpdate bool
+		pre      bool
+		yes      bool
 		wantTUI  bool
 		targets  []string
 	)
@@ -161,6 +183,14 @@ func Run(ctx context.Context, o Options) int {
 			initCfg = true
 		case a == "--force":
 			force = true
+		case a == "--outdated":
+			outdated = true
+		case a == "--update":
+			doUpdate = true
+		case a == "--pre":
+			pre = true
+		case a == "--yes":
+			yes = true
 		case a == "--print-config":
 			printCfg = true
 		case a == "--token-name" || strings.HasPrefix(a, "--token-name="):
@@ -192,6 +222,16 @@ func Run(ctx context.Context, o Options) int {
 		}
 	}
 
+	if outdated || doUpdate {
+		return runUpdate(ctx, o, updateFlags{
+			outdated: outdated, update: doUpdate, pre: pre, yes: yes, apply: apply, init: initCfg,
+			printCfg: printCfg, targets: len(targets), cfgFile: cfgFile,
+		})
+	}
+	if pre || yes {
+		fmt.Fprintln(o.Stderr, "--pre and --yes only apply to --outdated / --update")
+		return 2
+	}
 	if initCfg {
 		return config.Init(ctx, o.env, cfgFile, force, o.firstRun(), o.Stdout)
 	}
@@ -366,4 +406,52 @@ func forEach(n, jobs int, fn func(int)) {
 		}()
 	}
 	wg.Wait()
+}
+
+type updateFlags struct {
+	outdated, update, pre, yes, apply, init, printCfg bool
+	targets                                           int
+	cfgFile                                           string
+}
+
+// runUpdate handles --outdated and --update. It needs no config file, token, adapter or forge access:
+// a config that cannot be read only costs the update_repo setting (env and the default still work).
+func runUpdate(ctx context.Context, o Options, f updateFlags) int {
+	switch {
+	case f.outdated && f.update:
+		fmt.Fprintln(o.Stderr, "--outdated and --update cannot be combined (--update checks first anyway)")
+		return 2
+	case f.apply || f.targets > 0 || f.init || f.printCfg:
+		fmt.Fprintln(o.Stderr, "--outdated / --update cannot be combined with --apply, --init, --print-config or PR URLs")
+		return 2
+	case f.yes && !f.update:
+		fmt.Fprintln(o.Stderr, "--yes only applies to --update")
+		return 2
+	}
+	slug := o.env("BBAPPROVE_UPDATE_REPO")
+	if slug == "" {
+		slug = config.DefaultUpdateRepo
+		cfg, err := config.Load(config.Input{Env: o.env, RepoDir: o.RepoDir, ConfigFlag: f.cfgFile})
+		if err != nil {
+			fmt.Fprintf(o.Stderr, "bbapprove: warning: %v; using the default update repository\n", err)
+		} else {
+			slug = cfg.UpdateRepo.Value
+		}
+	}
+	uo := update.Options{
+		Runner: o.UpdateRunner, Stdin: o.Stdin, Stdout: o.Stdout, Stderr: o.Stderr,
+		IsTTY: o.IsTTY && o.Interactive != nil && o.Interactive(),
+		GOOS:  o.GOOS, GOARCH: o.GOARCH, InstallRoot: o.RepoDir, Version: o.Version, Slug: slug,
+		PathEnv: o.env("PATH"), Pre: f.pre, Yes: f.yes,
+	}
+	if uo.GOOS == "" {
+		uo.GOOS = runtime.GOOS
+	}
+	if uo.GOARCH == "" {
+		uo.GOARCH = runtime.GOARCH
+	}
+	if f.update {
+		return update.Update(ctx, uo)
+	}
+	return update.Outdated(ctx, uo)
 }

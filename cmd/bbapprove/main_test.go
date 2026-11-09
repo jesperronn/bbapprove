@@ -11,6 +11,8 @@ func TestWantsTUI(t *testing.T) {
 		{[]string{"--interactive", "--apply"}, true},
 		{[]string{"--apply"}, false},
 		{[]string{"-i", "--init"}, false},
+		{[]string{"-i", "--outdated"}, false},
+		{[]string{"--update", "-i"}, false},
 		{[]string{"--init", "--force", "--interactive"}, false},
 		{[]string{"-i", "--print-config"}, false},
 	} {

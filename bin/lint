@@ -113,7 +113,7 @@ full=0
 
 if [[ ${#path_args[@]} -eq 0 ]]; then
   full=1
-  for f in bin/* adapters/* test/*.sh test/lib/*.sh; do
+  for f in bin/* bin/lib/* adapters/* test/*.sh test/lib/*.sh; do
     if [[ -f "$f" ]] && is_shell_file "$f"; then
       shell_files+=("$f")
     fi

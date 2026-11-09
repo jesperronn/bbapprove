@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
-# runtests — run the bbapprove test suites: Go packages and the bash suites under test/.
+# test — run the bbapprove test suites: Go packages and the bash suites under test/.
 #
-# Usage: bin/runtests [--verbose] [--no-go] [--no-shell] [TARGET...]
+# Usage: bin/test [--verbose] [--no-go] [--no-shell] [TARGET...]
 #   no TARGET    go test ./... -count=1 -race, then every test/*.test.sh via bash
 #   TARGET       a *.test.sh file runs that suite; anything else is a Go package pattern
 #                relative to the project root, e.g. ./internal/tui
@@ -18,7 +18,7 @@ shopt -s nullglob
 
 usage() {
   cat <<'EOF'
-Usage: bin/runtests [--verbose] [--no-go] [--no-shell] [TARGET...]
+Usage: bin/test [--verbose] [--no-go] [--no-shell] [TARGET...]
 
   (no TARGET)  go test ./... -count=1 -race, then every test/*.test.sh
   TARGET       a *.test.sh file (runs that suite) or a Go package pattern such as ./internal/tui
@@ -43,7 +43,7 @@ while [[ $# -gt 0 ]]; do
     --verbose|-v) verbose=1 ;;
     --no-go) run_go=0 ;;
     --no-shell) run_shell=0 ;;
-    -*) echo "runtests: unknown option: $1" >&2; usage >&2; exit 2 ;;
+    -*) echo "test: unknown option: $1" >&2; usage >&2; exit 2 ;;
     *) targets+=("$1") ;;
   esac
   shift
@@ -68,12 +68,12 @@ for target in ${targets[@]+"${targets[@]}"}; do
   if [[ "$target" == *.test.sh ]]; then
     abs="$(resolve_path "$target")" || abs=""
     if [[ -z "$abs" || ! -f "$abs" ]]; then
-      echo "runtests: no such suite: $target" >&2
+      echo "test: no such suite: $target" >&2
       exit 2
     fi
     case "$abs" in
       "$PROJECT_ROOT"/*) shell_suites+=("${abs#"$PROJECT_ROOT"/}") ;;
-      *) echo "runtests: outside the project: $target" >&2; exit 2 ;;
+      *) echo "test: outside the project: $target" >&2; exit 2 ;;
     esac
   else
     go_suites+=("$target")
@@ -88,7 +88,7 @@ if [[ $run_go -eq 0 ]]; then go_suites=(); fi
 if [[ $run_shell -eq 0 ]]; then shell_suites=(); fi
 
 if [[ ${#go_suites[@]} -eq 0 && ${#shell_suites[@]} -eq 0 ]]; then
-  echo "runtests: nothing to run" >&2
+  echo "test: nothing to run" >&2
   exit 2
 fi
 

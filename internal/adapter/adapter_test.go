@@ -9,21 +9,17 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"bbapprove/internal/testfix"
 )
 
-// fakeAdapter writes a /bin/sh script with the given body into a temp dir and returns its path.
-func fakeAdapter(t *testing.T, body string) string {
+// fakeAdapter returns a client whose adapter is the shared fixed script (written once per test
+// binary) running body, a /bin/sh snippet, via FAKE_BODY. PATH is kept so the snippet can call
+// sleep/cat, and nothing else from the host.
+func fakeAdapter(t *testing.T, body string) *Client {
 	t.Helper()
-	p := filepath.Join(t.TempDir(), "adapter")
-	if err := os.WriteFile(p, []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	return p
-}
-
-// newClient keeps PATH so the fake script can call sleep/cat, and nothing else from the host.
-func newClient(path string) *Client {
-	return &Client{Path: path, Token: "test-token", Environ: []string{"PATH=" + os.Getenv("PATH")}}
+	return &Client{Path: testfix.Adapter(), Token: "test-token",
+		Environ: []string{"PATH=" + os.Getenv("PATH"), "FAKE_BODY=" + body}}
 }
 
 func TestListParsesNormalizedPRs(t *testing.T) {
@@ -62,8 +58,8 @@ func TestListParsesNormalizedPRs(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			ad := fakeAdapter(t, "cat <<'EOF'\n"+tc.json+"\nEOF")
-			got, err := newClient(ad).List(context.Background())
+			c := fakeAdapter(t, "cat <<'EOF'\n"+tc.json+"\nEOF")
+			got, err := c.List(context.Background())
 			if err != nil {
 				t.Fatalf("List: unexpected error: %v", err)
 			}
@@ -75,8 +71,8 @@ func TestListParsesNormalizedPRs(t *testing.T) {
 }
 
 func TestNonZeroExitReturnsStderr(t *testing.T) {
-	ad := fakeAdapter(t, `echo "boom: bad things" >&2; exit 3`)
-	_, err := newClient(ad).List(context.Background())
+	c := fakeAdapter(t, `echo "boom: bad things" >&2; exit 3`)
+	_, err := c.List(context.Background())
 	if err == nil {
 		t.Fatal("List: expected error for non-zero exit")
 	}
@@ -87,8 +83,7 @@ func TestNonZeroExitReturnsStderr(t *testing.T) {
 
 func TestPerCallTimeout(t *testing.T) {
 	// exec replaces the shell so the timeout kills sleep directly and the pipes close promptly.
-	ad := fakeAdapter(t, "exec sleep 5")
-	c := newClient(ad)
+	c := fakeAdapter(t, "exec sleep 5")
 	c.Timeout = 50 * time.Millisecond
 
 	start := time.Now()
@@ -128,8 +123,8 @@ func TestMergeTimeoutSelection(t *testing.T) {
 }
 
 func TestMergeRunsPRMerge(t *testing.T) {
-	ad := fakeAdapter(t, `if [ "$1" = pr ] && [ "$2" = merge ] && [ "$3" = https://bb/pr/9 ]; then exit 0; fi; echo "bad args: $*" >&2; exit 9`)
-	if err := newClient(ad).Merge(context.Background(), "https://bb/pr/9"); err != nil {
+	c := fakeAdapter(t, `if [ "$1" = pr ] && [ "$2" = merge ] && [ "$3" = https://bb/pr/9 ]; then exit 0; fi; echo "bad args: $*" >&2; exit 9`)
+	if err := c.Merge(context.Background(), "https://bb/pr/9"); err != nil {
 		t.Fatalf("Merge: unexpected error: %v", err)
 	}
 }
@@ -141,7 +136,7 @@ func withAuthor(p PR, email, login string) PR {
 }
 
 // argvAdapter logs each argv entry on its own line, NUL-free, followed by a "--" separator, to log.
-func argvAdapter(t *testing.T, exit int, stderr string) (path, log string) {
+func argvAdapter(t *testing.T, exit int, stderr string) (c *Client, log string) {
 	t.Helper()
 	log = filepath.Join(t.TempDir(), "argv.log")
 	body := `for a in "$@"; do printf '%s\n' "$a" >> "` + log + `"; done; printf -- '--\n' >> "` + log + `"`
@@ -174,8 +169,8 @@ func TestCommentAndCloseArgv(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			ad, log := argvAdapter(t, 0, "")
-			if err := tc.call(newClient(ad)); err != nil {
+			c, log := argvAdapter(t, 0, "")
+			if err := tc.call(c); err != nil {
 				t.Fatal(err)
 			}
 			b, _ := os.ReadFile(log)
@@ -189,15 +184,14 @@ func TestCommentAndCloseArgv(t *testing.T) {
 }
 
 func TestCommentNewlineIsOneArg(t *testing.T) {
-	ad := fakeAdapter(t, `[ "$#" = 5 ] && [ "$5" = "$(printf 'x\ny')" ] || { echo "argc=$#" >&2; exit 4; }`)
-	if err := newClient(ad).Comment(context.Background(), "u", "x\ny"); err != nil {
+	c := fakeAdapter(t, `[ "$#" = 5 ] && [ "$5" = "$(printf 'x\ny')" ] || { echo "argc=$#" >&2; exit 4; }`)
+	if err := c.Comment(context.Background(), "u", "x\ny"); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestCommentCloseStderrPropagation(t *testing.T) {
-	ad, _ := argvAdapter(t, 5, "comment rejected: 403")
-	c := newClient(ad)
+	c, _ := argvAdapter(t, 5, "comment rejected: 403")
 	if err := c.Comment(context.Background(), "u", "b"); err == nil || !strings.Contains(err.Error(), "comment rejected: 403") {
 		t.Fatalf("Comment err = %v", err)
 	}
@@ -207,16 +201,16 @@ func TestCommentCloseStderrPropagation(t *testing.T) {
 }
 
 func TestAuthToken(t *testing.T) {
-	c := newClient(fakeAdapter(t, `[ "$1 $2" = "auth token" ] && echo "  tok-from-item  "`))
+	c := fakeAdapter(t, `[ "$1 $2" = "auth token" ] && echo "  tok-from-item  "`)
 	c.Token = ""
 	if got, err := c.AuthToken(context.Background()); err != nil || got != "tok-from-item" {
 		t.Errorf("got %q, %v", got, err)
 	}
-	c = newClient(fakeAdapter(t, `echo "No token: set BBAPPROVE_TOKEN" >&2; exit 1`))
+	c = fakeAdapter(t, `echo "No token: set BBAPPROVE_TOKEN" >&2; exit 1`)
 	if _, err := c.AuthToken(context.Background()); err == nil || !strings.Contains(err.Error(), "No token") {
 		t.Errorf("want the adapter's stderr as error, got %v", err)
 	}
-	c = newClient(fakeAdapter(t, `:`))
+	c = fakeAdapter(t, `:`)
 	if _, err := c.AuthToken(context.Background()); err == nil {
 		t.Error("an empty token must be an error")
 	}

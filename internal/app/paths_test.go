@@ -15,6 +15,7 @@ import (
 	"strings"
 	"testing"
 
+	"bbapprove/internal/testfix"
 	"bbapprove/internal/update"
 )
 
@@ -429,9 +430,7 @@ var pathCases = []pathCase{
 			RepoDir: fx.repo, IgnorePath: ign}
 	}},
 	{"adapter-failure", nil, func(t *testing.T, fx *fixture) Options {
-		ad := filepath.Join(fx.base, "adapter")
-		os.WriteFile(ad, []byte("#!/bin/sh\necho 'boom: list failed' >&2\nexit 1\n"), 0o755)
-		return Options{Environ: fx.env("BBAPPROVE_TOKEN=t", "BBAPPROVE_ADAPTER="+ad, "BBAPPROVE_REPOSITORY=https://bb.example.com", "BBAPPROVE_AUTHOR_EMAIL=bot@example.com"),
+		return Options{Environ: fx.env("BBAPPROVE_TOKEN=t", "BBAPPROVE_ADAPTER="+testfix.Adapter(), "FAKE_BODY=echo 'boom: list failed' >&2; exit 1", "BBAPPROVE_REPOSITORY=https://bb.example.com", "BBAPPROVE_AUTHOR_EMAIL=bot@example.com"),
 			RepoDir: fx.repo, IgnorePath: filepath.Join(fx.base, "none")}
 	}},
 }

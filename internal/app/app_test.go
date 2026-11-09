@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"bbapprove/internal/style"
+	"bbapprove/internal/testfix"
 	"bbapprove/internal/update"
 )
 
@@ -22,27 +23,22 @@ const listJSON = `[
  {"url":"http://h/projects/P/repos/d/pull-requests/4","number":4,"project":"P","repo":"d","title":"chore(deps): update d","author":{"email":"` + bot + `"},"headBranch":"renovate/d"}
 ]`
 
-// fake writes a fake adapter script; behaviour is steered by env vars set per test.
-func fake(t *testing.T) (path, log string) {
-	t.Helper()
-	dir := t.TempDir()
-	log = filepath.Join(dir, "argv.log")
-	path = filepath.Join(dir, "adapter")
-	script := `#!/bin/sh
-echo "$* token=$BBAPPROVE_TOKEN" >> "$FAKE_LOG"
+// fakeBody is the behaviour of the fake adapter, steered by env vars set per test. The script itself
+// is the shared fixed testfix.Adapter, which runs it from FAKE_BODY.
+const fakeBody = `echo "$* token=$BBAPPROVE_TOKEN" >> "$FAKE_LOG"
 echo "base=$BBAPPROVE_BASE_URL name=$BBAPPROVE_TOKEN_NAME" >> "$FAKE_LOG.env"
 case "$1 $2" in
   "auth token") echo tok-from-adapter ;;
   "pr list") if [ -n "$FAKE_LIST_FAIL" ]; then echo "boom: list failed" >&2; exit 1; fi; printf '%s' "$FAKE_LIST" ;;
   "pr view") printf '{"url":"%s","number":9,"project":"P","repo":"v","title":"chore(deps): update v","author":{"email":"` + bot + `"},"headBranch":"renovate/v"}' "$3" ;;
-  "pr review") case "$3" in *pull-requests/3) echo "approve denied" >&2; exit 1;; esac; sleep 0.05 ;;
-  "pr merge") case "$3" in *pull-requests/4) echo "merge conflict" >&2; exit 1;; esac; sleep 0.05 ;;
-esac
-`
-	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	return path, log
+  "pr review") case "$3" in *pull-requests/3) echo "approve denied" >&2; exit 1;; esac; sleep "$FAKE_SLEEP" ;;
+  "pr merge") case "$3" in *pull-requests/4) echo "merge conflict" >&2; exit 1;; esac; sleep "$FAKE_SLEEP" ;;
+esac`
+
+// fake returns the shared fake adapter and a per-test log path it appends every call to.
+func fake(t *testing.T) (path, log string) {
+	t.Helper()
+	return testfix.Adapter(), filepath.Join(t.TempDir(), "argv.log")
 }
 
 func run(t *testing.T, env []string, args ...string) (code int, out, errOut string) {
@@ -57,7 +53,7 @@ func run(t *testing.T, env []string, args ...string) (code int, out, errOut stri
 func baseEnv(t *testing.T) ([]string, string) {
 	ad, log := fake(t)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // never read the real per-user ignore list
-	return []string{"BBAPPROVE_ADAPTER=" + ad, "FAKE_LOG=" + log, "FAKE_LIST=" + listJSON, "NO_COLOR=1", "BBAPPROVE_JOBS=4",
+	return []string{"BBAPPROVE_ADAPTER=" + ad, "FAKE_BODY=" + fakeBody, "FAKE_SLEEP=0.05", "FAKE_LOG=" + log, "FAKE_LIST=" + listJSON, "NO_COLOR=1", "BBAPPROVE_JOBS=4",
 		"BBAPPROVE_REPOSITORY=https://bitbucket.example.com", "BBAPPROVE_AUTHOR_EMAIL=" + bot, "BBAPPROVE_TOKEN_NAME=test-item"}, log
 }
 

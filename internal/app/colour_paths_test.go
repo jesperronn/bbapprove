@@ -1,13 +1,14 @@
 package app
 
 import (
-	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 	"testing"
+
+	"bbapprove/internal/testfix"
 )
 
 // colourCases are the outputs that were coloured before the shared style package reached the rest of the
@@ -31,10 +32,8 @@ var colourCases = func() []pathCase {
 			return plainOpts(fx, "--print-config", "--disallow", "a,b")
 		}},
 		{"dry-run-and-apply", []string{"--apply", "--hide-ignored"}, func(t *testing.T, fx *fixture) Options {
-			ad := filepath.Join(fx.base, "adapter")
-			os.WriteFile(ad, []byte("#!/bin/sh\necho '[]'\n"), 0o755)
 			return Options{Args: []string{"--hide-ignored"}, RepoDir: fx.repo, IgnorePath: filepath.Join(fx.base, "none"),
-				Environ: fx.env("BBAPPROVE_TOKEN=t", "BBAPPROVE_ADAPTER="+ad, "BBAPPROVE_REPOSITORY=https://bb.example.com", "BBAPPROVE_AUTHOR_EMAIL=bot@example.com")}
+				Environ: fx.env("BBAPPROVE_TOKEN=t", "BBAPPROVE_ADAPTER="+testfix.Adapter(), "FAKE_BODY=echo '[]'", "BBAPPROVE_REPOSITORY=https://bb.example.com", "BBAPPROVE_AUTHOR_EMAIL=bot@example.com")}
 		}},
 	}
 	for _, h := range helpTopics {

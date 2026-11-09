@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"bbapprove/internal/config"
+	"bbapprove/internal/testfix"
 )
 
 // validCfg differs from the template's example values, which first-run setup treats as unedited.
@@ -47,9 +48,10 @@ func newRig(t *testing.T, useXDG bool, editorBody string) *setupRig {
 	}
 	r.editLog = filepath.Join(t.TempDir(), "editor.log")
 	if editorBody != "" {
-		ed := filepath.Join(t.TempDir(), "fake-editor")
-		os.WriteFile(ed, []byte("#!/bin/sh\necho \"$*\" >> "+r.editLog+"\n"+strings.ReplaceAll(editorBody, "@LOG@", r.editLog)+"\n"), 0o755)
-		kept = append(kept, "EDITOR="+ed+" -w")
+		// The editor runs with the process environment (ExecEditor sets no Env), hence t.Setenv.
+		t.Setenv("FAKE_EDITOR_LOG", r.editLog)
+		t.Setenv("FAKE_EDITOR_BODY", strings.ReplaceAll(editorBody, "@LOG@", `"$FAKE_EDITOR_LOG"`))
+		kept = append(kept, "EDITOR="+testfix.Editor()+" -w")
 	}
 	r.env = kept
 	return r

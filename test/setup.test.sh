@@ -20,20 +20,13 @@ setup_repo() {
   mkdir -p "$REPO/bin"
   cp "$SETUP" "$REPO/bin/setup"
   printf 'module bbapprove\n\ngo 1.21\n' >"$REPO/go.mod"
-  printf '#!/usr/bin/env bash\necho "build $*" >>"$TEST_TMP/calls.log"\n' >"$REPO/bin/build"
-  chmod +x "$REPO/bin/setup" "$REPO/bin/build"
+  use_stubs "$REPO/bin" recorder=build
+  chmod +x "$REPO/bin/setup"
   make_tool_dir "$TOOLS" awk
-  local t
-  for t in git jq shellcheck rg; do printf '#!/usr/bin/env bash\nexit 0\n' >"$TOOLS/$t"; chmod +x "$TOOLS/$t"; done
-  cat >"$TOOLS/go" <<'STUB'
-#!/usr/bin/env bash
-case "$1 ${2:-}" in
-  "env GOVERSION") echo "${STUB_GOVERSION:-go1.22.3}" ;;
-  "mod download") echo "go mod download" >>"$TEST_TMP/calls.log" ;;
-esac
-exit 0
-STUB
-  chmod +x "$TOOLS/go"
+  # The tools are fixed stubs from test/fixtures (symlinks): noop for git/jq/shellcheck/rg, go-stub for go.
+  # go logs only `mod download`, bin/build logs "build ARGS", both to calls.log in call order.
+  use_stubs "$TOOLS" noop=git noop=jq noop=shellcheck noop=rg go-stub=go
+  export STUB_LOG="$TEST_TMP/calls.log" STUB_GO_LOG_MATCH='mod download' STUB_BUILD_LABEL=build
   : >"$TEST_TMP/calls.log"
   export TEST_TMP
 }

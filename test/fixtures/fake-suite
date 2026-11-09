@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # A fake bash suite for the bin/test tests: symlink it as NAME.test.sh. Logs "suite NAME ARGS" to $TESTSH_TEST_LOG
-# and exits 1 when NAME is $FAKE_FAIL_SUITE.
+# sleeps $FAKE_SLOW_B seconds when NAME is b.test.sh, and exits 1 when NAME is $FAKE_FAIL_SUITE.
 echo "suite $(basename "$0")${*:+ $*}" >>"$TESTSH_TEST_LOG"
+if [[ "$(basename "$0")" == "b.test.sh" ]]; then sleep "${FAKE_SLOW_B:-0}"; fi
 if [[ "$(basename "$0")" == "${FAKE_FAIL_SUITE:-}" ]]; then
   exit 1
 fi

@@ -24,7 +24,7 @@ setup_fixture() {
   TEST_TMP="$(mktemp -d)"
   PROJ="$TEST_TMP/proj"
   mkdir -p "$PROJ/bin" "$PROJ/adapters" "$PROJ/test/lib" "$PROJ/internal/pkg" "$TEST_TMP/stubs"
-  cp "$LINT" "$PROJ/bin/lint"
+  link_script "$LINT" "$PROJ/bin/lint"
   printf '#!/usr/bin/env bash\necho tool\n' >"$PROJ/bin/tool"
   printf 'not a script\n' >"$PROJ/bin/data.bin"
   printf '#!/usr/bin/env bash\necho adapter\n' >"$PROJ/adapters/x"
@@ -34,25 +34,11 @@ setup_fixture() {
   printf 'package pkg\n' >"$PROJ/internal/pkg/p.go"
   printf '# readme\n' >"$PROJ/README.md"
 
-  cat >"$TEST_TMP/stubs/shellcheck" <<'STUB'
-#!/usr/bin/env bash
-echo "shellcheck $*" >>"$LINT_TEST_LOG"
-exit "${STUB_SHELLCHECK_RC:-0}"
-STUB
-  cat >"$TEST_TMP/stubs/gofmt" <<'STUB'
-#!/usr/bin/env bash
-echo "gofmt $*" >>"$LINT_TEST_LOG"
-if [[ "${1:-}" == -l && -n "${STUB_GOFMT_OUT:-}" ]]; then printf '%s\n' "$STUB_GOFMT_OUT"; fi
-exit "${STUB_GOFMT_RC:-0}"
-STUB
-  cat >"$TEST_TMP/stubs/go" <<'STUB'
-#!/usr/bin/env bash
-echo "go $*" >>"$LINT_TEST_LOG"
-exit "${STUB_GO_RC:-0}"
-STUB
-  chmod +x "$TEST_TMP/stubs/"*
+  # Fixed recording stubs from test/fixtures, symlinked; they log "NAME ARGS" to $STUB_LOG.
+  use_stubs "$TEST_TMP/stubs" recorder=shellcheck recorder=gofmt go-stub=go
+  export STUB_LOG="$TEST_TMP/calls.log"
 
-  export LINT_TEST_LOG="$TEST_TMP/calls.log"
+  export LINT_TEST_LOG="$STUB_LOG"
   : >"$LINT_TEST_LOG"
   export PATH="$TEST_TMP/stubs:$ORIG_PATH"
   unset STUB_SHELLCHECK_RC STUB_GOFMT_OUT STUB_GOFMT_RC STUB_GO_RC

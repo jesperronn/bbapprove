@@ -18,23 +18,14 @@ setup_repo() {
   TEST_TMP="$(mktemp -d)"
   REPO="$TEST_TMP/repo"; GO_LOG="$TEST_TMP/go.log"; : >"$GO_LOG"
   mkdir -p "$REPO/bin" "$REPO/cmd/bbapprove" "$REPO/internal/x" "$TEST_TMP/stubs" "$TEST_TMP/empty"
-  cp "$LAUNCHER" "$REPO/bin/bbapprove"; chmod +x "$REPO/bin/bbapprove"
+  link_script "$LAUNCHER" "$REPO/bin/bbapprove"
   # Stub bin/build: the launcher delegates to it as `bin/build -o FILE`; it runs the (stubbed) go build.
   printf '#!/usr/bin/env bash\ncd "$(dirname "$0")/.." && go build -o "$2" ./cmd/bbapprove\n' >"$REPO/bin/build"
   chmod +x "$REPO/bin/build"
   printf 'module bbapprove\n\ngo 1.27\n' >"$REPO/go.mod"
   printf 'package main\n\nfunc main() {}\n' >"$REPO/cmd/bbapprove/main.go"
   printf 'package x\n' >"$REPO/internal/x/x.go"
-  cat >"$TEST_TMP/stubs/go" <<'STUB'
-#!/usr/bin/env bash
-echo "$*" >>"$GO_LOG"
-if [[ -n "${STUB_GO_FAIL:-}" ]]; then echo "go: boom" >&2; exit 3; fi
-out=""; prev=""
-for a in "$@"; do [[ "$prev" == -o ]] && out="$a"; prev="$a"; done
-printf '#!/usr/bin/env bash\nprintf "argv:"; printf " [%%s]" "$@"; echo\n' >"$out"
-chmod +x "$out"
-STUB
-  chmod +x "$TEST_TMP/stubs/go"
+  use_stubs "$TEST_TMP/stubs" go-stub=go
 }
 
 # run_launcher OUT_VAR RC_VAR [ENV=VAL...] -- LAUNCHER_PATH ARGS...
@@ -43,7 +34,7 @@ run_launcher() {
   local -a envs=()
   while [[ $# -gt 0 && "$1" != "--" ]]; do envs+=("$1"); shift; done
   shift
-  capture_command "$out_var" "$rc_var" env PATH="$TEST_TMP/stubs:/usr/bin:/bin" GO_LOG="$GO_LOG" "${envs[@]}" "$@"
+  capture_command "$out_var" "$rc_var" env PATH="$TEST_TMP/stubs:/usr/bin:/bin" STUB_LOG="$GO_LOG" STUB_GO_LOG_PREFIX= STUB_GO_WRITE_BINARY=1 "${envs[@]}" "$@"
 }
 
 test_missing_binary_builds_once_then_execs() {

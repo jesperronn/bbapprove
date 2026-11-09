@@ -23,42 +23,18 @@ setup_fixture() {
   TEST_TMP="$(mktemp -d)"
   PROJ="$TEST_TMP/proj"
   mkdir -p "$PROJ/bin" "$PROJ/test" "$TEST_TMP/stubs"
-  cp "$TESTSH" "$PROJ/bin/test"
+  link_script "$TESTSH" "$PROJ/bin/test"
 
-  for suite in a b c; do
-    cat >"$PROJ/test/$suite.test.sh" <<'SUITE'
-#!/usr/bin/env bash
-echo "suite $(basename "$0")${*:+ $*}" >>"$TESTSH_TEST_LOG"
-if [[ "$(basename "$0")" == "b.test.sh" ]]; then sleep "${FAKE_SLOW_B:-0}"; fi
-if [[ "$(basename "$0")" == "${FAKE_FAIL_SUITE:-}" ]]; then
-  exit 1
-fi
-SUITE
-  done
+  # Fixed fixtures, symlinked: three fake suites (b sleeps for FAKE_SLOW_B, FAKE_FAIL_SUITE fails) and a go stub
+  # that logs its argv and prints canned `go test -json` lines under STUB_GO_JSON=timings.
+  use_stubs "$PROJ/test" fake-suite=a.test.sh fake-suite=b.test.sh fake-suite=c.test.sh
+  use_stubs "$TEST_TMP/stubs" go-stub=go
+  export STUB_LOG="$TEST_TMP/calls.log" STUB_GO_JSON=timings
 
-  cat >"$TEST_TMP/stubs/go" <<'STUB'
-#!/usr/bin/env bash
-echo "go $*" >>"$TESTSH_TEST_LOG"
-case " $* " in
-  *" -json "*)
-    echo '{"Action":"output","Package":"x/slow","Test":"TestA","Output":"hidden \\"chatter\\"\n"}'
-    echo '{"Action":"pass","Package":"x/slow","Test":"TestA","Elapsed":0.25}'
-    echo '{"Action":"pass","Package":"x/slow","Test":"TestB","Elapsed":1.5}'
-    echo '{"Action":"output","Package":"x/slow","Output":"ok  \tx/slow\t1.8s\n"}'
-    echo '{"Action":"pass","Package":"x/slow","Elapsed":1.8}'
-    echo '{"Action":"pass","Package":"x/fast","Test":"TestC","Elapsed":0.01}'
-    echo '{"Action":"output","Package":"x/fast","Output":"PASS\n","OutputType":"frame"}'
-    echo '{"Action":"pass","Package":"x/fast","Elapsed":0.02}'
-    ;;
-esac
-exit "${STUB_GO_RC:-0}"
-STUB
-  chmod +x "$TEST_TMP/stubs/go"
-
-  export TESTSH_TEST_LOG="$TEST_TMP/calls.log"
+  export TESTSH_TEST_LOG="$STUB_LOG"
   : >"$TESTSH_TEST_LOG"
   export PATH="$TEST_TMP/stubs:$ORIG_PATH"
-  unset STUB_GO_RC FAKE_FAIL_SUITE FAKE_SLOW_B TEST_TIMINGS_TOP
+  unset STUB_GO_RC FAKE_FAIL_SUITE FAKE_SLOW_B STUB_GO_LOG_MATCH STUB_GO_LOG_PREFIX STUB_GO_FAIL STUB_GO_WRITE_BINARY TEST_TIMINGS_TOP
 }
 
 # run_testsh ARGS...: run bin/test from the fixture project; sets TESTSH_OUT and TESTSH_STATUS.

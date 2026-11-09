@@ -16,12 +16,15 @@ Approve and merge Renovate PRs from the terminal (Go core, bash launcher and for
 
 ## Commit messages and PR descriptions
 
-- The subject is conventional (`type(scope): description`), imperative and at most 70 characters: `fix(lint): run tr under LC_ALL=C`. The body may be omitted when the subject already gives the change and the reason (a typo fix, a rename). Otherwise it is plain prose: the first sentence gives the change and the reason together, the rest gives what a reviewer cannot see in the diff (a measurement, a trade-off, a decision, a known gap).
+- The subject is conventional (`type(scope): description`), imperative and at most 70 characters: `fix(lint): run tr under LC_ALL=C`. The body may be omitted when the subject already gives the change and the reason (a typo fix, a rename).
+- Keep it short: a commit body is at most about 80 words, a PR description at most about 200. Only a PR that carries a list of decisions may run longer, and then as bullets. The first sentence gives the change and the reason together; every later sentence must tell a reviewer something the diff, the title and the tests do not (a measurement, a trade-off, a decision, a known gap). If it does not, delete it.
+- Leave out what the diff shows: file, test and case names, which docs or help screens were updated, formatting side effects (a column width, regenerated output), counts of added tests beyond one clause. Mention regenerated expected output only when a reviewer would otherwise be surprised by a large diff.
+- Use plain words. Project jargon (`golden`, `characterization suite`, `fake`) means nothing to a reader without the repo in their head: say `recorded expected output`, `tests against a stand-in server`.
 - No label headings. `What`, `Why`, `Summary`, `Overview`, `Changes`, `Details`, `Testing`, `Verification` and `Notes` carry no information; write the sentence instead. A heading is allowed only when its text names its content (`Slow tests and their causes`, `Quirks pinned, not fixed`), and a short PR needs none.
-- Say what was checked as one sentence with the real commands (`go test -race, bin/lint and bin/test pass`), and say what was not checked as a plain sentence (`Not checked: how the colours look in a light terminal theme`). Never write a claim you did not see output for.
-- Describe the change, not the process: no list of files (the diff shows them), no "this PR", no restating the title. Stacked PRs say which PR must merge first.
-- Use bullets only for parallel items such as the quirks list; use a table only for data (timings, option lists).
-- Run `bin/lint-commits` before pushing. It checks the mechanical rules only; the rest (imperative mood, change plus reason, no unverified claims) is on the author.
+- Say what was checked as one sentence with the real commands (`go test -race, bin/lint and bin/test pass`), and what was not checked as one plain sentence naming only what matters (`Not checked: the delete call against a real Bitbucket`). Never write a claim you did not see output for.
+- No "this PR", no restating the title. Stacked PRs say which PR must merge first.
+- Use bullets only for parallel items; use a table only for data (timings, option lists).
+- Run `bin/lint-commits` before pushing. It checks the mechanical rules only; the rest (length, imperative mood, plain words, change plus reason, no unverified claims) is on the author.
 
 ## Hard rules
 

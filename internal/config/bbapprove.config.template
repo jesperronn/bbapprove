@@ -22,3 +22,7 @@ author_email = "renovate-bot@example.com"
 # dependencies bbapprove must never auto-approve (case-insensitive substrings of the PR title).
 # Merged with --disallow / BBAPPROVE_DISALLOW.
 disallow = ["some-library", "another-library"]
+
+# optional: GitHub owner/repo that "bbapprove --outdated" and "--update" check for releases.
+# Default: "jesperronn/bbapprove". Env: BBAPPROVE_UPDATE_REPO
+# update_repo = "jesperronn/bbapprove"

@@ -31,13 +31,15 @@ const (
 const (
 	DefaultType      = "bitbucket"
 	DefaultTokenName = "BITBUCKET_TOKEN"
+	// DefaultUpdateRepo is where --outdated/--update look for releases (owner/repo).
+	DefaultUpdateRepo = "jesperronn/bbapprove"
 	// TemplateName is the committed example config; the real file is TemplateName's sibling ConfigName.
 	TemplateName = "bbapprove.config.template"
 	ConfigName   = "bbapprove.config.toml"
 )
 
 // knownKeys are the keys a config file may contain; anything else only draws a warning.
-var knownKeys = []string{"type", "repository", "user_token_name", "author_email", "disallow"}
+var knownKeys = []string{"type", "repository", "user_token_name", "author_email", "disallow", "update_repo"}
 
 // fileData is the TOML file's shape.
 type fileData struct {
@@ -46,6 +48,7 @@ type fileData struct {
 	UserTokenName string   `toml:"user_token_name"`
 	AuthorEmail   string   `toml:"author_email"`
 	Disallow      []string `toml:"disallow"`
+	UpdateRepo    string   `toml:"update_repo"`
 }
 
 // Value is a resolved setting and where it came from.
@@ -68,6 +71,7 @@ type Input struct {
 // Config is the merged result.
 type Config struct {
 	Type, Repository, TokenName, AuthorEmail Value
+	UpdateRepo                               Value // GitHub owner/repo for --outdated/--update
 	Adapter                                  Value // adapter executable
 	Disallow                                 []string
 	DisallowFile                             Value
@@ -151,6 +155,7 @@ func Load(in Input) (*Config, error) {
 	c.Repository = pick("", in.Env("BBAPPROVE_REPOSITORY"), data.Repository, "")
 	c.TokenName = pick(in.TokenNameFlag, in.Env("BBAPPROVE_TOKEN_NAME"), data.UserTokenName, DefaultTokenName)
 	c.AuthorEmail = pick("", in.Env("BBAPPROVE_AUTHOR_EMAIL"), data.AuthorEmail, "")
+	c.UpdateRepo = pick("", in.Env("BBAPPROVE_UPDATE_REPO"), data.UpdateRepo, DefaultUpdateRepo)
 
 	if t := c.Type.Value; t == "." || t == ".." || strings.ContainsAny(t, `/\`) {
 		return nil, fmt.Errorf("invalid type %q: it must be a plain adapter name (adapters/<type>)", t)
@@ -298,6 +303,7 @@ func (c *Config) Describe() string {
 	row("repository", c.Repository)
 	row("user_token_name", c.TokenName)
 	row("author_email", c.AuthorEmail)
+	row("update_repo", c.UpdateRepo)
 	row("disallow_file", c.DisallowFile)
 	fmt.Fprintf(&b, "%-16s %s\n", "disallow:", strings.Join(c.Disallow, ", "))
 	return b.String()

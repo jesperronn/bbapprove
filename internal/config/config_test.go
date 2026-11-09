@@ -295,3 +295,23 @@ func TestChildEnvAndDescribe(t *testing.T) {
 		t.Error("describe leaked the token")
 	}
 }
+
+func TestUpdateRepoKey(t *testing.T) {
+	s := newSandbox(t)
+	c, err := Load(s.input(nil))
+	if err != nil || c.UpdateRepo != (Value{DefaultUpdateRepo, FromDefault}) {
+		t.Fatalf("default: %+v %v", c.UpdateRepo, err)
+	}
+	s.writeRepo(t, fileA+"update_repo = \"acme/fork\"\n")
+	c, err = Load(s.input(nil))
+	if err != nil || c.UpdateRepo != (Value{"acme/fork", FromFile}) || len(c.Warnings) != 0 {
+		t.Fatalf("file: %+v warnings %v err %v", c.UpdateRepo, c.Warnings, err)
+	}
+	c, _ = Load(s.input(map[string]string{"BBAPPROVE_UPDATE_REPO": "env/repo"}))
+	if c.UpdateRepo != (Value{"env/repo", FromEnv}) {
+		t.Errorf("env: %+v", c.UpdateRepo)
+	}
+	if d := c.Describe(); !strings.Contains(d, "update_repo:     env/repo  [env]") {
+		t.Errorf("Describe lacks update_repo:\n%s", d)
+	}
+}

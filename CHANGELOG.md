@@ -5,6 +5,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-09
+
 ### Changed (BREAKING)
 - The token comes from `BBAPPROVE_TOKEN` (wins when set), or else from the 1Password item named by
   `BBAPPROVE_TOKEN_NAME`, `--token-name NAME` or `user_token_name` (precedence flag > env > file; looked up with

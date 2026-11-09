@@ -1,6 +1,7 @@
 bbapprove doctor — diagnose the installation and the configuration.
 
 Usage: bbapprove doctor [--offline] [--config FILE] [--disallow a,b]
+                         [--token-name NAME]
        bbapprove doctor --help
 
 Read-only: prints a report, changes nothing, never prints a secret, and needs no token,
@@ -10,6 +11,8 @@ Options:
   --offline       skip the update check (nothing leaves this machine)
   --config FILE   diagnose this config file (BBAPPROVE_CONFIG does the same; the flag wins)
   --disallow a,b  add disallowed dependencies, as for a normal run
+  --token-name NAME  1Password item that holds the token, as for a normal run (BBAPPROVE_TOKEN_NAME
+                         and user_token_name do the same); only used when BBAPPROVE_TOKEN is unset
   -h, --help      show this help
 
 Sections: one block each, in this order
@@ -21,7 +24,9 @@ Sections: one block each, in this order
                valid TOML and still holds the template's example values; then every effective
                setting with its source: [flag], [env], [file] or [default]
   adapter      the forge type, the adapter path, and that it exists and is executable
-  token        the token sources in order of precedence (never the token; op is only looked for on PATH)
+  token        where the token comes from: BBAPPROVE_TOKEN (wins), else the 1Password item named by
+               --token-name / BBAPPROVE_TOKEN_NAME / user_token_name; never a value, and doctor
+               does not run op. FAIL when there is neither
   ignore list  the per-user ignore file, whether it is readable (an unreadable list is a problem:
                bbapprove then refuses to run), and its entries
   disallow     the disallow lists from the config file, BBAPPROVE_DISALLOW and the disallow file

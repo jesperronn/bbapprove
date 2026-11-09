@@ -92,7 +92,7 @@ func TestColouredDoctorHelp(t *testing.T) {
 		"cmd":      "bbapprove \x1b[1;35mdoctor\x1b[0m [",
 		"flag":     "\x1b[32m--offline\x1b[0m",
 		"val":      "\x1b[94mFILE\x1b[0m",
-		"env":      "\x1b[33mBBAPPROVE_DISALLOW\x1b[0m",
+		"env":      "\x1b[33mBBAPPROVE_TOKEN\x1b[0m",
 		"path":     "\x1b[36m$XDG_CONFIG_HOME/bbapprove/config.toml\x1b[0m",
 		"ok":       "\x1b[32mok\x1b[0m / \x1b[32m✓\x1b[0m",
 		"warn":     "\x1b[33mwarn\x1b[0m / \x1b[33m!\x1b[0m",

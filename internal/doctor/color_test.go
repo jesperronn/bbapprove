@@ -77,8 +77,9 @@ func TestColourUpToDateAndFailures(t *testing.T) {
 		"could not check": "\x1b[31mcould not check:\x1b[0m",
 		"fail marker":     "\x1b[1;31m✗\x1b[0m    ",
 		"fail word":       "\x1b[1;31mFAIL\x1b[0m no config file found",
+		"token":           "no token: \x1b[33mBBAPPROVE_TOKEN\x1b[0m is not set",
 		"unset source":    "\x1b[2m[unset]\x1b[0m",
-		"problem count":   "\x1b[1;31m2 problem(s) found\x1b[0m",
+		"problem count":   "\x1b[1;31m3 problem(s) found\x1b[0m",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("%s: missing %q in\n%s", name, want, out)

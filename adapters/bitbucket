@@ -2,7 +2,7 @@
 # shellcheck shell=bash
 # bitbucket adapter — gh-style CLI over the Bitbucket Server REST API. The only place that knows about curl/Bitbucket.
 #
-#   bitbucket auth token                        print the API token (BBAPPROVE_TOKEN or 1Password)
+#   bitbucket auth token                        print the API token (BBAPPROVE_TOKEN, else the 1Password item BBAPPROVE_TOKEN_NAME)
 #   bitbucket pr list --reviewer @me --state open   JSON array of normalized PRs
 #   bitbucket pr view URL                       one normalized PR as compact JSON
 #   bitbucket pr review URL --approve           approve
@@ -13,12 +13,12 @@
 # Normalized PR: {url, number, project, repo, title, author:{email,login}, headBranch, approvedByMe,
 #   build: passed|failed|running|none, qualityGate: passed|failed|unknown,
 #   approvals, needsWork (reviewer counts), commentCount, openTasks}
-# Errors: message on stderr, non-zero exit. Env: BBAPPROVE_BASE_URL (required, no default), BBAPPROVE_TOKEN_NAME (1Password item, default BITBUCKET_TOKEN), BBAPPROVE_TOKEN, BBAPPROVE_MERGE_RETRIES, BBAPPROVE_RETRY_SLEEP.
+# Errors: message on stderr, non-zero exit. Env: BBAPPROVE_BASE_URL (required, no default), BBAPPROVE_TOKEN (required by every pr command; exit 2 when unset), BBAPPROVE_TOKEN_NAME (1Password item for `auth token`, no default), BBAPPROVE_MERGE_RETRIES, BBAPPROVE_RETRY_SLEEP.
 
 set -euo pipefail
 
 BASE_URL="${BBAPPROVE_BASE_URL:-}"
-TOKEN_NAME="${BBAPPROVE_TOKEN_NAME:-BITBUCKET_TOKEN}"
+TOKEN_NAME="${BBAPPROVE_TOKEN_NAME:-}"
 TOKEN="${BBAPPROVE_TOKEN:-}"
 MERGE_RETRIES="${BBAPPROVE_MERGE_RETRIES:-4}"
 RETRY_SLEEP="${BBAPPROVE_RETRY_SLEEP:-2}"
@@ -74,13 +74,17 @@ load_me() {
 }
 
 cmd_auth_token() {
-  if [[ -z "$TOKEN" ]] && command -v op >/dev/null 2>&1; then
-    local dim="" reset=""
+  if [[ -z "$TOKEN" && -n "$TOKEN_NAME" ]]; then
+    command -v op >/dev/null 2>&1 || { err "1Password CLI (op) not found; set BBAPPROVE_TOKEN instead"; return 1; }
+    local dim="" reset="" field
     if [[ -z "${NO_COLOR:-}" && ( -t 2 || -n "${FORCE_COLOR:-}" ) ]]; then dim=$'\033[2m' reset=$'\033[0m'; fi
     err "${dim}Waiting for 1Password: op item get ${TOKEN_NAME}${reset}"
-    TOKEN="$(op item get "$TOKEN_NAME" --fields label=token --reveal)" || TOKEN=""
+    for field in token credential; do
+      TOKEN="$(op item get "$TOKEN_NAME" --reveal --fields "label=$field" 2>/dev/null)" || TOKEN=""
+      [[ -n "$TOKEN" ]] && break
+    done
   fi
-  [[ -n "$TOKEN" ]] || { err "No token: use --token, BBAPPROVE_TOKEN or 1Password (op)."; return 1; }
+  [[ -n "$TOKEN" ]] || { err "No token: set BBAPPROVE_TOKEN, or BBAPPROVE_TOKEN_NAME to a 1Password item with a token or credential field."; return 1; }
   printf '%s\n' "$TOKEN"
 }
 
@@ -222,6 +226,7 @@ cmd_pr_close() { # URL [--comment TEXT]
 main() {
   [[ -n "$BASE_URL" ]] || { err "bitbucket adapter: BBAPPROVE_BASE_URL is not set"; return 2; }
   local group="${1:-}" sub="${2:-}"
+  if [[ "$group $sub" != "auth token" && -z "$TOKEN" ]]; then err "bitbucket adapter: BBAPPROVE_TOKEN is not set"; return 2; fi
   case "$group $sub" in
     "auth token") cmd_auth_token ;;
     "pr list") shift 2; cmd_pr_list "$@" ;;

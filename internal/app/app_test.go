@@ -57,7 +57,7 @@ func baseEnv(t *testing.T) ([]string, string) {
 	ad, log := fake(t)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // never read the real per-user ignore list
 	return []string{"BBAPPROVE_ADAPTER=" + ad, "FAKE_LOG=" + log, "FAKE_LIST=" + listJSON, "NO_COLOR=1", "BBAPPROVE_JOBS=4",
-		"BBAPPROVE_REPOSITORY=https://bitbucket.example.com", "BBAPPROVE_AUTHOR_EMAIL=" + bot}, log
+		"BBAPPROVE_REPOSITORY=https://bitbucket.example.com", "BBAPPROVE_AUTHOR_EMAIL=" + bot, "BBAPPROVE_TOKEN_NAME=test-item"}, log
 }
 
 func readLog(t *testing.T, p string) string {
@@ -107,6 +107,51 @@ func TestEnvTokenSkipsAuth(t *testing.T) {
 	}
 	if l := readLog(t, log); strings.Contains(l, "auth token") || !strings.Contains(l, "token=given") {
 		t.Errorf("log: %s", l)
+	}
+}
+
+func TestNoTokenNoNameFailsFast(t *testing.T) {
+	env, log := bareEnv(t)
+	env = append(env, "BBAPPROVE_REPOSITORY=https://bitbucket.example.com", "BBAPPROVE_AUTHOR_EMAIL="+bot)
+	code, out, errOut := runIn(t, t.TempDir(), env)
+	if code != 1 || out != "" || !strings.Contains(errOut, "BBAPPROVE_TOKEN") || !strings.Contains(errOut, "BBAPPROVE_TOKEN_NAME") {
+		t.Fatalf("code %d out %q err %q", code, out, errOut)
+	}
+	if readLog(t, log) != "" {
+		t.Errorf("the adapter must not run without a token source: %s", readLog(t, log))
+	}
+}
+
+func TestNameOnlyLooksTokenUp(t *testing.T) {
+	env, log := baseEnv(t) // has BBAPPROVE_TOKEN_NAME=test-item, no BBAPPROVE_TOKEN
+	if code, _, errOut := run(t, env); code != 0 {
+		t.Fatalf("code %d err %q", code, errOut)
+	}
+	l := readLog(t, log)
+	if strings.Count(l, "auth token") != 1 || !strings.Contains(l, "pr list --reviewer @me --state open token=tok-from-adapter") {
+		t.Errorf("token not looked up once and passed on: %s", l)
+	}
+	if e, _ := os.ReadFile(log + ".env"); !strings.Contains(string(e), "name=test-item") {
+		t.Errorf("adapter did not get the item name: %s", e)
+	}
+}
+
+func TestTokenFlagRejectedTokenNameAccepted(t *testing.T) {
+	env, log := baseEnv(t)
+	for _, a := range []string{"--token", "--token=x"} {
+		code, _, errOut := run(t, env, a, "x")
+		if code != 2 || !strings.Contains(errOut, "--token was removed") {
+			t.Errorf("%s: code %d err %q", a, code, errOut)
+		}
+	}
+	if readLog(t, log) != "" {
+		t.Error("a rejected flag must not reach the adapter")
+	}
+	if code, _, errOut := run(t, env, "--token-name", "X"); code != 0 {
+		t.Errorf("--token-name X: code %d err %q", code, errOut)
+	}
+	if code, _, errOut := run(t, env, "--token-name=X"); code != 0 {
+		t.Errorf("--token-name=X: code %d err %q", code, errOut)
 	}
 }
 
@@ -401,7 +446,7 @@ func bareEnv(t *testing.T) ([]string, string) {
 	env, log := baseEnv(t)
 	var out []string
 	for _, kv := range env {
-		if !strings.HasPrefix(kv, "BBAPPROVE_REPOSITORY=") && !strings.HasPrefix(kv, "BBAPPROVE_AUTHOR_EMAIL=") {
+		if !strings.HasPrefix(kv, "BBAPPROVE_REPOSITORY=") && !strings.HasPrefix(kv, "BBAPPROVE_AUTHOR_EMAIL=") && !strings.HasPrefix(kv, "BBAPPROVE_TOKEN_NAME=") {
 			out = append(out, kv)
 		}
 	}
@@ -465,7 +510,7 @@ func TestConfigFlagAndErrors(t *testing.T) {
 	repo := t.TempDir()
 	good := filepath.Join(t.TempDir(), "c.toml")
 	os.WriteFile(good, []byte("repository = \"https://h.example.com\"\nauthor_email = \""+bot+"\"\nbogus = 1\n"), 0o644)
-	code, _, errOut := runIn(t, repo, env, "--config", good)
+	code, _, errOut := runIn(t, repo, append(env, "BBAPPROVE_TOKEN=t"), "--config", good)
 	if code != 0 || !strings.Contains(errOut, `warning:`) || !strings.Contains(errOut, `unknown key "bogus"`) {
 		t.Fatalf("unknown key: code %d err %q", code, errOut)
 	}
@@ -496,7 +541,7 @@ func TestPrintConfig(t *testing.T) {
 	os.WriteFile(filepath.Join(repo, "bbapprove.config.toml"),
 		[]byte("repository = \"https://file.example.com\"\nauthor_email = \"file-bot@example.com\"\ndisallow = [\"some-library\"]\n"), 0o644)
 	code, out, errOut := runIn(t, repo, append(env, "BBAPPROVE_TOKEN=s3cret-value", "BBAPPROVE_AUTHOR_EMAIL=env-bot@example.com"),
-		"--print-config", "--token-name", "FLAG_ITEM", "--token", "also-secret")
+		"--print-config", "--token-name", "FLAG_ITEM")
 	if code != 0 || errOut != "" {
 		t.Fatalf("code %d err %q", code, errOut)
 	}

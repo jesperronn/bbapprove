@@ -77,8 +77,8 @@ func (o Options) env(key string) string {
 // usageMarkup is the help text after its first line, in the {class:text} markup of package style (braces
 // are escaped as {{ and }}). Plain output equals the text with every tag removed.
 const usageMarkup = `
-{h:Usage:} bbapprove [{flag:--apply}] [{flag:--hide-ignored}] [{flag:--disallow} {val:a,b}] [{flag:--token} {val:T}] [{flag:--token-name} {val:NAME}]
-                 [{flag:--config} {val:FILE}] [{flag:--print-config}] [{val:PR_URL...}]
+{h:Usage:} bbapprove [{flag:--apply}] [{flag:--hide-ignored}] [{flag:--disallow} {val:a,b}]
+                 [{flag:--token-name} {val:NAME}] [{flag:--config} {val:FILE}] [{flag:--print-config}] [{val:PR_URL...}]
        bbapprove {flag:--init} [{flag:--force}] [{flag:--config} {val:FILE}]
        bbapprove {cmd:doctor} [{flag:--offline}] [{flag:--config} {val:FILE}]
        bbapprove {flag:--outdated} [{flag:--pre}]
@@ -105,18 +105,21 @@ rows, r reload, o open, ? help, q quit (prints a summary of what was done). {fla
   - not already approved by you
   - not on your ignore list (a PR on it is IGNORED whatever else applies, and never acted on)
 
-{h:Configuration:} a TOML file (see {path:bbapprove.config.template}) with type, repository, user_token_name,
-author_email, disallow. Found via {flag:--config} / {env:BBAPPROVE_CONFIG}, else {path:<repo>/bbapprove.config.toml}, else
+{h:Configuration:} a TOML file (see {path:bbapprove.config.template}) with type, repository,
+author_email, disallow, update_repo, user_token_name. Found via {flag:--config} / {env:BBAPPROVE_CONFIG}, else {path:<repo>/bbapprove.config.toml}, else
 {path:$XDG_CONFIG_HOME/bbapprove/config.toml} (default {path:~/.config/...}). Precedence: command line > env > file >
 default. repository and author_email have no default. With no config file at all, an interactive run
 offers to create {path:$XDG_CONFIG_HOME/bbapprove/config.toml} from the template and open it in ${env:VISUAL}/${env:EDITOR};
 {flag:--init} does that on request (never overwrites an existing file unless {flag:--force}; {flag:--config} {val:FILE} or {env:BBAPPROVE_CONFIG} picks the
 path). The template is built into the binary. {flag:--print-config} shows the effective settings
-{dim:(no secrets)} and where each came from. {flag:--token-name} {val:NAME} overrides the 1Password item name.
+{dim:(no secrets)} and where each came from.
+The API token: {env:BBAPPROVE_TOKEN} if set (wins), else the 1Password item named by {flag:--token-name} {val:NAME},
+{env:BBAPPROVE_TOKEN_NAME} or user_token_name (looked up with "op", field token, then credential; no default name).
+With neither a run that needs the forge fails at once. There is no {flag:--token} option (visible in the process list).
 
 {cmd:doctor} prints diagnostics and needs no token or forge access: version and update status, which config
 file is in use (every candidate path and why), where each setting came from, the adapter, the token
-sources {dim:(never the token)}, the ignore list (path and entries: what makes a row IGNORED), the disallow
+source {dim:(never its value; op is not run)}, the ignore list (path and entries: what makes a row IGNORED), the disallow
 lists, {env:BBAPPROVE_*} variables and tools (git, gh, op). Read-only; {flag:--offline} skips the update check.
 Exit 0 all good {dim:(warnings allowed)}, 1 a problem was found.
 
@@ -132,7 +135,7 @@ verified, needs gh): the running tree is never modified, the commands to switch 
 printed. Neither flag needs a config file, token or forge access; both are exclusive with {flag:--apply} and {val:PR_URL}s.
 
 {h:Env:} {env:BBAPPROVE_CONFIG}, {env:BBAPPROVE_UPDATE_REPO}, {env:BBAPPROVE_REPOSITORY}, {env:BBAPPROVE_AUTHOR_EMAIL}, {env:BBAPPROVE_TOKEN_NAME},
-     {env:BBAPPROVE_DISALLOW}, {env:BBAPPROVE_DISALLOW_FILE}, {env:BBAPPROVE_JOBS}, {env:BBAPPROVE_ADAPTER}, {env:BBAPPROVE_TOKEN},
+     {env:BBAPPROVE_DISALLOW}, {env:BBAPPROVE_DISALLOW_FILE}, {env:BBAPPROVE_JOBS}, {env:BBAPPROVE_ADAPTER}, {env:BBAPPROVE_TOKEN} {dim:(wins over the item)},
      {env:BBAPPROVE_MOUSE}, {env:BBAPPROVE_KITTY}; {env:NO_COLOR}, {env:FORCE_COLOR}.
 `
 
@@ -256,13 +259,9 @@ func Run(ctx context.Context, o Options) int {
 				return 2
 			}
 			cfgFile = v
-		case a == "--token" || strings.HasPrefix(a, "--token="):
-			v, ok := val()
-			if !ok {
-				fmt.Fprintln(o.Stderr, "--token needs a value")
-				return 2
-			}
-			token = v
+		case config.IsRemovedTokenFlag(a):
+			fmt.Fprintln(o.Stderr, config.RemovedTokenFlagHelp)
+			return 2
 		case strings.HasPrefix(a, "-"):
 			fmt.Fprintf(o.Stderr, "Unknown option: %s\n%s", a, usage(o.Version))
 			return 2
@@ -338,6 +337,10 @@ func Run(ctx context.Context, o Options) int {
 			return code
 		}
 	}
+	if token == "" && cfg.TokenName.Value == "" { // fail fast, before the adapter or the ignore list is touched
+		fmt.Fprintln(o.Stderr, config.TokenMissingHelp)
+		return 1
+	}
 	adapterPath := cfg.Adapter.Value
 	jobs := runtime.NumCPU()
 	if n, err := strconv.Atoi(o.env("BBAPPROVE_JOBS")); err == nil && n > 0 {
@@ -355,7 +358,7 @@ func Run(ctx context.Context, o Options) int {
 	rc := rules.Config{AuthorEmail: cfg.AuthorEmail.Value, Disallow: cfg.Disallow}
 	client := &adapter.Client{Path: adapterPath, Token: token, Environ: cfg.ChildEnv(o.Environ)}
 
-	if token == "" {
+	if token == "" { // BBAPPROVE_TOKEN wins; otherwise look the named 1Password item up
 		t, err := client.AuthToken(ctx)
 		if err != nil {
 			fmt.Fprintln(o.Stderr, err)

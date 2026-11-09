@@ -5,11 +5,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed (BREAKING)
+- The token comes from `BBAPPROVE_TOKEN` (wins when set), or else from the 1Password item named by
+  `BBAPPROVE_TOKEN_NAME`, `--token-name NAME` or `user_token_name` (precedence flag > env > file; looked up with
+  `op`, field `token`, then `credential`). The item name has no built-in default any more (it was `BITBUCKET_TOKEN`).
+  With neither a token nor an item name, runs that need the forge exit 1 before calling the adapter and
+  `bbapprove doctor` reports it as a problem. `--token` was removed (a token on the command line is visible to
+  other users); the adapter's `auth token` remains and runs only when `BBAPPROVE_TOKEN` is empty and a name is set.
+
 ### Added
 - Coloured `--help`, `bbapprove doctor` and `--print-config` (terminal only; `NO_COLOR` disables, `FORCE_COLOR=1`
   forces; piped output is unchanged plain text). New `bbapprove doctor --help` (also `bbapprove help doctor`).
 - `bbapprove doctor [--offline] [--config FILE]`: read-only diagnostics (version and update status, every config
-  file candidate and which one is used, setting sources, adapter, token sources without the token, ignore and
+  file candidate and which one is used, setting sources, adapter, which token source is used (never a value; `op` is not run), ignore and
   disallow lists, `BBAPPROVE_*` variables, `git`/`gh`/`op`). Exit 1 when a problem is found. A non-URL argument
   now fails early with `Not a PR URL: <x>` and a hint at the subcommands (exit 2).
 - The CLI footer names the ignore file: `N ignored via <path> (see: bbapprove doctor)`; `--hide-ignored` adds the

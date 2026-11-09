@@ -205,3 +205,19 @@ func TestCommentCloseStderrPropagation(t *testing.T) {
 		t.Fatalf("Close err = %v", err)
 	}
 }
+
+func TestAuthToken(t *testing.T) {
+	c := newClient(fakeAdapter(t, `[ "$1 $2" = "auth token" ] && echo "  tok-from-item  "`))
+	c.Token = ""
+	if got, err := c.AuthToken(context.Background()); err != nil || got != "tok-from-item" {
+		t.Errorf("got %q, %v", got, err)
+	}
+	c = newClient(fakeAdapter(t, `echo "No token: set BBAPPROVE_TOKEN" >&2; exit 1`))
+	if _, err := c.AuthToken(context.Background()); err == nil || !strings.Contains(err.Error(), "No token") {
+		t.Errorf("want the adapter's stderr as error, got %v", err)
+	}
+	c = newClient(fakeAdapter(t, `:`))
+	if _, err := c.AuthToken(context.Background()); err == nil {
+		t.Error("an empty token must be an error")
+	}
+}

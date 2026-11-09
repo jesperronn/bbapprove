@@ -28,7 +28,7 @@ adapter pr comment URL --body TEXT | --body-file FILE   # an empty body exits 2
 adapter pr close URL [--comment TEXT]               # decline; the comment is posted first and a failed comment aborts the decline
 ```
 
-`pr merge` retries stale PR versions itself. The core sets `BBAPPROVE_BASE_URL` (required by the adapter, exit 2 when unset) and `BBAPPROVE_TOKEN_NAME` from the configuration; `BBAPPROVE_TOKEN` is required by the `pr` commands (exit 2 when unset). Adapter tunables (`BBAPPROVE_MERGE_RETRIES`, `BBAPPROVE_RETRY_SLEEP`): `bbapprove help env`.
+`pr merge` retries stale PR versions itself. The core sets `BBAPPROVE_BASE_URL` (required by the adapter, exit 2 when unset), `BBAPPROVE_TOKEN_NAME` and `BBAPPROVE_DELETE_SOURCE_BRANCH` from the configuration; `BBAPPROVE_TOKEN` is required by the `pr` commands (exit 2 when unset). Adapter tunables (`BBAPPROVE_MERGE_RETRIES`, `BBAPPROVE_RETRY_SLEEP`): `bbapprove help env`.
 
 Normalized PR: `{url, number, project, repo, title, author:{email,login}, headBranch, approvedByMe, build: passed|failed|running|none, qualityGate: passed|failed|unknown, approvals, needsWork, commentCount, openTasks}`. Errors go to stderr with a non-zero exit.
 
@@ -49,10 +49,16 @@ What each rule means for users, and the difference between the `disallow` and ig
 
 Lookup, precedence and defaults: `bbapprove help config`. The adapter never reads TOML: the core hands it resolved values. First-run creation and `--init` write the embedded template (`internal/config/setup.go`); `internal/config/bbapprove.config.template` must stay byte-identical to the root template.
 
+### Deleting the source branch after a merge
+
+The `delete_source_branch` setting (default true) reaches the adapter as the environment variable `BBAPPROVE_DELETE_SOURCE_BRANCH=true|false`, not as a command-line flag, so an external adapter that has never heard of it keeps working. A hand-run adapter treats an unset variable as true and rejects any value other than true, false, 1, 0, yes or no with exit 2 before it touches the forge.
+
+After the merge call has succeeded, `adapters/bitbucket` deletes the PR's source branch with `DELETE /rest/branch-utils/1.0/projects/KEY/repos/SLUG/branches` and the JSON body `{"name":"refs/heads/<branch>","dryRun":false}`. It does so once, after the successful attempt (the stale-version retry loop is unchanged), and only when the source branch lives in the same repository as the target, the source ref is a branch, and it is not the target branch itself. A fork's branch is never deleted. An HTTP 404 means the branch is already gone and is silent. Any other failure, including a dropped connection, leaves the merge successful (exit 0) and prints `merge ok, but could not delete branch <name> (HTTP <code>)` on stderr. A failed merge never deletes anything. The call needs repository write permission for the token.
+
 ## Adding a forge adapter
 
 1. Create `adapters/<type>` (executable, `# shellcheck shell=bash` if bash) implementing the contract above; it is selected by `type = "<type>"` (or `BBAPPROVE_ADAPTER`).
-2. Read `BBAPPROVE_BASE_URL`, `BBAPPROVE_TOKEN_NAME`, `BBAPPROVE_TOKEN`; exit 2 with a message when the base URL is unset, or (for `pr` commands) when `BBAPPROVE_TOKEN` is unset; `auth token` may run without it.
+2. Read `BBAPPROVE_BASE_URL`, `BBAPPROVE_TOKEN_NAME`, `BBAPPROVE_TOKEN` and, if the forge can delete branches, `BBAPPROVE_DELETE_SOURCE_BRANCH`; exit 2 with a message when the base URL is unset, or (for `pr` commands) when `BBAPPROVE_TOKEN` is unset; `auth token` may run without it.
 3. Add `test/<type>-adapter.test.sh` modelled on `test/bitbucket-adapter.test.sh`: stub `curl` on `PATH`, check each command's JSON shape and error paths.
 4. Add the file to the release archive step in `.github/workflows/release.yml` and mention it in README and CHANGELOG.
 

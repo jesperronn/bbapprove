@@ -12,6 +12,8 @@ All notable changes to this project are documented here. The format follows
   forge exit 1 before calling the adapter; `bbapprove doctor` reports it as a problem.
 
 ### Added
+- Coloured `--help`, `bbapprove doctor` and `--print-config` (terminal only; `NO_COLOR` disables, `FORCE_COLOR=1`
+  forces; piped output is unchanged plain text). New `bbapprove doctor --help` (also `bbapprove help doctor`).
 - `bbapprove doctor [--offline] [--config FILE]`: read-only diagnostics (version and update status, every config
   file candidate and which one is used, setting sources, adapter, whether `BBAPPROVE_TOKEN` is set without its value, ignore and
   disallow lists, `BBAPPROVE_*` variables, `git`/`gh`). Exit 1 when a problem is found. A non-URL argument

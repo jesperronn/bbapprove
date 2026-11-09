@@ -65,13 +65,14 @@ bbapprove --print-config                     # effective settings; says how to c
 
 ```
 bbapprove doctor [--offline] [--config FILE]
+bbapprove doctor --help
 ```
 
 Read-only diagnostics, no token and no forge access needed: version and whether a newer release exists, the
 config file in use and every candidate path with `used` / `shadowed` / `not found`, where each setting came from,
 the adapter, whether `BBAPPROVE_TOKEN` is set (a FAIL when not; the value is never printed), the
 ignore and disallow lists, `BBAPPROVE_*` variables, and `git` / `gh`. Exit 0 when nothing FAILed, 1 otherwise;
-`--offline` skips the update check. Typical output:
+`--offline` skips the update check; `bbapprove doctor --help` explains each section. Typical output:
 
 ```
 config:
@@ -89,6 +90,15 @@ all good
 Why is a row `IGNORED — on your ignore list: @some/library`? Because that entry is in the ignore file shown under
 `ignore list:` (`$XDG_CONFIG_HOME/bbapprove/ignore`, default `~/.config/bbapprove/ignore`; one dependency per line).
 Edit the file, or press `i` on an ignored row in the TUI, to remove the entry. The CLI footer also names the file.
+
+### Colours
+
+`--help`, `bbapprove doctor` (and `doctor --help`) and `--print-config` are coloured with the standard 16 ANSI colours,
+so they follow your terminal theme: headings bold cyan, subcommands bold magenta, flags green, placeholders bright blue,
+environment variables yellow, paths cyan, notes dim; `ok` / `warn` / `FAIL` green / yellow / bold red and the setting
+sources `[flag]` `[env]` `[file]` `[default]` magenta / yellow / green / dim. Colour is used only on a terminal;
+`NO_COLOR` turns it off (and wins over `FORCE_COLOR`), `FORCE_COLOR=1` forces it on, e.g. into a pager.
+Piped output is plain text.
 
 ## Updating
 

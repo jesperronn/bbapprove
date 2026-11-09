@@ -200,7 +200,18 @@ func Run(ctx context.Context, o Options) int {
 		}
 		switch {
 		case a == "-h" || a == "--help":
+			if doDoctor {
+				io.WriteString(o.Stdout, doctorUsageFor(style.New(color(o))))
+				return 0
+			}
 			io.WriteString(o.Stdout, usageFor(style.New(color(o)), o.Version))
+			return 0
+		case a == "help" && len(targets) == 0 && !doDoctor:
+			if i+1 < len(args) && args[i+1] == "doctor" {
+				io.WriteString(o.Stdout, doctorUsageFor(style.New(color(o))))
+			} else {
+				io.WriteString(o.Stdout, usageFor(style.New(color(o)), o.Version))
+			}
 			return 0
 		case a == "--apply":
 			apply = true

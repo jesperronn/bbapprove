@@ -69,6 +69,12 @@ sources via `config.Settings`, adapter, whether `BBAPPROVE_TOKEN` is set, ignore
 (environment, `LookPath`, executable, the `update.Runner`) is injected via `doctor.Options`; the real wiring is
 `app.runDoctor`. It never prints a token (only whether it is set) and never runs `op`. Exit 1 when any FAIL was found.
 
+## Colour (`internal/style`)
+
+One shared package decides whether to colour (`style.Enabled`: `NO_COLOR` wins, else a TTY or `FORCE_COLOR`) and maps token
+classes to 16-colour SGR codes (`Theme`). Help texts are written as `{class:text}` markup and rendered by it; doctor and
+`--print-config` paint through the same `Theme`, so plain output (no colour) equals the markup with the tags removed.
+
 ## Safety principles
 
 - Dry run by default; only `--apply` (or an explicit TUI key and prompt) changes anything.

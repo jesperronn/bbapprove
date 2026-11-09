@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Silent stub: does nothing, exits 0. Link it as any tool a script only needs to find on PATH.
+exit 0

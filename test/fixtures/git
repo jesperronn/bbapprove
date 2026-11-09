@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# git stub, driven by env (docs/development.md, "Stub fixtures").
+#   STUB_GIT_REAL=PATH  pass through to the real git at PATH, logging commit/tag/push to $STUB_LOG first.
+#   otherwise           `describe` prints $STUB_GIT_DESCRIBE; STUB_GIT_FAIL=1 fails every call like "not a repo".
+if [[ -n "${STUB_GIT_REAL:-}" ]]; then
+  case "${1:-}" in commit | tag | push) echo "git $*" >>"$STUB_LOG" ;; esac
+  exec "$STUB_GIT_REAL" "$@"
+fi
+[[ -n "${STUB_GIT_FAIL:-}" ]] && { echo "fatal: not a git repository" >&2; exit 128; }
+[[ "$*" == *describe* ]] && echo "${STUB_GIT_DESCRIBE:-}"
+exit 0

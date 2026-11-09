@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# go stub that passes through to the real go ($STUB_REAL_GO), for suites that need a real `go build`.
+# Logs argv to $STUB_LOG when set. STUB_GO_VET_FAIL=1 makes `go vet` fail. STUB_GO_FAST_TEST=1 turns
+# `go test ARGS` into a non-racing `go test ARGS -run '^$'` (still compiles the tests, runs none).
+[[ -z "${STUB_LOG:-}" ]] || echo "$*" >>"$STUB_LOG"
+[[ "${1:-}" == vet && -n "${STUB_GO_VET_FAIL:-}" ]] && { echo "vet: boom" >&2; exit 1; }
+if [[ "${1:-}" == test && -n "${STUB_GO_FAST_TEST:-}" ]]; then
+  args=()
+  for a in "$@"; do [[ "$a" == -race ]] || args+=("$a"); done
+  exec "$STUB_REAL_GO" "${args[@]}" -run '^$'
+fi
+exec "$STUB_REAL_GO" "$@"

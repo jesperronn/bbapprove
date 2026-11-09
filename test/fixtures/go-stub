@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# go stub with no real go behind it (the `go` fixture is the passthrough one). Env:
+#   STUB_LOG                 append "go ARGS" per call (STUB_GO_LOG_PREFIX replaces "go "; STUB_GO_LOG_MATCH is a
+#                            glob on the ARGS, only matching calls are logged, default all)
+#   STUB_GO_RC               exit code (default 0)
+#   STUB_GOVERSION           what `go env GOVERSION` prints (default go1.22.3)
+#   STUB_GO_FAIL=1           print "go: boom" on stderr and exit 3
+#   STUB_GO_WRITE_BINARY=1   write a tiny script that echoes its argv at the -o path, like `go build -o`
+if [[ "${1:-} ${2:-}" == "env GOVERSION" ]]; then echo "${STUB_GOVERSION:-go1.22.3}"; exit 0; fi
+# shellcheck disable=SC2053
+[[ "$*" == ${STUB_GO_LOG_MATCH:-*} ]] && echo "${STUB_GO_LOG_PREFIX-go }$*" >>"$STUB_LOG"
+if [[ -n "${STUB_GO_FAIL:-}" ]]; then echo "go: boom" >&2; exit 3; fi
+if [[ -n "${STUB_GO_WRITE_BINARY:-}" ]]; then
+  out=""; prev=""
+  for a in "$@"; do [[ "$prev" == -o ]] && out="$a"; prev="$a"; done
+  printf '#!/usr/bin/env bash\nprintf "argv:"; printf " [%%s]" "$@"; echo\n' >"$out"
+  chmod +x "$out"
+fi
+exit "${STUB_GO_RC:-0}"

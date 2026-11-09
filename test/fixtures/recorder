@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Generic recording stub. Symlink it under the tool's name (use_stubs DIR recorder=shellcheck ...).
+# Appends "NAME ARGS" (with a trailing space when there are no args) to $STUB_LOG (NAME is "bin/NAME" when the link sits in a directory called bin),
+# prints $STUB_<NAME>_OUT if set, exits with $STUB_<NAME>_RC (default 0). NAME is upper-cased, '-' -> '_'.
+# $STUB_<NAME>_LABEL replaces the logged name (and the "bin/" prefix).
+name="${0##*/}"
+label="$name"
+[[ "$(basename "$(dirname "$0")")" == bin ]] && label="bin/$name"
+var="$(printf '%s' "$name" | tr 'a-z-' 'A-Z_')"
+lab="STUB_${var}_LABEL"
+echo "${!lab:-$label} $*" >>"$STUB_LOG"
+out="STUB_${var}_OUT" rc="STUB_${var}_RC"
+[[ -z "${!out:-}" ]] || printf '%s\n' "${!out}"
+exit "${!rc:-0}"

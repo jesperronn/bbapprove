@@ -144,6 +144,34 @@ capture_command() {
   printf -v "$status_var" '%s' "$captured_status"
 }
 
+# Fixed stub fixtures live in test/fixtures (see docs/development.md). Never write a stub script per test:
+# a freshly written executable costs 45-200 ms on its first run on macOS; a symlink to a fixture costs nothing.
+BASH_TEST_FIXTURES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../fixtures" && pwd -P)"
+
+# fixture_path NAME: absolute path of test/fixtures/NAME.
+fixture_path() {
+  printf '%s/%s\n' "$BASH_TEST_FIXTURES_DIR" "$1"
+}
+
+# use_stubs DIR SPEC...: create DIR holding one symlink per SPEC, each NAME (linked as NAME) or NAME=AS
+# (fixture NAME linked as AS, e.g. recorder=shellcheck). Put DIR on PATH, or use it as bin/ of a fake repo.
+use_stubs() {
+  local dir="$1" spec name as
+  shift
+  mkdir -p "$dir"
+  for spec in "$@"; do
+    name="${spec%%=*}"
+    as="${spec#*=}"
+    ln -sf "$(fixture_path "$name")" "$dir/$as"
+  done
+}
+
+# link_script SRC DEST: hardlink the script under test into a fake repo (a copy is a fresh, cold executable on
+# macOS; a hardlink shares the already-warm inode). Falls back to cp across filesystems. Never write to DEST.
+link_script() {
+  ln -f "$1" "$2" 2>/dev/null || cp "$1" "$2"
+}
+
 # bash_test_normalize_time T: T (an EPOCHREALTIME value) with a '.' radix. Under comma-decimal locales bash
 # prints "1731,123456", which awk reads as 1731, so every [TIME] line would be wrong.
 bash_test_normalize_time() {

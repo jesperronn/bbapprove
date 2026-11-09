@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# 1Password CLI stub: logs argv to $STUB_LOG.op; OP_ALL_FAIL / OP_TOKEN_EMPTY make it fail.
+echo "$*" >>"$STUB_LOG.op"
+[[ -z "${OP_ALL_FAIL:-}" ]] || exit 1
+if [[ "$*" == *label=token* && -n "${OP_TOKEN_EMPTY:-}" ]]; then exit 1; fi
+if [[ "$*" == *label=credential* ]]; then echo "tok-from-credential"; else echo "tok-from-op"; fi

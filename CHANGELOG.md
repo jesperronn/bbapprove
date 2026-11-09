@@ -27,6 +27,10 @@ All notable changes to this project are documented here. The format follows
 - Config key `update_repo` and env `BBAPPROVE_UPDATE_REPO` choose the release repository for both (default
   `jesperronn/bbapprove`).
 
+- TUI footer: the cursor row's PR URL is a clickable OSC 8 hyperlink that opens on click, an `o open` hint always
+  follows it, the URL is shortened in the middle when the window is narrow, `o open` is added to the Shift-held hint
+  set and is the last hint dropped on narrow windows.
+
 ### Changed
 - `bin/runtests` was renamed to `bin/test`.
 

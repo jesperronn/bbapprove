@@ -209,8 +209,9 @@ and as many key hints as fit the terminal width.
 
 By default line 2 shows the instant keys: `a approve  d decline  c comment  i ignore  x mark  o open  ? help  q quit`.
 While you HOLD Shift it switches to the batch keys, and releasing Shift restores the instant set:
-`A approve marked  D decline marked  C comment marked  ctrl+a mark all  x mark  ? help  q quit`.
-Both sets never wrap (trailing items are dropped to fit) and `?` always lists both.
+`A approve marked  D decline marked  C comment marked  ctrl+a mark all  x mark  o open  ? help  q quit`.
+Both sets never wrap (trailing items are dropped to fit; `o open` is the last one dropped before `? help` and
+`q quit`) and `?` always lists both.
 
 This needs a terminal that speaks the kitty keyboard protocol (Ghostty, kitty, recent iTerm2, WezTerm,
 foot, Alacritty): bbapprove requests the enhancements (key release events, all keys as escape codes with
@@ -223,8 +224,10 @@ never change; Bubble Tea still asks for basic key disambiguation).
 ### Mouse
 
 Mouse support is on by default: click a row to move the cursor, click the first three columns to toggle its
-mark, wheel to scroll (3 rows), hover to highlight. Clicks outside the rows are ignored, and the mouse is
-ignored while a text prompt is open.
+mark, wheel to scroll (3 rows), hover to highlight. Footer line 1 shows the cursor row's PR URL as a hyperlink,
+followed by a dim `o open` hint; click the URL (or the hint) to open it, the same as pressing `o`. On narrow
+terminals the URL is shortened in the middle (`https://host/…/pull-requests/4961`) so the PR number and the hint
+stay visible. Clicks elsewhere outside the rows are ignored, and the mouse is ignored while a text prompt is open.
 
 Trade-off: capturing the mouse disables the terminal's native text selection and cmd-click on links.
 Hold Shift to bypass the capture in most terminals (Ghostty, iTerm2, kitty). Turn it off entirely with

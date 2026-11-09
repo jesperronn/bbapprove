@@ -31,15 +31,9 @@ func main() {
 			width = w
 		}
 	}
-	interactive, printConfig, initCfg := false, false, false
-	for _, a := range os.Args[1:] {
-		interactive = interactive || a == "-i" || a == "--interactive"
-		printConfig = printConfig || a == "--print-config"
-		initCfg = initCfg || a == "--init"
-	}
 	// Setup prompts need a human on both ends: answers come from stdin, prompts go to stderr.
 	setupTTY := func() bool { return term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stderr.Fd())) }
-	if interactive && !printConfig && !initCfg { // --print-config and --init are handled by the plain CLI, even with -i
+	if wantsTUI(os.Args[1:]) {
 		os.Exit(tui.Run(context.Background(), tui.RunOptions{
 			Args: os.Args[1:], Environ: os.Environ(), RepoDir: repoDir(),
 			Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr, Version: version,
@@ -63,4 +57,15 @@ func repoDir() string {
 		exe = r
 	}
 	return filepath.Dir(filepath.Dir(exe))
+}
+
+// wantsTUI reports whether -i selects the interactive TUI. --print-config and --init are handled by
+// the plain CLI, even with -i.
+func wantsTUI(args []string) bool {
+	interactive, plain := false, false
+	for _, a := range args {
+		interactive = interactive || a == "-i" || a == "--interactive"
+		plain = plain || a == "--print-config" || a == "--init"
+	}
+	return interactive && !plain
 }

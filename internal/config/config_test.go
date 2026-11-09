@@ -3,8 +3,11 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
+
+	"bbapprove/internal/style"
 )
 
 // sandbox is a fake repo root plus a fake XDG config home, both temp dirs.
@@ -330,5 +333,33 @@ func TestLeftoverUserTokenNameWarnsOnce(t *testing.T) {
 	}
 	if n != 1 || len(c.Warnings) != 2 {
 		t.Errorf("warnings: %q", c.Warnings)
+	}
+}
+
+func TestSettingsThemed(t *testing.T) {
+	c := &Config{
+		Type: Value{"bitbucket", FromDefault}, Adapter: Value{"/a/b", FromFlag}, Repository: Value{"https://x.example.com", FromFile},
+		AuthorEmail: Value{"b@example.com", FromEnv}, UpdateRepo: Value{"", FromNone}, DisallowFile: Value{"/d.txt", FromDefault},
+		Disallow: []string{"a", "b"},
+	}
+	plain := c.Settings()
+	if c.SettingsThemed(style.Theme{}) != plain {
+		t.Fatal("zero theme must equal Settings()")
+	}
+	col := c.SettingsThemed(style.New(true))
+	for _, want := range []string{
+		"\x1b[2mtype:\x1b[0m            bitbucket  \x1b[2m[default]\x1b[0m\n",
+		"/a/b  \x1b[35m[flag]\x1b[0m\n",
+		"https://x.example.com  \x1b[32m[file]\x1b[0m\n",
+		"b@example.com  \x1b[33m[env]\x1b[0m\n",
+		"(not set)  \x1b[2m[" + FromNone + "]\x1b[0m\n",
+		"\x1b[2mdisallow:\x1b[0m        a, b\n",
+	} {
+		if !strings.Contains(col, want) {
+			t.Errorf("missing %q in %q", want, col)
+		}
+	}
+	if got := regexp.MustCompile("\x1b\\[[0-9;]*m").ReplaceAllString(col, ""); got != plain {
+		t.Errorf("stripped colour differs:\n%s\n%s", got, plain)
 	}
 }

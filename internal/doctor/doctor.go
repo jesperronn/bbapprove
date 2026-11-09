@@ -72,27 +72,23 @@ type report struct {
 	o        Options
 	w        io.Writer
 	color    bool
+	t        style.Theme
 	problems []string
 }
 
-const (
-	reset  = "\033[0m"
-	red    = "\033[31m"
-	green  = "\033[32m"
-	yellow = "\033[33m"
-	bold   = "\033[1m"
-)
+// p paints text with a style class (identity without colour).
+func (r *report) p(class, text string) string { return r.t.Paint(class, text) }
 
-// mark returns a 4-column status gutter: ok, FAIL or warn (symbols with colour), or blanks.
+// mark returns a 5-column status gutter: ok, FAIL or warn (symbols with colour), or blanks.
 func (r *report) mark(kind string) string {
 	if r.color {
 		switch kind {
 		case "ok":
-			return green + "✓" + reset + "    "
+			return r.p(style.OK, "✓") + "    "
 		case "fail":
-			return red + "✗" + reset + "    "
+			return r.p(style.Fail, "✗") + "    "
 		case "warn":
-			return yellow + "!" + reset + "    "
+			return r.p(style.Warn, "!") + "    "
 		}
 		return "     "
 	}
@@ -108,10 +104,7 @@ func (r *report) mark(kind string) string {
 }
 
 func (r *report) head(s string) {
-	if r.color {
-		s = bold + s + reset
-	}
-	fmt.Fprintf(r.w, "\n%s\n", s)
+	fmt.Fprintf(r.w, "\n%s\n", r.p(style.Heading, s))
 }
 
 // line prints an indented line with a status gutter.
@@ -119,8 +112,24 @@ func (r *report) line(kind, format string, a ...any) {
 	fmt.Fprintf(r.w, "%s%s\n", r.mark(kind), fmt.Sprintf(format, a...))
 }
 
+// pad returns label painted with class, then spaces up to width columns (padding stays unpainted).
+func (r *report) pad(class, label string, width int) string {
+	return r.p(class, label) + strings.Repeat(" ", max(width-len([]rune(label)), 0))
+}
+
+// labelClass picks the class of a label: env variable names and flags keep their usual colours.
+func labelClass(label string) string {
+	switch {
+	case strings.HasPrefix(label, "BBAPPROVE_"):
+		return style.Env
+	case strings.HasPrefix(label, "--") && !strings.Contains(label, " "):
+		return style.Flag
+	}
+	return style.Dim
+}
+
 func (r *report) kv(kind, label, format string, a ...any) {
-	r.line(kind, "%-13s %s", label+":", fmt.Sprintf(format, a...))
+	r.line(kind, "%s %s", r.pad(labelClass(label), label+":", 13), fmt.Sprintf(format, a...))
 }
 
 func (r *report) fail(what, fix string) { r.problems = append(r.problems, what+" — "+fix) }
@@ -140,6 +149,7 @@ func Run(ctx context.Context, o Options) int {
 		o.EvalLinks = filepath.EvalSymlinks
 	}
 	r := &report{o: o, w: o.Stdout, color: o.color()}
+	r.t = style.New(r.color)
 
 	r.sectionVersion()
 	cfg, cfgErr := config.Load(config.Input{
@@ -160,17 +170,13 @@ func Run(ctx context.Context, o Options) int {
 
 	fmt.Fprintln(r.w)
 	for _, p := range r.problems {
-		if r.color {
-			fmt.Fprintf(r.w, "%sFAIL%s %s\n", red, reset, p)
-		} else {
-			fmt.Fprintf(r.w, "FAIL %s\n", p)
-		}
+		fmt.Fprintf(r.w, "%s %s\n", r.p(style.Bad, "FAIL"), p)
 	}
 	if len(r.problems) == 0 {
-		fmt.Fprintln(r.w, "all good")
+		fmt.Fprintln(r.w, r.p(style.Good, "all good"))
 		return 0
 	}
-	fmt.Fprintf(r.w, "%d problem(s) found\n", len(r.problems))
+	fmt.Fprintln(r.w, r.p(style.Bad, fmt.Sprintf("%d problem(s) found", len(r.problems))))
 	return 1
 }
 
@@ -180,13 +186,13 @@ func (r *report) sectionVersion() {
 	if v == "" {
 		v = "dev"
 	}
-	fmt.Fprintf(r.w, "bbapprove %s  (%s/%s, %s)\n", v, o.GOOS, o.GOARCH, o.GoVersion)
+	fmt.Fprintf(r.w, "bbapprove %s  %s\n", r.p(style.Version, v), r.p(style.Dim, fmt.Sprintf("(%s/%s, %s)", o.GOOS, o.GOARCH, o.GoVersion)))
 	install := "release archive"
 	if update.DetectInstall(o.InstallRoot) == update.Checkout {
 		install = "git checkout"
 	}
 	r.kv("", "install", "%s", install)
-	r.kv("", "root", "%s", o.InstallRoot)
+	r.kv("", "root", "%s", r.p(style.Path, o.InstallRoot))
 	if o.Executable == nil {
 		return
 	}
@@ -198,7 +204,7 @@ func (r *report) sectionVersion() {
 	if res, err := o.EvalLinks(exe); err == nil {
 		exe = res
 	}
-	r.kv("", "binary", "%s", exe)
+	r.kv("", "binary", "%s", r.p(style.Path, exe))
 	onPath, err := o.LookPath("bbapprove")
 	if err != nil {
 		r.kv("", "on PATH", "bbapprove not found on PATH (run it by full path, or run bin/build --install)")
@@ -209,17 +215,17 @@ func (r *report) sectionVersion() {
 		resolved = res
 	}
 	if resolved == exe || filepath.Dir(resolved) == filepath.Dir(exe) {
-		r.kv("", "on PATH", "%s", onPath)
+		r.kv("", "on PATH", "%s", r.p(style.Path, onPath))
 		return
 	}
-	r.kv("warn", "on PATH", "%s", onPath)
-	r.line("warn", "PATH shadowing: `bbapprove` on your PATH is %s, not this binary (%s)", onPath, exe)
+	r.kv("warn", "on PATH", "%s", r.p(style.Path, onPath))
+	r.line("warn", "PATH shadowing: `bbapprove` on your PATH is %s, not this binary (%s)", r.p(style.Path, onPath), r.p(style.Path, exe))
 }
 
 func (r *report) sectionUpdate(ctx context.Context, cfg *config.Config) {
 	r.head("update:")
 	if r.o.Offline {
-		r.line("", "skipped (--offline)")
+		r.line("", "%s", r.p(style.Dim, "skipped (")+r.p(style.Flag, "--offline")+r.p(style.Dim, ")"))
 		return
 	}
 	slug := r.o.env("BBAPPROVE_UPDATE_REPO")
@@ -235,11 +241,11 @@ func (r *report) sectionUpdate(ctx context.Context, cfg *config.Config) {
 	})
 	switch {
 	case err != nil:
-		r.line("warn", "could not check: %v", err)
+		r.line("warn", "%s %v", r.p(style.Err, "could not check:"), err)
 	case res.Outdated:
-		r.line("warn", "update available: %s (run: bbapprove --update)", res.Latest.Tag)
+		r.line("warn", "%s (run: bbapprove %s)", r.p(style.Warn, "update available: "+res.Latest.Tag), r.p(style.Flag, "--update"))
 	default:
-		r.line("ok", "up to date (latest release: %s)", res.Latest.Tag)
+		r.line("ok", "%s (latest release: %s)", r.p(style.OK, "up to date"), r.p(style.Version, res.Latest.Tag))
 	}
 }
 
@@ -282,20 +288,20 @@ func (r *report) sectionConfigFiles(cfg *config.Config, err error) {
 			}
 		}
 	}
-	fmt.Fprintf(r.w, "     lookup order (an explicit file wins, else the first one found):\n")
+	fmt.Fprintf(r.w, "     %s\n", r.p(style.Dim, "lookup order (an explicit file wins, else the first one found):"))
 	for i, c := range cands {
 		if c.path == "" {
 			if i < 2 {
-				fmt.Fprintf(r.w, "        %d. %-17s (not set)\n", i+1, c.label)
+				fmt.Fprintf(r.w, "        %d. %s %s\n", i+1, r.pad(labelClass(c.label), c.label, 17), r.p(style.Dim, "(not set)"))
 			} else {
-				fmt.Fprintf(r.w, "        %d. %-17s (no home directory)\n", i+1, c.label)
+				fmt.Fprintf(r.w, "        %d. %s %s\n", i+1, r.pad(labelClass(c.label), c.label, 17), r.p(style.Dim, "(no home directory)"))
 			}
 			continue
 		}
-		state := "not found"
+		state, stateClass := "not found", style.Dim
 		switch {
 		case exists(c.path) && i == winner:
-			state = "found, used"
+			state, stateClass = "found, used", style.OK
 		case exists(c.path) && winner >= 0:
 			state = "found, shadowed by " + cands[winner].path
 		case exists(c.path):
@@ -303,7 +309,7 @@ func (r *report) sectionConfigFiles(cfg *config.Config, err error) {
 		case i == winner:
 			state = "NOT FOUND, but selected explicitly"
 		}
-		fmt.Fprintf(r.w, "        %d. %-17s %s  [%s]\n", i+1, c.label, c.path, state)
+		fmt.Fprintf(r.w, "        %d. %s %s  %s\n", i+1, r.pad(labelClass(c.label), c.label, 17), r.p(style.Path, c.path), r.p(stateClass, "["+state+"]"))
 	}
 
 	if err != nil {
@@ -316,7 +322,7 @@ func (r *report) sectionConfigFiles(cfg *config.Config, err error) {
 		return
 	}
 	via := [...]string{"--config flag", "BBAPPROVE_CONFIG", "repo root", "XDG config"}[winner]
-	r.kv("ok", "in use", "%s (via %s)", cfg.File, via)
+	r.kv("ok", "in use", "%s %s", r.p(style.Path, cfg.File), r.p(style.Dim, "(via "+via+")"))
 	if st, err := os.Stat(cfg.File); err == nil {
 		mode := st.Mode().Perm()
 		if mode&0o077 != 0 {
@@ -339,8 +345,8 @@ func (r *report) sectionSettings(cfg *config.Config, cfgErr error) {
 		r.line("", "effective settings: unavailable (config error above)")
 		return
 	}
-	fmt.Fprintf(r.w, "     effective settings (source: flag, env, file or default):\n")
-	for _, l := range strings.Split(strings.TrimRight(cfg.Settings(), "\n"), "\n") {
+	fmt.Fprintf(r.w, "     %s\n", r.p(style.Dim, "effective settings (source: flag, env, file or default):"))
+	for _, l := range strings.Split(strings.TrimRight(cfg.SettingsThemed(r.t), "\n"), "\n") {
 		fmt.Fprintf(r.w, "        %s\n", l)
 	}
 	if cfg.File == "" {
@@ -373,7 +379,7 @@ func (r *report) sectionAdapter(cfg *config.Config) {
 			path = p
 		}
 	}
-	r.kv("", "path", "%s  [%s]", path, cfg.Adapter.Source)
+	r.kv("", "path", "%s  %s", r.p(style.Path, path), r.t.Source(cfg.Adapter.Source))
 	st, err := os.Stat(path)
 	switch {
 	case err != nil:
@@ -390,10 +396,10 @@ func (r *report) sectionAdapter(cfg *config.Config) {
 func (r *report) sectionToken() {
 	r.head("token:")
 	if t := r.o.env("BBAPPROVE_TOKEN"); t != "" {
-		r.line("ok", "BBAPPROVE_TOKEN: set (value hidden, %d chars)", len([]rune(t)))
+		r.line("ok", "%s set (value hidden, %d chars)", r.p(style.Env, "BBAPPROVE_TOKEN:"), len([]rune(t)))
 		return
 	}
-	r.line("fail", "BBAPPROVE_TOKEN: NOT SET")
+	r.line("fail", "%s %s", r.p(style.Env, "BBAPPROVE_TOKEN:"), r.p(style.Bad, "NOT SET"))
 	r.line("", "export BBAPPROVE_TOKEN=...   (see README, section Token; e.g. from a password manager: export BBAPPROVE_TOKEN=\"$(op item get '<item>' --fields label=<field> --reveal)\")")
 	r.fail("BBAPPROVE_TOKEN is not set", "export BBAPPROVE_TOKEN=<Bitbucket HTTP access token> (see README, section Token)")
 }
@@ -406,7 +412,7 @@ func (r *report) sectionIgnore() {
 		r.fail("ignore list location unknown", "set XDG_CONFIG_HOME or HOME")
 		return
 	}
-	r.kv("", "path", "%s", path)
+	r.kv("", "path", "%s", r.p(style.Path, path))
 	st, err := os.Stat(path)
 	if err != nil && os.IsNotExist(err) {
 		r.kv("ok", "state", "does not exist: no dependency is ignored (default location; created by pressing i on a row in the TUI)")
@@ -426,26 +432,26 @@ func (r *report) sectionIgnore() {
 	r.kv("", "entries", "%d", len(entries))
 	for i, e := range entries {
 		if i == maxListed {
-			r.line("", "  ... and %d more", len(entries)-maxListed)
+			r.line("", "%s... and %d more", r.p(style.Dim, "  "), len(entries)-maxListed)
 			break
 		}
-		r.line("", "  %s", e)
+		r.line("", "%s%s", r.p(style.Dim, "  "), e)
 	}
 	r.line("", "rows matching these entries are shown as IGNORED and never acted on; edit the file or press i on an ignored row in the TUI to remove an entry")
 }
 
 func (r *report) listEntries(label string, items []string) {
 	if len(items) == 0 {
-		r.kv("", label, "(none)")
+		r.kv("", label, "%s", r.p(style.Dim, "(none)"))
 		return
 	}
 	r.kv("", label, "%d", len(items))
 	for i, e := range items {
 		if i == maxListed {
-			r.line("", "  ... and %d more", len(items)-maxListed)
+			r.line("", "%s... and %d more", r.p(style.Dim, "  "), len(items)-maxListed)
 			break
 		}
-		r.line("", "  %s", e)
+		r.line("", "%s%s", r.p(style.Dim, "  "), e)
 	}
 }
 
@@ -473,12 +479,12 @@ func (r *report) sectionDisallow(cfg *config.Config) {
 		if st, err := os.Stat(df); err == nil && !st.IsDir() {
 			state = "found"
 		}
-		r.kv("", "file", "%s  [%s, %s]", df, cfg.DisallowFile.Source, state)
+		r.kv("", "file", "%s  %s", r.p(style.Path, df), r.p(style.Dim, "["+cfg.DisallowFile.Source+", "+state+"]"))
 		if state == "found" {
 			r.listEntries("file entries", rules.LoadDisallow(df, ""))
 		}
 	}
-	r.kv("", "--disallow", "adds more entries per run (flag only)")
+	r.kv("", "--disallow", "%s", r.p(style.Dim, "adds more entries per run (flag only)"))
 }
 
 func (r *report) sectionEnvironment() {
@@ -494,20 +500,20 @@ func (r *report) sectionEnvironment() {
 	}
 	sort.Strings(names)
 	if len(names) == 0 {
-		r.line("", "no BBAPPROVE_* variables set")
+		r.line("", "no %s variables set", r.p(style.Env, "BBAPPROVE_*"))
 	}
 	for _, k := range names {
 		if k == "BBAPPROVE_TOKEN" {
-			r.line("", "%s=set (value hidden)", k)
+			r.line("", "%s=%s", r.p(style.Env, k), r.p(style.Dim, "set (value hidden)"))
 		} else {
-			r.line("", "%s=%s", k, r.o.env(k))
+			r.line("", "%s=%s", r.p(style.Env, k), r.o.env(k))
 		}
 	}
 	for _, k := range []string{"NO_COLOR", "FORCE_COLOR", "XDG_CONFIG_HOME", "EDITOR", "VISUAL"} {
 		if v := r.o.env(k); v != "" {
-			r.line("", "%s=%s", k, v)
+			r.line("", "%s=%s", r.p(style.Env, k), v)
 		} else {
-			r.line("", "%s not set", k)
+			r.line("", "%s %s", r.p(style.Env, k), r.p(style.Dim, "not set"))
 		}
 	}
 }
@@ -521,10 +527,10 @@ func (r *report) sectionTools(ctx context.Context) {
 			if t == "gh" {
 				note = " (needed for --outdated / --update)"
 			}
-			r.kv("", t, "not found on PATH%s", note)
+			r.kv("", t, "%s", r.p(style.Dim, "not found on PATH"+note))
 			continue
 		}
-		r.kv("", t, "%s", p)
+		r.kv("", t, "%s", r.p(style.Path, p))
 		if t == "gh" {
 			cctx, cancel := context.WithTimeout(ctx, ghAuthTimeout)
 			_, err := r.o.Runner.Run(cctx, update.Cmd{Name: "gh", Args: []string{"auth", "status"}})

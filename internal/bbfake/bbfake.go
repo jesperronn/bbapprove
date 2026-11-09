@@ -81,22 +81,24 @@ type BuildStats struct {
 // Fault is one injected failure. Delay applies first; then, unless Drop, Status and Body are written (when
 // Status is 0 the request is served normally after the delay). Drop closes the connection with no response.
 type Fault struct {
-	Status int
-	Body   string
-	Delay  time.Duration
-	Drop   bool
+	Status  int
+	Body    string
+	Headers map[string]string // extra response headers, e.g. Location for a 3xx
+	Delay   time.Duration
+	Drop    bool
 	// Times is how many requests the fault applies to: 0 means once, a negative number means always.
 	Times int
 }
 
 // Scenario is the data the fake serves. Zero value is an empty server (no PRs, nobody logged in).
 type Scenario struct {
-	Token       string // when set, requests without "Authorization: Bearer <Token>" get 401
-	Me          string // whoami slug; empty answers an empty 200 body
-	ContextPath string // optional URL prefix such as "/bitbucket"
-	PageSize    int    // dashboard page size; 0 serves everything on one page
-	PRs         []*PR
-	Builds      map[string]BuildStats // commit sha -> stats; commits not listed are absent from the response
+	Token        string // when set, requests without "Authorization: Bearer <Token>" get 401
+	Me           string // whoami slug; empty answers an empty 200 body
+	ContextPath  string // optional URL prefix such as "/bitbucket"
+	PageSize     int    // dashboard page size; 0 serves everything on one page
+	ItemPageSize int    // page size of a PR's activities and blocker comments; 0 serves everything on one page
+	PRs          []*PR
+	Builds       map[string]BuildStats // commit sha -> stats; commits not listed are absent from the response
 }
 
 // Request is one recorded request as the server saw it.
@@ -243,6 +245,9 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if fault.Status != 0 {
+			for k, v := range fault.Headers {
+				w.Header().Set(k, v)
+			}
 			writeRaw(w, fault.Status, fault.Body)
 			return
 		}
@@ -292,13 +297,13 @@ func (s *Server) servePR(w http.ResponseWriter, r *http.Request, pr *PR, sub str
 		for i := 0; i < pr.OtherActivities; i++ {
 			vals = append(vals, map[string]any{"id": 1000 + i, "action": "OPENED"})
 		}
-		writeJSON(w, 200, map[string]any{"size": len(vals), "isLastPage": true, "values": nonNil(vals)})
+		s.serveItems(w, r, vals)
 	case r.Method == "GET" && sub == "/blocker-comments":
 		var vals []map[string]any
 		for i, st := range pr.Tasks {
 			vals = append(vals, map[string]any{"id": 5000 + i, "severity": "BLOCKER", "state": st})
 		}
-		writeJSON(w, 200, map[string]any{"size": len(vals), "isLastPage": true, "values": nonNil(vals)})
+		s.serveItems(w, r, vals)
 	case r.Method == "POST" && sub == "/approve":
 		s.approve(pr)
 		writeJSON(w, 200, map[string]any{"role": "REVIEWER", "approved": true, "status": "APPROVED", "user": map[string]any{"slug": s.sc.Me}})
@@ -361,6 +366,21 @@ func (p *PR) sourceRepo() (project, repo string) {
 }
 
 func (p *PR) fromRefID() string { return nonEmpty(p.FromRefID, "refs/heads/"+p.Branch) }
+
+// serveItems answers one page of a paged list (activities, blocker comments) the way Bitbucket does.
+func (s *Server) serveItems(w http.ResponseWriter, r *http.Request, vals []map[string]any) {
+	start, _ := strconv.Atoi(r.URL.Query().Get("start"))
+	start = min(start, len(vals))
+	end := len(vals)
+	if n := s.sc.ItemPageSize; n > 0 {
+		end = min(start+n, end)
+	}
+	page := map[string]any{"size": end - start, "start": start, "isLastPage": end == len(vals), "values": nonNil(vals[start:end])}
+	if end < len(vals) {
+		page["nextPageStart"] = end
+	}
+	writeJSON(w, 200, page)
+}
 
 func (s *Server) approve(pr *PR) {
 	for i := range pr.Reviewers {

@@ -211,7 +211,8 @@ func TestApplyParallelNoInterleave(t *testing.T) {
 		n := string(rune('0'+i/100)) + string(rune('0'+i/10%10)) + string(rune('0'+i%10))
 		items = append(items, `{"url":"http://h/pull-requests/`+n+`","number":`+n+`,"project":"P","repo":"r","title":"chore(deps): update x","author":{"email":"`+bot+`"},"headBranch":"r"}`)
 	}
-	env = append(env, "FAKE_LIST=["+strings.Join(items, ",")+"]")
+	// Each approve/merge call sleeps just long enough for the four workers to overlap.
+	env = append(env, "FAKE_LIST=["+strings.Join(items, ",")+"]", "FAKE_SLEEP=0.01")
 	code, out, _ := run(t, env, "--apply")
 	if code != 0 {
 		t.Fatal(code)

@@ -74,6 +74,7 @@ type Config struct {
 	UpdateRepo                               Value // GitHub owner/repo for --outdated/--update
 	Adapter                                  Value // adapter executable
 	Disallow                                 []string
+	FileDisallow                             []string // the `disallow` entries from the config file alone
 	DisallowFile                             Value
 
 	File        string   // config file in use ("" when none)
@@ -182,6 +183,7 @@ func Load(in Input) (*Config, error) {
 	for _, d := range data.Disallow {
 		if n := rules.Normalize(d); n != "" {
 			c.Disallow = append(c.Disallow, n)
+			c.FileDisallow = append(c.FileDisallow, n)
 		}
 	}
 	return c, nil
@@ -291,6 +293,12 @@ func (c *Config) Describe() string {
 	if c.File == "" {
 		fmt.Fprintf(&b, "                 no config file found: create one from the template with: bbapprove --init\n")
 	}
+	return b.String() + c.Settings()
+}
+
+// Settings renders the effective settings table (one row per setting with its source). No secrets.
+func (c *Config) Settings() string {
+	var b strings.Builder
 	row := func(name string, v Value) {
 		val := v.Value
 		if val == "" {

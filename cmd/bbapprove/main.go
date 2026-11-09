@@ -60,12 +60,12 @@ func repoDir() string {
 }
 
 // wantsTUI reports whether -i selects the interactive TUI. --print-config and --init are handled by
-// the plain CLI, even with -i; so are --outdated and --update.
+// the plain CLI, even with -i; so are doctor, --outdated and --update.
 func wantsTUI(args []string) bool {
 	interactive, plain := false, false
 	for _, a := range args {
 		interactive = interactive || a == "-i" || a == "--interactive"
-		plain = plain || a == "--print-config" || a == "--init" || a == "--outdated" || a == "--update"
+		plain = plain || a == "doctor" || a == "--print-config" || a == "--init" || a == "--outdated" || a == "--update"
 	}
 	return interactive && !plain
 }

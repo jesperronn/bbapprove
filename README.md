@@ -40,7 +40,7 @@ the plain CLI and `--apply`, not only by the TUI. A PR whose title matches an en
 is classified `IGNORED`: it is shown dim with the reason `on your ignore list: <entry>` after the title and is
 never approved, merged, declined or commented, in dry run and with `--apply`. A missing file is an empty list;
 a file that exists but cannot be read stops the run (exit 1) rather than risk acting on an ignored PR.
-`--hide-ignored` leaves the ignored rows out of the table; the footer then says `N ignored (hidden)`.
+`--hide-ignored` leaves the ignored rows out of the table; the footer then says `N ignored (hidden) via <ignore file>`. Without it a line `N ignored via <ignore file> (see: bbapprove doctor)` precedes the dry-run line.
 The ignore list wins over every other skip reason: a PR matching an entry is `IGNORED` even if it would
 otherwise be `SKIP` (author, subject, disallow, major, already approved), and an ignored PR is never acted
 on. Removing the entry restores the PR's own `SKIP` reason. The CLI and the TUI share one classification
@@ -60,6 +60,35 @@ bbapprove --print-config                     # effective settings; says how to c
 ```
 
 `--init` writes to `--config FILE`, else `$BBAPPROVE_CONFIG`, else the default path above.
+
+## Troubleshooting
+
+```
+bbapprove doctor [--offline] [--config FILE]
+```
+
+Read-only diagnostics, no token and no forge access needed: version and whether a newer release exists, the
+config file in use and every candidate path with `used` / `shadowed` / `not found`, where each setting came from,
+the adapter, the token sources (never the token itself; `op` is only looked for on `PATH`, never run), the
+ignore and disallow lists, `BBAPPROVE_*` variables, and `git` / `gh` / `op`. Exit 0 when nothing FAILed, 1 otherwise;
+`--offline` skips the update check. Typical output:
+
+```
+config:
+        1. --config flag     (not set)
+        3. repo root         /opt/bbapprove/bbapprove.config.toml  [not found]
+        4. XDG config        /home/me/.config/bbapprove/config.toml  [found, used]
+ok   in use:       /home/me/.config/bbapprove/config.toml (via XDG config)
+ignore list:
+     path:         /home/me/.config/bbapprove/ignore
+     entries:      1
+       @some/library
+all good
+```
+
+Why is a row `IGNORED — on your ignore list: @some/library`? Because that entry is in the ignore file shown under
+`ignore list:` (`$XDG_CONFIG_HOME/bbapprove/ignore`, default `~/.config/bbapprove/ignore`; one dependency per line).
+Edit the file, or press `i` on an ignored row in the TUI, to remove the entry. The CLI footer also names the file.
 
 ## Updating
 

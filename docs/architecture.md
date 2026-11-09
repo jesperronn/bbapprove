@@ -62,6 +62,13 @@ into a sibling directory, and the running tree is never touched. Archive extract
 links that leave the release directory, devices and other special files, and stops at 200 MiB or 50,000 entries.
 setuid, setgid and sticky bits are dropped. Details and the limits of `SHA256SUMS`: [README](../README.md#updating).
 
+## Diagnostics (`internal/doctor`)
+
+`bbapprove doctor` is a read-only report (version, update status, config candidates and the one in use, setting
+sources via `config.Settings`, adapter, token sources, ignore and disallow lists, tools). Every process seam
+(environment, `LookPath`, executable, the `update.Runner`) is injected via `doctor.Options`; the real wiring is
+`app.runDoctor`. It never prints a token and never runs `op`. Exit 1 when any FAIL was found.
+
 ## Safety principles
 
 - Dry run by default; only `--apply` (or an explicit TUI key and prompt) changes anything.

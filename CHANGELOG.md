@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- `bbapprove doctor [--offline] [--config FILE]`: read-only diagnostics (version and update status, every config
+  file candidate and which one is used, setting sources, adapter, token sources without the token, ignore and
+  disallow lists, `BBAPPROVE_*` variables, `git`/`gh`/`op`). Exit 1 when a problem is found. A non-URL argument
+  now fails early with `Not a PR URL: <x>` and a hint at the subcommands (exit 2).
+- The CLI footer names the ignore file: `N ignored via <path> (see: bbapprove doctor)`; `--hide-ignored` adds the
+  path to its `N ignored (hidden)` line.
 - First-run config creation: without a config file, `bbapprove` on a terminal offers to create
   `~/.config/bbapprove/config.toml` (mode 0600, never overwrites) from the template built into the binary, opens it
   in `$VISUAL`/`$EDITOR` and re-prompts while the example values are unchanged. In CI or pipes nothing is written.

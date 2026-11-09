@@ -5,6 +5,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -13,6 +15,7 @@ import (
 
 	"bbapprove/internal/adapter"
 	"bbapprove/internal/config"
+	"bbapprove/internal/doctor"
 	"bbapprove/internal/ignore"
 	"bbapprove/internal/rules"
 	"bbapprove/internal/update"
@@ -40,10 +43,24 @@ type Options struct {
 	// default to the running platform. RepoDir is the install root they inspect and never modify.
 	UpdateRunner update.Runner
 	GOOS, GOARCH string
+	// doctor: nil seams use the real exec.LookPath / os.Executable.
+	LookPath   func(string) (string, error)
+	Executable func() (string, error)
 }
 
 func (o Options) firstRun() config.FirstRun {
 	return config.FirstRun{IsTTY: o.Interactive, In: o.Stdin, Out: o.Stderr, Editor: o.Editor}
+}
+
+// ignorePath is the per-user ignore list: Options.IgnorePath, else $XDG_CONFIG_HOME/bbapprove/ignore.
+func (o Options) ignorePath() string {
+	if o.IgnorePath != "" {
+		return o.IgnorePath
+	}
+	if x := o.env("XDG_CONFIG_HOME"); x != "" {
+		return filepath.Join(x, "bbapprove", "ignore")
+	}
+	return ignore.DefaultPath()
 }
 
 func (o Options) env(key string) string {
@@ -61,6 +78,7 @@ const usageBody = `approve and merge Renovate PRs on Bitbucket Server.
 Usage: bbapprove [--apply] [--hide-ignored] [--disallow a,b] [--token T] [--token-name NAME]
                  [--config FILE] [--print-config] [PR_URL...]
        bbapprove --init [--force] [--config FILE]
+       bbapprove doctor [--offline] [--config FILE]
        bbapprove --outdated [--pre]
        bbapprove --update [--yes] [--pre]
 
@@ -93,6 +111,12 @@ offers to create $XDG_CONFIG_HOME/bbapprove/config.toml from the template and op
 --init does that on request (never overwrites an existing file unless --force; --config FILE or BBAPPROVE_CONFIG picks the
 path). The template is built into the binary. --print-config shows the effective settings
 (no secrets) and where each came from. --token-name NAME overrides the 1Password item name.
+
+doctor prints diagnostics and needs no token or forge access: version and update status, which config
+file is in use (every candidate path and why), where each setting came from, the adapter, the token
+sources (never the token), the ignore list (path and entries: what makes a row IGNORED), the disallow
+lists, BBAPPROVE_* variables and tools (git, gh, op). Read-only; --offline skips the update check.
+Exit 0 all good (warnings allowed), 1 a problem was found.
 
 --outdated checks (read-only) whether a newer release exists: it asks "gh release list" for
 jesperronn/bbapprove (override: update_repo in the config, BBAPPROVE_UPDATE_REPO) and, in a git
@@ -147,6 +171,8 @@ func Run(ctx context.Context, o Options) int {
 		pre      bool
 		yes      bool
 		wantTUI  bool
+		offline  bool
+		doDoctor bool
 		targets  []string
 	)
 	args := o.Args
@@ -189,6 +215,8 @@ func Run(ctx context.Context, o Options) int {
 			doUpdate = true
 		case a == "--pre":
 			pre = true
+		case a == "--offline":
+			offline = true
 		case a == "--yes":
 			yes = true
 		case a == "--print-config":
@@ -217,8 +245,28 @@ func Run(ctx context.Context, o Options) int {
 		case strings.HasPrefix(a, "-"):
 			fmt.Fprintf(o.Stderr, "Unknown option: %s\n%s", a, usage(o.Version))
 			return 2
+		case a == "doctor" && len(targets) == 0 && !doDoctor:
+			doDoctor = true
 		default:
 			targets = append(targets, a)
+		}
+	}
+
+	if doDoctor {
+		if apply || hideIgn || initCfg || force || outdated || doUpdate || pre || yes || printCfg || len(targets) > 0 {
+			fmt.Fprintln(o.Stderr, "doctor only takes --offline, --config, --token-name and --disallow")
+			return 2
+		}
+		return runDoctor(ctx, o, cfgFile, tokName, disallow, offline)
+	}
+	if offline {
+		fmt.Fprintln(o.Stderr, "--offline only applies to doctor")
+		return 2
+	}
+	for _, t := range targets {
+		if !strings.Contains(t, "://") {
+			fmt.Fprintf(o.Stderr, "Not a PR URL: %s\n(subcommands: doctor; see bbapprove --help)\n", t)
+			return 2
 		}
 	}
 
@@ -275,14 +323,7 @@ func Run(ctx context.Context, o Options) int {
 		jobs = n
 	}
 
-	ignorePath := o.IgnorePath
-	if ignorePath == "" {
-		if x := o.env("XDG_CONFIG_HOME"); x != "" {
-			ignorePath = filepath.Join(x, "bbapprove", "ignore")
-		} else {
-			ignorePath = ignore.DefaultPath()
-		}
-	}
+	ignorePath := o.ignorePath()
 	// Fail closed: an unreadable ignore list must never be treated as empty, or an ignored PR could be merged.
 	ignored, err := ignore.Load(ignorePath)
 	if err != nil {
@@ -454,4 +495,28 @@ func runUpdate(ctx context.Context, o Options, f updateFlags) int {
 		return update.Update(ctx, uo)
 	}
 	return update.Outdated(ctx, uo)
+}
+
+// runDoctor wires the real process seams into package doctor.
+func runDoctor(ctx context.Context, o Options, cfgFile, tokName, disallow string, offline bool) int {
+	d := doctor.Options{
+		Environ: o.Environ, Stdout: o.Stdout, Stderr: o.Stderr, IsTTY: o.IsTTY,
+		Runner: o.UpdateRunner, LookPath: o.LookPath, Executable: o.Executable,
+		Version: o.Version, GOOS: o.GOOS, GOARCH: o.GOARCH, GoVersion: runtime.Version(),
+		InstallRoot: o.RepoDir, ConfigFlag: cfgFile, TokenNameFlag: tokName, DisallowFlag: disallow,
+		IgnorePath: o.ignorePath(), Offline: offline, Getwd: os.Getwd, HomeDir: os.UserHomeDir,
+	}
+	if d.LookPath == nil {
+		d.LookPath = exec.LookPath
+	}
+	if d.Executable == nil {
+		d.Executable = os.Executable
+	}
+	if d.GOOS == "" {
+		d.GOOS = runtime.GOOS
+	}
+	if d.GOARCH == "" {
+		d.GOARCH = runtime.GOARCH
+	}
+	return doctor.Run(ctx, d)
 }

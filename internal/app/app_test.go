@@ -624,3 +624,60 @@ func TestHelpMentionsUpdateFlags(t *testing.T) {
 		}
 	}
 }
+
+// doctorCLI runs app.Run with fake process seams: nothing real (gh, op, PATH) is consulted.
+func doctorCLI(t *testing.T, env []string, args ...string) (code int, out, errOut string) {
+	t.Helper()
+	var so, se bytes.Buffer
+	code = Run(context.Background(), Options{Args: args, Environ: env, RepoDir: t.TempDir(), Stdout: &so, Stderr: &se,
+		UpdateRunner: &fakeUpdateRunner{}, GOOS: "linux", GOARCH: "amd64",
+		LookPath:   func(n string) (string, error) { return "", os.ErrNotExist },
+		Executable: func() (string, error) { return "/x/bin/bbapprove-go", nil }})
+	return code, so.String(), se.String()
+}
+
+func TestDoctorSubcommand(t *testing.T) {
+	env, log := baseEnv(t)
+	env = append(env, "BBAPPROVE_TOKEN=tok-must-not-print")
+	code, out, errOut := doctorCLI(t, env, "doctor", "--offline")
+	if code != 0 || errOut != "" { // settings come from the environment: only a warning
+		t.Fatalf("code %d err %q\n%s", code, errOut, out)
+	}
+	if !strings.Contains(out, "bbapprove dev  (linux/amd64, go") || !strings.Contains(out, "skipped (--offline)") || strings.Contains(out, "tok-must-not-print") {
+		t.Errorf("doctor output:\n%s", out)
+	}
+	if readLog(t, log) != "" {
+		t.Errorf("doctor ran the adapter: %s", readLog(t, log))
+	}
+	// no settings at all: a FAIL, exit 1, still not a usage error
+	if code, out, _ := doctorCLI(t, []string{"NO_COLOR=1", "XDG_CONFIG_HOME=" + t.TempDir()}, "--offline", "doctor", "-i"); code != 1 || !strings.Contains(out, "FAIL no config file found") {
+		t.Errorf("-i doctor: code %d\n%s", code, out)
+	}
+}
+
+func TestDoctorFlagConflicts(t *testing.T) {
+	env, _ := baseEnv(t)
+	for _, args := range [][]string{{"doctor", "--apply"}, {"doctor", "http://h/pr/1"}, {"doctor", "--init"}, {"doctor", "--outdated"}} {
+		if code, _, errOut := run(t, env, args...); code != 2 || !strings.Contains(errOut, "doctor only takes") {
+			t.Errorf("%v: code %d err %q", args, code, errOut)
+		}
+	}
+	if code, _, errOut := run(t, env, "--offline"); code != 2 || !strings.Contains(errOut, "--offline only applies to doctor") {
+		t.Errorf("--offline alone: code %d err %q", code, errOut)
+	}
+}
+
+func TestNotAPRURLHint(t *testing.T) {
+	env, log := baseEnv(t)
+	code, out, errOut := run(t, env, "nonsense")
+	if code != 2 || out != "" || errOut != "Not a PR URL: nonsense\n(subcommands: doctor; see bbapprove --help)\n" {
+		t.Fatalf("code %d out %q err %q", code, out, errOut)
+	}
+	if readLog(t, log) != "" {
+		t.Errorf("adapter ran for a non-URL: %s", readLog(t, log))
+	}
+	// a second positional "doctor" is not the subcommand
+	if code, _, errOut := run(t, env, "http://h/pr/1", "doctor"); code != 2 || !strings.Contains(errOut, "Not a PR URL: doctor") {
+		t.Errorf("code %d err %q", code, errOut)
+	}
+}

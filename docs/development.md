@@ -30,6 +30,7 @@ internal/app/        CLI: flag parsing, dry run / --apply, table rendering, --he
 internal/config/     TOML config, lookup and precedence, first-run setup and --init, embedded template
 internal/rules/      eligibility (Config.Check) and Classify (shared by CLI and TUI)
 internal/ignore/     per-user ignore list file
+internal/doctor/     `bbapprove doctor` diagnostics (all process seams injected)
 internal/adapter/    subprocess client for the forge adapter CLI
 internal/tui/        Bubble Tea interface (-i)
 adapters/bitbucket   bash adapter: the only code that knows curl and Bitbucket

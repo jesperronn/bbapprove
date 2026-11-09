@@ -15,6 +15,8 @@ func TestWantsTUI(t *testing.T) {
 		{[]string{"--update", "-i"}, false},
 		{[]string{"--init", "--force", "--interactive"}, false},
 		{[]string{"-i", "--print-config"}, false},
+		{[]string{"doctor", "-i"}, false},
+		{[]string{"-i", "doctor", "--offline"}, false},
 	} {
 		if got := wantsTUI(tc.args); got != tc.want {
 			t.Errorf("wantsTUI(%v) = %v, want %v", tc.args, got, tc.want)

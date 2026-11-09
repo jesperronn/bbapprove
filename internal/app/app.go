@@ -30,6 +30,15 @@ type Options struct {
 	// IgnorePath overrides the per-user ignore file (default: ignore.DefaultPath(), honouring
 	// XDG_CONFIG_HOME from Environ first). Mainly for tests.
 	IgnorePath string
+	// First-run setup (see config.Setup). Interactive reports stdin AND stderr are terminals; nil means
+	// no (CI, pipes, tests). Stdin feeds the Y/n answer; Editor nil runs $VISUAL/$EDITOR for real.
+	Interactive func() bool
+	Stdin       io.Reader
+	Editor      config.EditorRunner
+}
+
+func (o Options) firstRun() config.FirstRun {
+	return config.FirstRun{IsTTY: o.Interactive, In: o.Stdin, Out: o.Stderr, Editor: o.Editor}
 }
 
 func (o Options) env(key string) string {
@@ -46,6 +55,7 @@ const usageBody = `approve and merge Renovate PRs on Bitbucket Server.
 
 Usage: bbapprove [--apply] [--hide-ignored] [--disallow a,b] [--token T] [--token-name NAME]
                  [--config FILE] [--print-config] [PR_URL...]
+       bbapprove --init [--force] [--config FILE]
 
 With no PR_URL, every open PR where you are a reviewer is considered.
 Without --apply nothing is changed; eligibility is only reported.
@@ -71,7 +81,10 @@ A PR is eligible when ALL hold:
 Configuration: a TOML file (see bbapprove.config.template) with type, repository, user_token_name,
 author_email, disallow. Found via --config / BBAPPROVE_CONFIG, else <repo>/bbapprove.config.toml, else
 $XDG_CONFIG_HOME/bbapprove/config.toml (default ~/.config/...). Precedence: command line > env > file >
-default. repository and author_email have no default. --print-config shows the effective settings
+default. repository and author_email have no default. With no config file at all, an interactive run
+offers to create $XDG_CONFIG_HOME/bbapprove/config.toml from the template and open it in $VISUAL/$EDITOR;
+--init does that on request (never overwrites an existing file unless --force; --config FILE picks the
+path). The template is built into the binary. --print-config shows the effective settings
 (no secrets) and where each came from. --token-name NAME overrides the 1Password item name.
 
 Env: BBAPPROVE_CONFIG, BBAPPROVE_REPOSITORY, BBAPPROVE_AUTHOR_EMAIL, BBAPPROVE_TOKEN_NAME,
@@ -109,6 +122,8 @@ func Run(ctx context.Context, o Options) int {
 		tokName  string
 		cfgFile  string
 		printCfg bool
+		initCfg  bool
+		force    bool
 		wantTUI  bool
 		targets  []string
 	)
@@ -142,6 +157,10 @@ func Run(ctx context.Context, o Options) int {
 				return 2
 			}
 			disallow = v
+		case a == "--init":
+			initCfg = true
+		case a == "--force":
+			force = true
 		case a == "--print-config":
 			printCfg = true
 		case a == "--token-name" || strings.HasPrefix(a, "--token-name="):
@@ -173,13 +192,21 @@ func Run(ctx context.Context, o Options) int {
 		}
 	}
 
+	if initCfg {
+		return config.Init(ctx, o.env, cfgFile, force, o.firstRun(), o.Stdout)
+	}
+	if force {
+		fmt.Fprintln(o.Stderr, "--force only applies to --init")
+		return 2
+	}
 	if wantTUI && !printCfg {
 		fmt.Fprintln(o.Stderr, "interactive mode: not implemented yet")
 		return 2
 	}
-	cfg, err := config.Load(config.Input{
+	cin := config.Input{
 		Env: o.env, RepoDir: o.RepoDir, ConfigFlag: cfgFile, TokenNameFlag: tokName, DisallowFlag: disallow,
-	})
+	}
+	cfg, err := config.Load(cin)
 	if err != nil {
 		fmt.Fprintf(o.Stderr, "bbapprove: %v\n", err)
 		return 1
@@ -192,8 +219,15 @@ func Run(ctx context.Context, o Options) int {
 		return 0
 	}
 	if err := cfg.Missing(); err != nil {
-		fmt.Fprintln(o.Stderr, err)
-		return 1
+		if cfg.File != "" {
+			fmt.Fprintln(o.Stderr, err)
+			return 1
+		}
+		var code int
+		var cont bool
+		if cfg, code, cont = config.Setup(ctx, cin, cfg, o.firstRun()); !cont {
+			return code
+		}
 	}
 	adapterPath := cfg.Adapter.Value
 	jobs := runtime.NumCPU()

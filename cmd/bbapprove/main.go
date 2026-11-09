@@ -31,20 +31,25 @@ func main() {
 			width = w
 		}
 	}
-	interactive, printConfig := false, false
+	interactive, printConfig, initCfg := false, false, false
 	for _, a := range os.Args[1:] {
 		interactive = interactive || a == "-i" || a == "--interactive"
 		printConfig = printConfig || a == "--print-config"
+		initCfg = initCfg || a == "--init"
 	}
-	if interactive && !printConfig { // --print-config is handled by the plain CLI, even with -i
+	// Setup prompts need a human on both ends: answers come from stdin, prompts go to stderr.
+	setupTTY := func() bool { return term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stderr.Fd())) }
+	if interactive && !printConfig && !initCfg { // --print-config and --init are handled by the plain CLI, even with -i
 		os.Exit(tui.Run(context.Background(), tui.RunOptions{
 			Args: os.Args[1:], Environ: os.Environ(), RepoDir: repoDir(),
 			Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr, Version: version,
+			Interactive: setupTTY,
 		}))
 	}
 	os.Exit(app.Run(context.Background(), app.Options{
 		Args: os.Args[1:], Environ: os.Environ(), RepoDir: repoDir(),
 		Stdout: os.Stdout, Stderr: os.Stderr, IsTTY: tty, Width: width, Version: version,
+		Interactive: setupTTY, Stdin: os.Stdin,
 	}))
 }
 

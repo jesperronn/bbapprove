@@ -29,6 +29,9 @@ type RunOptions struct {
 	Stdout  io.Writer
 	Stderr  io.Writer
 	Version string
+	// First-run setup hooks, as in app.Options (nil Interactive means non-interactive).
+	Interactive func() bool
+	Editor      config.EditorRunner
 	// Width and Height set the initial window size when positive. Only for headless runs (tests):
 	// with a real terminal the size is detected, and without one Bubble Tea v2 draws nothing at 0x0.
 	Width, Height int
@@ -70,9 +73,10 @@ func Run(ctx context.Context, o RunOptions) int {
 			token = next()
 		}
 	}
-	cfg, err := config.Load(config.Input{
+	cin := config.Input{
 		Env: env, RepoDir: o.RepoDir, ConfigFlag: cfgFile, TokenNameFlag: tokName, DisallowFlag: disallow,
-	})
+	}
+	cfg, err := config.Load(cin)
 	if err != nil {
 		fmt.Fprintf(o.Stderr, "bbapprove: %v\n", err)
 		return 1
@@ -81,8 +85,15 @@ func Run(ctx context.Context, o RunOptions) int {
 		fmt.Fprintf(o.Stderr, "bbapprove: warning: %s\n", w)
 	}
 	if err := cfg.Missing(); err != nil {
-		fmt.Fprintln(o.Stderr, err)
-		return 1
+		if cfg.File != "" {
+			fmt.Fprintln(o.Stderr, err)
+			return 1
+		}
+		var code int
+		var cont bool
+		if cfg, code, cont = config.Setup(ctx, cin, cfg, config.FirstRun{IsTTY: o.Interactive, In: o.Stdin, Out: o.Stderr, Editor: o.Editor}); !cont {
+			return code
+		}
 	}
 	path := cfg.Adapter.Value
 	jobs := runtime.NumCPU()

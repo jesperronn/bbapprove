@@ -11,6 +11,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/pelletier/go-toml/v2"
 )
 
 // Template is the example config embedded in the binary, so first-run setup works from a release
@@ -123,6 +125,34 @@ func EditorCommand(env func(string) string) ([]string, error) {
 	return nil, nil
 }
 
+// maxEditRounds bounds how often first-run setup re-opens the editor for unchanged placeholders.
+const maxEditRounds = 3
+
+// Placeholders lists what is still the template's example content in the file at path: the whole file
+// when byte-identical to the template, else repository / author_email still at their example value.
+// Used by first-run setup only; ordinary config validation accepts example values.
+func Placeholders(path string) []string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	if string(b) == Template {
+		return []string{"the file is unchanged from the template"}
+	}
+	var ex, got fileData
+	if toml.Unmarshal([]byte(Template), &ex) != nil || toml.Unmarshal(b, &got) != nil {
+		return nil
+	}
+	var out []string
+	if got.Repository == ex.Repository {
+		out = append(out, "repository is still the example value "+ex.Repository)
+	}
+	if got.AuthorEmail == ex.AuthorEmail {
+		out = append(out, "author_email is still the example value "+ex.AuthorEmail)
+	}
+	return out
+}
+
 // EditorRunner opens path in the editor given as argv words and waits for it to exit.
 type EditorRunner func(ctx context.Context, editor []string, path string) error
 
@@ -173,13 +203,11 @@ func Setup(ctx context.Context, in Input, cfg *Config, f FirstRun) (_ *Config, c
 	}
 	fmt.Fprintln(out, "bbapprove: no config file found.")
 	fmt.Fprintf(out, "Create %s from the template and open it in your editor? [Y/n] ", def)
-	var line string
-	var rerr error
+	var rd *bufio.Reader
 	if f.In != nil {
-		line, rerr = bufio.NewReader(f.In).ReadString('\n')
+		rd = bufio.NewReader(f.In)
 	}
-	// EOF with nothing typed (stdin closed) is not consent; a bare Enter is.
-	if a := strings.ToLower(strings.TrimSpace(line)); (rerr != nil && a == "") || (a != "" && a != "y" && a != "yes") {
+	if !askYes(rd) {
 		fmt.Fprintln(out)
 		fmt.Fprintln(out, "Not creating it. To do it yourself:")
 		fmt.Fprint(out, createHint(def))
@@ -190,25 +218,55 @@ func Setup(ctx context.Context, in Input, cfg *Config, f FirstRun) (_ *Config, c
 		return cfg, 1, false
 	}
 	fmt.Fprintf(out, "Created %s (mode 0600).\n", def)
-	opened, err := f.runEditor(ctx, in.Env, def)
-	switch {
-	case err != nil:
-		fmt.Fprintf(out, "bbapprove: editor failed: %v\nEdit %s, then run the same command again.\n", err, def)
-		return cfg, 1, false
-	case !opened:
-		fmt.Fprintf(out, "No $VISUAL or $EDITOR is set. Edit %s, then run the same command again.\n", def)
-		return cfg, 1, false
+	for round := 1; ; round++ {
+		opened, err := f.runEditor(ctx, in.Env, def)
+		switch {
+		case err != nil:
+			fmt.Fprintf(out, "bbapprove: editor failed: %v\nEdit %s, then run the same command again.\n", err, def)
+			return cfg, 1, false
+		case !opened:
+			fmt.Fprintf(out, "No $VISUAL or $EDITOR is set. Edit %s, then run the same command again.\n", def)
+			return cfg, 1, false
+		}
+		newCfg, err := Load(in)
+		if err == nil {
+			err = newCfg.Missing()
+		}
+		if err != nil {
+			fmt.Fprintf(out, "%v\nconfig still not valid: edit %s and run the same command again.\n", err, def)
+			return cfg, 1, false
+		}
+		ph := Placeholders(def)
+		if len(ph) == 0 {
+			fmt.Fprintln(out, "config OK")
+			return newCfg, 0, true
+		}
+		for _, p := range ph {
+			fmt.Fprintln(out, "bbapprove: "+p)
+		}
+		if round >= maxEditRounds {
+			fmt.Fprintf(out, "Giving up after %d rounds; %s was left in place. Edit it, or run: bbapprove --init --force\n", round, def)
+			return cfg, 1, false
+		}
+		fmt.Fprint(out, "Edit again? [Y/n] ")
+		if !askYes(rd) {
+			fmt.Fprintf(out, "\n%s was left in place. Edit it, or run: bbapprove --init --force\n", def)
+			return cfg, 1, false
+		}
 	}
-	newCfg, err := Load(in)
-	if err == nil {
-		err = newCfg.Missing()
+}
+
+// askYes reads one line: Enter, y or yes is consent. EOF with nothing typed (stdin closed) is not.
+func askYes(rd *bufio.Reader) bool {
+	if rd == nil {
+		return false
 	}
-	if err != nil {
-		fmt.Fprintf(out, "%v\nconfig still not valid: edit %s and run the same command again.\n", err, def)
-		return cfg, 1, false
+	line, err := rd.ReadString('\n')
+	a := strings.ToLower(strings.TrimSpace(line))
+	if err != nil && a == "" {
+		return false
 	}
-	fmt.Fprintln(out, "config OK")
-	return newCfg, 0, true
+	return a == "" || a == "y" || a == "yes"
 }
 
 // createHint is the manual two-line instruction for creating the config at path.
@@ -232,6 +290,9 @@ func Init(ctx context.Context, env func(string) string, path string, force bool,
 		out = io.Discard
 	}
 	if path == "" {
+		path = env("BBAPPROVE_CONFIG") // flag > env > default
+	}
+	if path == "" {
 		path = DefaultPath(env)
 	}
 	if err := WriteTemplate(path, force); err != nil {
@@ -251,6 +312,9 @@ func Init(ctx context.Context, env func(string) string, path string, force bool,
 		}
 		if !opened {
 			fmt.Fprintf(stdout, "No $VISUAL or $EDITOR is set; edit %s yourself.\n", path)
+		}
+		for _, p := range Placeholders(path) {
+			fmt.Fprintln(stdout, "warning: "+p)
 		}
 	} else {
 		fmt.Fprintf(stdout, "Edit %s to set repository and author_email.\n", path)

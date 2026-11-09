@@ -11,7 +11,8 @@ import (
 	"bbapprove/internal/config"
 )
 
-const validCfg = "repository = \"https://bitbucket.example.com\"\nauthor_email = \"" + bot + "\"\n"
+// validCfg differs from the template's example values, which first-run setup treats as unedited.
+const validCfg = "repository = \"https://bb.corp.test\"\nauthor_email = \"bot@corp.test\"\n"
 
 // setupRig is a first-run scenario: empty HOME/XDG, no repo-root config, fake adapter.
 type setupRig struct {
@@ -47,7 +48,7 @@ func newRig(t *testing.T, useXDG bool, editorBody string) *setupRig {
 	r.editLog = filepath.Join(t.TempDir(), "editor.log")
 	if editorBody != "" {
 		ed := filepath.Join(t.TempDir(), "fake-editor")
-		os.WriteFile(ed, []byte("#!/bin/sh\necho \"$*\" >> "+r.editLog+"\n"+editorBody+"\n"), 0o755)
+		os.WriteFile(ed, []byte("#!/bin/sh\necho \"$*\" >> "+r.editLog+"\n"+strings.ReplaceAll(editorBody, "@LOG@", r.editLog)+"\n"), 0o755)
 		kept = append(kept, "EDITOR="+ed+" -w")
 	}
 	r.env = kept
@@ -143,8 +144,8 @@ func TestFirstRunTTY(t *testing.T) {
 
 func TestFirstRunContinuesWithFakeAdapter(t *testing.T) {
 	r := newRig(t, true, writeValid)
-	code, out, errOut := r.run(true, "\n", "--apply")
-	if code != 0 || !strings.Contains(out, "MERGED") || !strings.Contains(errOut, "config OK") {
+	code, out, errOut := r.run(true, "\n")
+	if code != 0 || !strings.Contains(out, "Dry run") || !strings.Contains(errOut, "config OK") {
 		t.Fatalf("code %d\nout:\n%s\nerr:\n%s", code, out, errOut)
 	}
 }
@@ -256,5 +257,91 @@ func TestPrintConfigHintWithoutConfig(t *testing.T) {
 func TestHelpMentionsInit(t *testing.T) {
 	if !strings.Contains(usage("x"), "--init [--force]") {
 		t.Error("usage lacks --init")
+	}
+}
+
+// writeLine returns an editor body that rewrites the config with the given TOML (printf-safe).
+func writeLine(toml string) string { return `printf '%s' '` + toml + `' > "$2"` }
+
+func TestFirstRunPlaceholders(t *testing.T) {
+	repoOnly := "repository = \"https://bitbucket.example.com\"\nauthor_email = \"me@corp.test\"\n"
+	emailOnly := "repository = \"https://bb.corp.test\"\nauthor_email = \"renovate-bot@example.com\"\n"
+	for _, tc := range []struct {
+		name, stdin, editor string
+		wantCode, wantRuns  int
+		wantErr             []string
+	}{
+		{"edited proceeds, no re-prompt", "y\n", writeValid, 0, 1, []string{"config OK"}},
+		{"unchanged template re-prompts then proceeds", "y\ny\n",
+			`if [ "$(wc -l < @LOG@)" -ge 2 ]; then ` + writeValid + `; fi`, 0, 2,
+			[]string{"the file is unchanged from the template", "Edit again? [Y/n]", "config OK"}},
+		{"repository still example, user declines", "y\nn\n", writeLine(repoOnly), 1, 1,
+			[]string{"repository is still the example value https://bitbucket.example.com", "left in place", "bbapprove --init --force"}},
+		{"author_email still example", "y\nn\n", writeLine(emailOnly), 1, 1,
+			[]string{"author_email is still the example value renovate-bot@example.com", "Edit again? [Y/n]"}},
+		{"three rounds without change", "y\n\n\n\n", "true", 1, 3,
+			[]string{"Giving up after 3 rounds", "bbapprove --init --force"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newRig(t, true, tc.editor)
+			code, _, errOut := r.run(true, tc.stdin)
+			if code != tc.wantCode {
+				t.Fatalf("code %d, want %d:\n%s", code, tc.wantCode, errOut)
+			}
+			for _, w := range tc.wantErr {
+				if !strings.Contains(errOut, w) {
+					t.Errorf("stderr lacks %q:\n%s", w, errOut)
+				}
+			}
+			b, _ := os.ReadFile(r.editLog)
+			if n := strings.Count(string(b), "\n"); n != tc.wantRuns {
+				t.Errorf("editor ran %d times, want %d", n, tc.wantRuns)
+			}
+			if _, err := os.Stat(r.path()); err != nil {
+				t.Errorf("file must stay in place: %v", err)
+			}
+		})
+	}
+}
+
+func TestInitTTYWarnsAboutPlaceholders(t *testing.T) {
+	r := newRig(t, true, "true") // editor changes nothing
+	code, out, _ := r.run(true, "", "--init")
+	for _, w := range []string{"warning: the file is unchanged from the template", "bbapprove --print-config"} {
+		if code != 0 || !strings.Contains(out, w) {
+			t.Fatalf("code %d, stdout lacks %q:\n%s", code, w, out)
+		}
+	}
+	r = newRig(t, true, writeValid)
+	code, out, _ = r.run(true, "", "--init")
+	if code != 0 || strings.Contains(out, "warning") {
+		t.Fatalf("edited init warned: code %d\n%s", code, out)
+	}
+	// non-TTY init does not run the editor and does not warn
+	r = newRig(t, true, "true")
+	if code, out, _ = r.run(false, "", "--init"); code != 0 || strings.Contains(out, "warning") {
+		t.Fatalf("non-TTY: code %d\n%s", code, out)
+	}
+}
+
+func TestInitHonoursBBAPPROVE_CONFIG(t *testing.T) {
+	r := newRig(t, true, "")
+	envPath := filepath.Join(t.TempDir(), "env", "c.toml")
+	flagPath := filepath.Join(t.TempDir(), "flag.toml")
+	r.env = append(r.env, "BBAPPROVE_CONFIG="+envPath)
+	if code, out, _ := r.run(false, "", "--init"); code != 0 || !strings.Contains(out, envPath) {
+		t.Fatalf("env: code %d out %q", code, out)
+	}
+	if b, _ := os.ReadFile(envPath); string(b) != config.Template {
+		t.Error("env path not written")
+	}
+	if code, _, _ := r.run(false, "", "--init", "--config", flagPath); code != 0 {
+		t.Fatal("flag run failed")
+	}
+	if _, err := os.Stat(flagPath); err != nil {
+		t.Error("flag must win over env")
+	}
+	if _, err := os.Stat(r.path()); err == nil {
+		t.Error("default path written although env/flag given")
 	}
 }

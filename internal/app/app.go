@@ -83,7 +83,7 @@ author_email, disallow. Found via --config / BBAPPROVE_CONFIG, else <repo>/bbapp
 $XDG_CONFIG_HOME/bbapprove/config.toml (default ~/.config/...). Precedence: command line > env > file >
 default. repository and author_email have no default. With no config file at all, an interactive run
 offers to create $XDG_CONFIG_HOME/bbapprove/config.toml from the template and open it in $VISUAL/$EDITOR;
---init does that on request (never overwrites an existing file unless --force; --config FILE picks the
+--init does that on request (never overwrites an existing file unless --force; --config FILE or BBAPPROVE_CONFIG picks the
 path). The template is built into the binary. --print-config shows the effective settings
 (no secrets) and where each came from. --token-name NAME overrides the 1Password item name.
 

@@ -256,10 +256,13 @@ test_timings_with_target_and_failure_exit() {
 test_timings_file_is_json_lines() {
   setup_fixture
   local f="$TEST_TMP/t.jsonl" lines
+  export TEST_SLOW_SUITE_SECONDS=1000 TEST_SLOW_TEST_SECONDS=1000
   run_testsh --timings-file "$f"
+  unset TEST_SLOW_SUITE_SECONDS TEST_SLOW_TEST_SECONDS
   assert_status 0 "$TESTSH_STATUS" "--timings-file exits 0"
   assert_contains "$TESTSH_OUT" "Slowest shell tests (top 10)" "--timings-file implies --timings"
   assert_contains "$TESTSH_OUT" "a.test.sh:test_fake" "shell tests are shown as suite:test"
+  assert_contains "$TESTSH_OUT" "Over budget: none" "huge budgets: nothing is over"
   lines="$(<"$f")"
   assert_contains "$lines" '{"kind":"shell-suite","name":"a.test.sh","seconds":' "a shell-suite entry"
   assert_contains "$lines" '{"kind":"shell-test","name":"a.test.sh:test_fake","seconds":0.5,"over_budget":false}' "a shell-test entry"
@@ -282,9 +285,6 @@ test_over_budget_flags_and_keeps_exit_code() {
   assert_contains "$TESTSH_OUT" "go-test     x/slow.TestB" "go test over 0.4s listed"
   assert_not_contains "$TESTSH_OUT" "go-test     x/slow.TestA" "go test under 0.4s not listed"
   assert_contains "$(<"$TEST_TMP/t.jsonl")" '"kind":"go-package","name":"x/fast","seconds":0.02,"over_budget":true' "suite budget 0 flags every package"
-  export TEST_SLOW_SUITE_SECONDS=1000 TEST_SLOW_TEST_SECONDS=1000
-  run_testsh --timings
-  assert_contains "$TESTSH_OUT" "Over budget: none" "huge budgets: none"
   unset NO_COLOR TEST_SLOW_SUITE_SECONDS TEST_SLOW_TEST_SECONDS
   cleanup_test_tmp
 }

@@ -22,6 +22,10 @@ else
   BASH_TEST_C_CYAN=$'\033[36m'
 fi
 
+# The suites test plain output unless a test asks for colour, so they must not inherit the caller's colour switches
+# (the colours above are already decided). A test sets NO_COLOR or FORCE_COLOR itself where it matters.
+unset NO_COLOR FORCE_COLOR
+
 bash_test_color_print() {
   local color="$1"
   shift

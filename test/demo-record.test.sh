@@ -14,12 +14,20 @@ cleanup_test_tmp() {
   TEST_TMP=""
   return 0
 }
-trap 'cleanup_test_tmp' EXIT
+# One tool dir for the whole suite, made before the tests start (parallel tests inherit it): linking about thirty
+# tools costs about 0.2 s, too much to repeat per test. It is read-only for the tests.
+SUITE_TMP="$(mktemp -d)"
+make_tool_dir "$SUITE_TMP/basic" awk mv
+cleanup_suite_tmp() {
+  cleanup_test_tmp
+  rm -rf "$SUITE_TMP"
+}
+trap 'cleanup_suite_tmp' EXIT
 # Each test runs in its own subshell when run in parallel (see the end of the file), which does not inherit the trap.
 bash_test_case_cleanup() { cleanup_test_tmp; }
 
 # Fresh temp dir per test: the output goes there (DEMO_OUT_DIR), never into demo/. The stubs (tmux, go, freeze,
-# and an npx that must never run) live in TEST_TMP/stubs; BASIC holds only the shell tools, so no real tmux, go
+# and an npx that must never run) live in TEST_TMP/stubs; SUITE_TMP/basic holds only the shell tools, so no real tmux, go
 # or freeze is found.
 setup_tmp() {
   cleanup_test_tmp
@@ -31,7 +39,6 @@ setup_tmp() {
   export BBAPPROVE_DEMO_STATE="$TEST_TMP/state"
   unset BBAPPROVE_FREEZE
   export DEMO_PREBUILD=0
-  make_tool_dir "$TEST_TMP/basic" awk mv
 }
 
 # write_stubs: the recording stubs plus a go stub whose `build -o PATH` writes a cast2svg stub that logs its call
@@ -59,7 +66,7 @@ canned_pane() {
 test_record_without_tmux_hints_and_exits_127() {
   setup_tmp
   local out rc
-  capture_command out rc env PATH="$TEST_TMP/basic" "$DEMO" record
+  capture_command out rc env PATH="$SUITE_TMP/basic" "$DEMO" record
   assert_status 127 "$rc" "record exits 127 when tmux is missing"
   assert_contains "$out" "tmux is not installed" "record names the missing tmux"
 }
@@ -69,7 +76,7 @@ test_record_without_freeze_hints_and_exits_127() {
   write_stubs
   rm "$TEST_TMP/stubs/freeze"
   local out rc
-  capture_command out rc env PATH="$TEST_TMP/stubs:$TEST_TMP/basic" "$DEMO" record
+  capture_command out rc env PATH="$TEST_TMP/stubs:$SUITE_TMP/basic" "$DEMO" record
   assert_status 127 "$rc" "record exits 127 when freeze is missing"
   assert_contains "$out" "freeze is not installed" "record names the missing freeze"
   assert_contains "$out" "go install github.com/charmbracelet/freeze@v0.2.2" "record prints the pinned install command"
@@ -80,7 +87,7 @@ test_record_without_go_hints_and_exits_127() {
   write_stubs
   rm "$TEST_TMP/stubs/go"
   local out rc
-  capture_command out rc env PATH="$TEST_TMP/stubs:$TEST_TMP/basic" "$DEMO" record
+  capture_command out rc env PATH="$TEST_TMP/stubs:$SUITE_TMP/basic" "$DEMO" record
   assert_status 127 "$rc" "record exits 127 when go is missing"
   assert_contains "$out" "go is not installed" "record names the missing go"
 }
@@ -96,7 +103,7 @@ test_record_help_says_tmux_freeze_and_go() {
 test_shots_without_freeze_hints_and_exits_127() {
   setup_tmp
   local out rc
-  capture_command out rc env -u BBAPPROVE_FREEZE PATH="$TEST_TMP/basic" "$DEMO" shots
+  capture_command out rc env -u BBAPPROVE_FREEZE PATH="$SUITE_TMP/basic" "$DEMO" shots
   assert_status 127 "$rc" "shots exits 127 when freeze is missing"
   assert_contains "$out" "go install github.com/charmbracelet/freeze@v0.2.2" "shots prints the pinned install command"
 }
@@ -106,7 +113,7 @@ test_record_drives_tmux_and_renders_with_cast2svg() {
   canned_pane
   write_stubs
   local out rc calls
-  capture_command out rc env PATH="$TEST_TMP/stubs:$TEST_TMP/basic" "$DEMO" record
+  capture_command out rc env PATH="$TEST_TMP/stubs:$SUITE_TMP/basic" "$DEMO" record
   assert_status 0 "$rc" "record exits 0 when the stubs succeed"
   calls="$(cat "$STUB_LOG")"
   assert_contains "$calls" "new-session" "record starts a detached tmux session"
@@ -126,7 +133,7 @@ test_record_cast_has_valid_header_and_events() {
   canned_pane
   write_stubs
   local out rc cast
-  capture_command out rc env PATH="$TEST_TMP/stubs:$TEST_TMP/basic" "$DEMO" record
+  capture_command out rc env PATH="$TEST_TMP/stubs:$SUITE_TMP/basic" "$DEMO" record
   assert_status 0 "$rc" "record exits 0 for the cast check"
   cast="$DEMO_OUT_DIR/demo.cast"
   capture_command out rc python3 -I -c '
@@ -151,7 +158,7 @@ test_record_leaves_the_demo_state_file_alone() {
   write_stubs
   printf 'approved 101\n' >"$BBAPPROVE_DEMO_STATE"
   local out rc
-  capture_command out rc env PATH="$TEST_TMP/stubs:$TEST_TMP/basic" "$DEMO" record
+  capture_command out rc env PATH="$TEST_TMP/stubs:$SUITE_TMP/basic" "$DEMO" record
   assert_status 0 "$rc" "record exits 0 with an existing state file"
   assert_eq "approved 101" "$(cat "$BBAPPROVE_DEMO_STATE")" "record uses its own state, not the demo's"
 }
@@ -160,7 +167,7 @@ test_shots_runs_freeze_three_times() {
   setup_tmp
   use_stubs "$TEST_TMP/stubs" recorder=freeze
   local out rc calls
-  capture_command out rc env PATH="$TEST_TMP/stubs:$TEST_TMP/basic" "$DEMO" shots
+  capture_command out rc env PATH="$TEST_TMP/stubs:$SUITE_TMP/basic" "$DEMO" shots
   assert_status 0 "$rc" "shots exits with freeze's status"
   calls="$(cat "$STUB_LOG")"
   assert_eq "3" "$(grep -c 'freeze --execute' <<<"$calls")" "shots runs freeze three times"
@@ -173,7 +180,7 @@ test_shots_applies_the_font_stack_and_the_doctor_path() {
   setup_tmp
   use_stubs "$TEST_TMP/stubs" recorder=freeze
   local out rc calls
-  capture_command out rc env PATH="$TEST_TMP/stubs:$TEST_TMP/basic" "$DEMO" shots
+  capture_command out rc env PATH="$TEST_TMP/stubs:$SUITE_TMP/basic" "$DEMO" shots
   assert_status 0 "$rc" "shots exits 0 for the font and path check"
   calls="$(cat "$STUB_LOG")"
   assert_contains "$calls" "--font.family JetBrains Mono, Menlo, Consolas, 'DejaVu Sans Mono', monospace" \
@@ -196,7 +203,7 @@ test_record_reports_progress_on_stderr() {
   canned_pane
   write_stubs
   local out rc
-  capture_command out rc env PATH="$TEST_TMP/stubs:$TEST_TMP/basic" "$DEMO" record
+  capture_command out rc env PATH="$TEST_TMP/stubs:$SUITE_TMP/basic" "$DEMO" record
   assert_status 0 "$rc" "record exits 0 for the progress check"
   assert_contains "$out" "recording 4 steps, about 9 s" "record says how long the recording takes"
   assert_contains "$out" "rendering $DEMO_OUT_DIR/demo.svg from 1 frames" "record says it is rendering"
@@ -208,7 +215,7 @@ test_record_refuses_a_frame_that_shows_a_local_path() {
   export STUB_TMUX_OUT=$'  STATUS       PR   TITLE\n/private/work/checkout/bin/bbapprove-go (v1.0.0)'
   write_stubs
   local out rc
-  capture_command out rc env PATH="$TEST_TMP/stubs:$TEST_TMP/basic" "$DEMO" record
+  capture_command out rc env PATH="$TEST_TMP/stubs:$SUITE_TMP/basic" "$DEMO" record
   assert_status 1 "$rc" "record exits 1 when a frame shows a local path"
   assert_contains "$out" "a frame shows /bin/bbapprove-go" "record names the leaked path"
   assert_eq "no" "$([[ -e "$DEMO_OUT_DIR/demo.cast" ]] && echo yes || echo no)" "record writes nothing when a frame leaks"
@@ -220,7 +227,7 @@ test_record_cleans_up_when_terminated() {
   canned_pane
   write_stubs
   mkdir -p "$TEST_TMP/tmp"
-  env PATH="$TEST_TMP/stubs:$TEST_TMP/basic" TMPDIR="$TEST_TMP/tmp" DEMO_TICK_SLEEP=0.2 \
+  env PATH="$TEST_TMP/stubs:$SUITE_TMP/basic" TMPDIR="$TEST_TMP/tmp" DEMO_TICK_SLEEP=0.2 \
     bash "$PROJECT_ROOT/demo/record.sh" >/dev/null 2>&1 &
   local pid=$! rc=0
   sleep 0.6
@@ -236,7 +243,7 @@ test_regenerate_records_then_shoots() {
   canned_pane
   write_stubs
   local out rc calls
-  capture_command out rc env PATH="$TEST_TMP/stubs:$TEST_TMP/basic" "$DEMO" regenerate
+  capture_command out rc env PATH="$TEST_TMP/stubs:$SUITE_TMP/basic" "$DEMO" regenerate
   calls="$(cat "$STUB_LOG")"
   assert_contains "$calls" "new-session" "regenerate starts the record step"
   assert_contains "$calls" "freeze --execute" "regenerate then runs the shots step"

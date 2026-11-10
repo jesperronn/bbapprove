@@ -5,6 +5,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-10
+
 ### Added
 - `delete_source_branch` (default `true`; config file or `BBAPPROVE_DELETE_SOURCE_BRANCH`): after a successful merge the PR's source branch is deleted, unless it belongs to a fork or is the target. If the delete fails the merge still counts, and `--apply` and the TUI show a warning.
 - `bbapprove doctor` prints one line per area; every problem carries its fix on its own line and the last line only counts them. `bbapprove doctor -v` adds the lookup order, file mode, tool paths and environment, without printing any fact twice.

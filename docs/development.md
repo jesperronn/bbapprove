@@ -2,6 +2,8 @@
 
 Run `bin/help` for the commands; every one takes `--help`. Start with `bin/setup`, then `bin/lint` and `bin/test` must be green. Rules for contributors: [../AGENTS.md](../AGENTS.md).
 
+The `bin/` commands colour their help like bbapprove (`bin/lib/style.sh`, `internal/style`): on for a terminal or `FORCE_COLOR`, off with `NO_COLOR`.
+
 ```
 bin/test test/release.test.sh     # one shell suite
 bin/test ./internal/tui           # one Go package

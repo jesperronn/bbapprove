@@ -5,6 +5,9 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- Maintainers: the `bin/` commands and `bin/changelog` now colour their help the way bbapprove does, honouring `NO_COLOR` and `FORCE_COLOR`.
+
 ## [1.2.0] - 2026-11-10
 
 ### Changed

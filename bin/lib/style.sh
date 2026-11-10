@@ -5,10 +5,27 @@
 # Rule (as internal/style.Enabled): a non-empty NO_COLOR turns colour off and wins; otherwise it is on when the
 # stream is a terminal or FORCE_COLOR is non-empty. Tests and pipes get plain text.
 
-# style_on FD: succeeds when colour is on for file descriptor FD.
+# The terminal state of stdout and stderr, taken once when this file is sourced. paint is usually called inside
+# $(...), where stdout is a pipe, so a live `-t 1` there would always say "not a terminal".
+STYLE_TTY_1=0 STYLE_TTY_2=0
+if [[ -t 1 ]]; then STYLE_TTY_1=1; fi
+if [[ -t 2 ]]; then STYLE_TTY_2=1; fi
+
+# style_on FD: succeeds when colour is on for file descriptor FD (live check, for use outside $(...)).
 style_on() {
   [[ -z "${NO_COLOR:-}" ]] || return 1
   [[ -t "$1" || -n "${FORCE_COLOR:-}" ]]
+}
+
+# style_on_cached FD: like style_on, but for 1 and 2 from the state taken at source time.
+style_on_cached() {
+  [[ -z "${NO_COLOR:-}" ]] || return 1
+  [[ -n "${FORCE_COLOR:-}" ]] && return 0
+  case "$1" in
+    1) [[ "$STYLE_TTY_1" == 1 ]] ;;
+    2) [[ "$STYLE_TTY_2" == 1 ]] ;;
+    *) [[ -t "$1" ]] ;;
+  esac
 }
 
 # paint CLASS FD TEXT: TEXT in the colour of CLASS (the SGR codes of internal/style) when colour is on for FD,
@@ -29,7 +46,7 @@ paint() {
     fail) sgr="1;31" ;;
     err) sgr=31 ;;
   esac
-  if [[ -n "$sgr" ]] && style_on "$fd"; then
+  if [[ -n "$sgr" ]] && style_on_cached "$fd"; then
     printf '\033[%sm%s\033[0m' "$sgr" "$text"
   else
     printf '%s' "$text"

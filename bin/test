@@ -136,7 +136,7 @@ fmt_ms() { printf '%d.%02ds' $(($1 / 1000)) $((($1 % 1000) / 10)); }
 run_suite() {
   local name="$1" start rc=0
   shift
-  echo "==> $name"
+  echo "$(paint heading 1 "==>") $name"
   start="$(now_ms)"
   "$@" || rc=$?
   if [[ "$name" == *.test.sh ]]; then shell_times+=("$(($(now_ms) - start)) $name"); fi
@@ -155,6 +155,41 @@ json_unescape() {
   s="${s//\\\"/\"}"
   printf -v unescaped '%b' "$s"
   unescaped="${unescaped//$'\001'/\\}"
+}
+
+# paint_go_output TEXT: TEXT as go test printed it, with a leading "ok" in the ok colour and "FAIL" or "--- FAIL"
+# in the fail colour (plain when colour is off).
+# shellcheck disable=SC2329 # called from run_go_json, which run_suite invokes
+paint_go_output() {
+  local text="$1"
+  case "$text" in
+    "ok  "*) printf '%s%s' "$(paint ok 1 ok)" "${text#ok}" ;;
+    "FAIL"*) printf '%s%s' "$(paint fail 1 FAIL)" "${text#FAIL}" ;;
+    "--- FAIL"*) printf '%s%s' "$(paint fail 1 '--- FAIL')" "${text#--- FAIL}" ;;
+    *) printf '%s' "$text" ;;
+  esac
+}
+
+# paint_go_stream: go test's plain output, stdin to stdout, with "ok" in the ok colour and "FAIL" or "--- FAIL" in
+# the fail colour; a plain cat when colour is off.
+# shellcheck disable=SC2329 # used by run_go_plain
+paint_go_stream() {
+  if ! style_on 1; then
+    cat
+    return
+  fi
+  LC_ALL=C awk '
+    /^ok  / { sub(/^ok/, "\033[32mok\033[0m") }
+    /^FAIL/ { sub(/^FAIL/, "\033[1;31mFAIL\033[0m") }
+    /^--- FAIL/ { sub(/^--- FAIL/, "\033[1;31m--- FAIL\033[0m") }
+    { print; fflush() }'
+}
+
+# run_go_plain PKG: `go test PKG` with its output through paint_go_stream; returns go test's exit status.
+# shellcheck disable=SC2329 # invoked through run_suite
+run_go_plain() {
+  local pkg="$1"
+  go test "$pkg" "${go_args[@]}" 2>&1 | paint_go_stream
 }
 
 # run_go_json PKG: like `go test PKG`, but with -json; the output is re-rendered as plain test output
@@ -183,7 +218,7 @@ run_go_json() {
         [[ "$line" =~ \"Output\":\"(.*)\"\}$ ]] || continue
         json_unescape "${BASH_REMATCH[1]}"
         if [[ -z "$test" || $verbose -eq 1 ]]; then
-          printf '%s' "$unescaped"
+          paint_go_output "$unescaped"
         else
           printf '%s' "$unescaped" >>"$jd/$safe"
         fi
@@ -239,7 +274,7 @@ for pkg in ${go_suites[@]+"${go_suites[@]}"}; do
   if [[ $timings -eq 1 ]]; then
     run_suite "go:$pkg" run_go_json "$pkg"
   else
-    run_suite "go:$pkg" go test "$pkg" "${go_args[@]}"
+    run_suite "go:$pkg" run_go_plain "$pkg"
   fi
 done
 
@@ -252,10 +287,10 @@ done
 if [[ $timings -eq 1 ]]; then report_timings $(($(now_ms) - run_start)); fi
 
 if [[ ${#failed[@]} -eq 0 ]]; then
-  echo "TEST SUMMARY: all passed"
+  echo "$(paint heading 1 "TEST SUMMARY:") $(paint ok 1 "all passed")"
   exit 0
 fi
-echo "TEST SUMMARY: ${#failed[@]} failed: $(
+echo "$(paint heading 1 "TEST SUMMARY:") $(paint fail 1 "${#failed[@]} failed:") $(
   IFS=', '
   echo "${failed[*]}"
 )"

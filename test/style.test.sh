@@ -72,4 +72,13 @@ test_every_script_colours_its_help() {
   done
 }
 
+test_paint_follows_the_terminal_state_taken_at_source_time() {
+  local out
+  # paint runs inside $(...), where stdout is a pipe; the state taken when the file was sourced decides.
+  out="$(env -u NO_COLOR -u FORCE_COLOR bash -c 'source "$1"; STYLE_TTY_1=1; echo "$(paint ok 1 ok)"' _ "$PROJECT_ROOT/bin/lib/style.sh")"
+  assert_eq $'\033[32mok\033[0m' "$out" "a terminal on stdout paints inside \$(...)"
+  out="$(env -u NO_COLOR -u FORCE_COLOR bash -c 'source "$1"; echo "$(paint ok 1 ok)"' _ "$PROJECT_ROOT/bin/lib/style.sh")"
+  assert_eq "ok" "$out" "no terminal: plain"
+}
+
 run_tests "$@"

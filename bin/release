@@ -119,7 +119,7 @@ tag="v$version"
 # unreleased_body: the lines under "## [Unreleased]" up to the next "## [" heading.
 unreleased_body() { awk '/^## \[/ { if (on) exit; on = ($0 ~ /^## \[Unreleased\]/); next } on { print }' CHANGELOG.md; }
 
-step() { if [[ "$dry" == 1 ]]; then echo "[dry-run] would $*"; else echo "==> $*"; fi; }
+step() { if [[ "$dry" == 1 ]]; then echo "[dry-run] would $*"; else echo "$(paint heading 1 "==>") $*"; fi; }
 
 if [[ "$derived" == 1 ]]; then
   echo "Release $tag ($today); version derived from conventional commits (bin/changelog next)"

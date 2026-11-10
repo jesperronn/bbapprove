@@ -2,6 +2,7 @@ package app
 
 import (
 	"os"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -12,11 +13,15 @@ import (
 
 // onWindows rewrites what is Windows-specific in output (backslashes, %PATH%, OS error texts) to the
 // Unix form the recorded output uses. It is the identity on every other OS, so Unix comparisons are untouched.
+var quotedPlaceholder = regexp.MustCompile(`'(\$[A-Z]+[^']*)'`)
+
 func onWindows(s string) string {
 	if runtime.GOOS != "windows" {
 		return s
 	}
-	return strings.NewReplacer(`\`, "/", "%PATH%", "$PATH", "Incorrect function.", "is a directory").Replace(s)
+	s = strings.NewReplacer(`\`, "/", "%PATH%", "$PATH", "Incorrect function.", "is a directory").Replace(s)
+	// a Windows path contains characters that make the Unix hint quote it; the recorded text has none
+	return quotedPlaceholder.ReplaceAllString(s, "$1")
 }
 
 func TestMain(m *testing.M) {

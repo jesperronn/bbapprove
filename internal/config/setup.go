@@ -285,7 +285,7 @@ func createHintFor(goos string, t style.Theme, path string) string {
 			path[:max(strings.LastIndexAny(path, `/\`), 0)], path)
 	}
 	return t.Sprintf("  {cmd:mkdir -p} {path:%s} && {cmd:cp} bbapprove.config.template {path:%s}\n  (or: bbapprove {flag:--init}), then edit it.\n",
-		shellQuote(path[:max(strings.LastIndex(path, "/"), 0)]), shellQuote(path))
+		shellQuote(path[:max(strings.LastIndexAny(path, `/\`), 0)]), shellQuote(path))
 }
 
 func shellQuote(s string) string {

@@ -6,15 +6,19 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- `delete_source_branch` (default `true`; config file or `BBAPPROVE_DELETE_SOURCE_BRANCH`): after a successful merge the PR's source branch is deleted, unless it belongs to a fork or is the target. If the delete fails the merge still counts, and `--apply` and the TUI show a warning.
 - `bbapprove doctor` prints one line per area; every problem carries its fix on its own line and the last line only counts them. `bbapprove doctor -v` adds the lookup order, file mode, tool paths and environment, without printing any fact twice.
 - Maintainers: `bin/test --timings` prints the slowest shell suites, Go packages and Go tests and the total run time.
 - Maintainers: `bin/lint` checks shell formatting with shfmt when it is installed, and `bin/lint --autofix` rewrites it.
+- Maintainers: `bin/lint-commits` checks commit messages and PR text against the policy in AGENTS.md; `bin/changelog` derives the next version and the changelog section from conventional commits (docs/releasing.md).
 - Maintainers: `bin/demo` runs bbapprove on fictional PRs with no server, with `--help` per subcommand. `bin/demo regenerate` records the demo animation from a tmux session, draws it with `freeze` and a small Go program in `demo/cast2svg`, and writes the SVG screenshots with `freeze`; it needs only tmux, freeze and Go, and neither needs Homebrew.
 
 ### Fixed
 - The `?` help in the TUI wraps to the terminal width instead of cutting lines off, and leaves the list at least four rows on a short terminal.
+- Maintainers: `bin/lint` no longer prints `tr: Illegal byte sequence`, and `bin/test` prints durations with a dot in comma-decimal locales.
 
 ### Internal
+- A Go version of the Bitbucket adapter (`internal/forge/bitbucket`), checked against the same recorded behaviour as the bash one; it is not used yet. CI runs the Go tests on Windows as an informational job.
 - A fake Bitbucket Server (`internal/bbfake`) and golden characterization tests that pin the bash Bitbucket adapter's exact behaviour, as a safety net for porting it to Go.
 - Go tests share one fixed fake adapter and fake editor script per test binary instead of writing a script per test, and the parallel-apply test sleeps less; the Go suite runs about twice as fast.
 - Shell test suites use fixed, env-driven stubs under `test/fixtures` (git, gh, curl, go, recorders) instead of

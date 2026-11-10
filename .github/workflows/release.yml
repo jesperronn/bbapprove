@@ -32,29 +32,13 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      # Each archive is a self-contained tree: the binary finds adapters/ and bbapprove.config.toml in the parent
-      # of its own directory, and the launcher bin/bbapprove execs bin/bbapprove-go without rebuilding
-      # (no Go sources in the archive).
+      # bin/package builds the four tar.gz archives (binary, launcher, adapters/ and docs in one tree) and the
+      # Windows zip (bbapprove.exe and docs in one folder), then writes SHA256SUMS. `bbapprove --update` relies on
+      # these names.
       - name: Build archives
         env:
           TAG: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          mkdir -p dist
-          for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64; do
-            os="${target%/*}" arch="${target#*/}"
-            name="bbapprove-${TAG}-${os}-${arch}"
-            stage="$RUNNER_TEMP/stage/$name"
-            mkdir -p "$stage/bin" "$stage/adapters"
-            GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 BBAPPROVE_VERSION="$TAG" \
-              bin/build -o "$stage/bin/bbapprove-go"
-            cp bin/bbapprove "$stage/bin/bbapprove"
-            cp adapters/bitbucket "$stage/adapters/bitbucket"
-            cp bbapprove.config.template README.md CHANGELOG.md "$stage/"
-            [[ -f LICENSE ]] && cp LICENSE "$stage/"
-            tar -C "$RUNNER_TEMP/stage" -czf "dist/$name.tar.gz" "$name"
-          done
-          (cd dist && sha256sum -- *.tar.gz > SHA256SUMS && cat SHA256SUMS)
+        run: bin/package "$TAG" --out dist
 
       - name: Release notes
         env:

@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# package — build the release archives and SHA256SUMS for a tag (used by the Release workflow)
+#
+# See --help. Nothing is published; the output goes to a directory.
+
+set -euo pipefail
+
+# Resolve symlinks without readlink -f (not available on macOS).
+SELF="$0"
+while [[ -L "$SELF" ]]; do
+  target="$(readlink "$SELF")"
+  if [[ "$target" == /* ]]; then SELF="$target"; else SELF="$(dirname "$SELF")/$target"; fi
+done
+REPO="$(cd "$(dirname "$SELF")/.." && pwd)"
+
+TARGETS=(darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64)
+
+usage() {
+  cat <<'USAGE'
+Usage: bin/package TAG [--out DIR] [--only OS/ARCH ...]
+
+Cross-builds bbapprove for TAG and writes one archive per target plus SHA256SUMS into DIR (default dist).
+  darwin/arm64 darwin/amd64 linux/amd64 linux/arm64   bbapprove-TAG-OS-ARCH.tar.gz
+  windows/amd64                                       bbapprove-TAG-windows-amd64.zip
+
+The unix archives hold bin/bbapprove, bin/bbapprove-go, adapters/bitbucket and the docs. The Windows
+zip holds one folder with bbapprove.exe, bbapprove.config.template, README.md, CHANGELOG.md and LICENSE.
+Every archive is one top-level folder named like the archive without its extension.
+
+  --out DIR        output directory (default dist; created if needed)
+  --only OS/ARCH   build only this target; repeatable (default: all five)
+  -h, --help       this text
+
+Needs Go, tar, and zip (Windows target). Exit: 0 ok, 1 build failed, 2 usage error, 127 tool missing.
+USAGE
+}
+
+die_usage() {
+  echo "bbapprove: $1" >&2
+  usage >&2
+  exit 2
+}
+
+tag="" out="dist"
+only=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    --out)
+      [[ $# -ge 2 ]] || die_usage "--out needs a directory"
+      out="$2"
+      shift
+      ;;
+    --only)
+      [[ $# -ge 2 ]] || die_usage "--only needs OS/ARCH"
+      only+=("$2")
+      shift
+      ;;
+    -*) die_usage "unknown option: $1" ;;
+    *)
+      [[ -z "$tag" ]] || die_usage "unexpected argument: $1"
+      tag="$1"
+      ;;
+  esac
+  shift
+done
+[[ -n "$tag" ]] || die_usage "TAG is required"
+
+targets=("${TARGETS[@]}")
+if [[ ${#only[@]} -gt 0 ]]; then
+  for t in "${only[@]}"; do
+    known=0
+    for k in "${TARGETS[@]}"; do [[ "$k" == "$t" ]] && known=1; done
+    [[ "$known" == 1 ]] || die_usage "unknown target: $t (one of ${TARGETS[*]})"
+  done
+  targets=("${only[@]}")
+fi
+
+need() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "bbapprove: needs $1 ($2)" >&2
+    exit 127
+  }
+}
+need tar "install tar"
+for t in "${targets[@]}"; do
+  [[ "$t" == windows/* ]] && need zip "install zip, e.g. apt install zip or brew install zip"
+done
+
+if command -v sha256sum >/dev/null 2>&1; then
+  sha() { sha256sum -- "$@"; }
+elif command -v shasum >/dev/null 2>&1; then
+  sha() { shasum -a 256 -- "$@"; }
+else
+  echo "bbapprove: needs sha256sum or shasum" >&2
+  exit 127
+fi
+
+mkdir -p "$out"
+out="$(cd "$out" && pwd)"
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+
+for target in "${targets[@]}"; do
+  os="${target%/*}" arch="${target#*/}"
+  name="bbapprove-${tag}-${os}-${arch}"
+  stage="$work/$name"
+  if [[ "$os" == windows ]]; then
+    mkdir -p "$stage"
+    exe="$stage/bbapprove.exe"
+  else
+    mkdir -p "$stage/bin" "$stage/adapters"
+    exe="$stage/bin/bbapprove-go"
+  fi
+  GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 BBAPPROVE_VERSION="$tag" "$REPO/bin/build" -o "$exe"
+  cp "$REPO/bbapprove.config.template" "$REPO/README.md" "$REPO/CHANGELOG.md" "$stage/"
+  if [[ "$os" == windows ]]; then
+    cp "$REPO/LICENSE" "$stage/"
+    rm -f "$out/$name.zip"
+    (cd "$work" && zip -q -r -X "$out/$name.zip" "$name")
+  else
+    cp "$REPO/bin/bbapprove" "$stage/bin/bbapprove"
+    cp "$REPO/adapters/bitbucket" "$stage/adapters/bitbucket"
+    [[ -f "$REPO/LICENSE" ]] && cp "$REPO/LICENSE" "$stage/"
+    tar -C "$work" -czf "$out/$name.tar.gz" "$name"
+  fi
+  rm -rf "$stage"
+done
+
+(
+  cd "$out"
+  files=()
+  for f in bbapprove-"${tag}"-*.tar.gz bbapprove-"${tag}"-*.zip; do
+    [[ -f "$f" ]] && files+=("$f")
+  done
+  sha "${files[@]}" >SHA256SUMS
+  cat SHA256SUMS
+)

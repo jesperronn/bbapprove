@@ -10,7 +10,7 @@ What the GitHub Actions workflows and Dependabot do, and how to reproduce a runn
 
 ## Runner tools
 
-Both OSes need bash 4+ (`mapfile`), ripgrep (`rg`, used by `test/lib/bash_test.sh`), shellcheck (`bin/lint`) and jq. Linux installs them with apt. macOS installs `bash ripgrep shellcheck jq` with Homebrew and puts the Homebrew `bin` first on `PATH`, because `/usr/bin/env bash` would otherwise find macOS bash 3.2. `bin/setup --check` verifies the same list locally.
+Both OSes need bash 4+ (`mapfile`), ripgrep (`rg`, used by `test/lib/bash_test.sh`), shellcheck and shfmt (`bin/lint`, which skips shfmt when it is missing, so CI installs it to keep formatting enforced) and jq. Linux installs them with apt. macOS installs `bash ripgrep shellcheck shfmt jq` with Homebrew and puts the Homebrew `bin` first on `PATH`, because `/usr/bin/env bash` would otherwise find macOS bash 3.2. `bin/setup --check` verifies the same list locally (shfmt is reported as optional there).
 
 ## SHA pinning
 
@@ -20,7 +20,7 @@ Actions are pinned by full commit SHA with the tag in a trailing comment (`uses:
 
 ```
 podman run --rm -it -v "$PWD":/src:Z -w /src docker.io/library/golang:1.27 bash -c '
-  apt-get update && apt-get install -y --no-install-recommends ripgrep shellcheck jq git &&
+  apt-get update && apt-get install -y --no-install-recommends ripgrep shellcheck shfmt jq git &&
   git config --global --add safe.directory /src && bin/lint && bin/test'
 ```
 

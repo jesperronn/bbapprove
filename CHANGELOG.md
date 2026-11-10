@@ -14,6 +14,7 @@ All notable changes to this project are documented here. The format follows
 - `bbapprove --update` works for the Windows release zip: it replaces the files in the folder holding `bbapprove.exe`, keeps the previous exe as `bbapprove.exe.old`, restores everything if a step fails and never touches your config.
 - The TUI opens a PR (`o`) with the system default browser on Windows (`rundll32 url.dll,FileProtocolHandler`), `open` on macOS and `xdg-open` elsewhere.
 - Releases include a Windows zip, `bbapprove-<tag>-windows-amd64.zip`, with `bbapprove.exe` and the docs, listed in `SHA256SUMS`. The README explains the PowerShell install.
+- Maintainers: CI installs shfmt so `bin/lint` enforces shell formatting, and the Windows Go job now blocks merging.
 - Maintainers: `bin/package` builds the release archives and `SHA256SUMS` locally, and the Release workflow now uses it.
 
 ### Fixed

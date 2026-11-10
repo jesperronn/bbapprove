@@ -20,7 +20,7 @@ usage() {
   cat <<'USAGE'
 Usage: bin/setup [--check]
 
-Verifies go (at least the version in go.mod), git, jq, shellcheck and rg (required) and gh, podman
+Verifies go (at least the version in go.mod), git, jq, shellcheck and rg (required) and shfmt, gh, podman
 (optional), then runs `go mod download` and bin/build. Safe to re-run.
   --check      only verify the tools; exit 1 when a required one is missing
   -h, --help   this text
@@ -75,6 +75,7 @@ check_tool git 1 git
 check_tool jq 1 jq
 check_tool shellcheck 1 shellcheck
 check_tool rg 1 ripgrep ripgrep
+check_tool shfmt 0 shfmt
 check_tool gh 0 gh
 check_tool podman 0 podman
 

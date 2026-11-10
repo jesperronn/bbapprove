@@ -41,6 +41,7 @@ test_check_passes_without_side_effects() {
   capture_command OUT RC env PATH="$TOOLS" "$REPO/bin/setup" --check
   assert_status 0 "$RC" "--check exits 0 when all required tools exist"
   assert_contains "$OUT" "ok       rg" "rg is reported ok"
+  assert_contains "$OUT" "optional shfmt not found" "missing shfmt is only optional"
   assert_contains "$OUT" "optional gh not found" "missing gh is only optional"
   assert_contains "$OUT" "optional podman not found" "missing podman is only optional"
   assert_contains "$OUT" "go 1.22.3 (go.mod needs 1.21)" "go version is compared with go.mod"

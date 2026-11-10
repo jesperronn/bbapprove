@@ -68,13 +68,11 @@ jobs:
       - name: Test
         run: bin/test
 
-  # Informational: lists what breaks on Windows before porting. Remove continue-on-error once this job is
-  # green and the Windows work is done, so a failure blocks merging again.
+  # Blocking: the Go packages build, vet and pass their tests on Windows, so a failure here blocks merging.
   go-windows:
     name: go tests (windows-latest)
     runs-on: windows-latest
     timeout-minutes: 20
-    continue-on-error: true
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -90,15 +88,12 @@ jobs:
 
       - name: Build
         shell: bash
-        continue-on-error: true
         run: go build ./...
 
       - name: Vet
         shell: bash
-        continue-on-error: true
         run: go vet ./...
 
       - name: Test
         shell: bash
-        continue-on-error: true
         run: go test -count=1 ./...

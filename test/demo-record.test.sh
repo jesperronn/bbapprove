@@ -18,9 +18,10 @@ cleanup_test_tmp() {
 # tools costs about 0.2 s, too much to repeat per test. It is read-only for the tests.
 SUITE_TMP="$(mktemp -d)"
 make_tool_dir "$SUITE_TMP/basic" awk mv
+REC_TMP=""
 cleanup_suite_tmp() {
   cleanup_test_tmp
-  rm -rf "$SUITE_TMP"
+  rm -rf "$SUITE_TMP" "$REC_TMP"
 }
 trap 'cleanup_suite_tmp' EXIT
 # Each test runs in its own subshell when run in parallel (see the end of the file), which does not inherit the trap.
@@ -61,6 +62,25 @@ write_stubs() {
 # Canned pane: the TUI's header, a row, and the "Pane is dead" line that tmux adds after the demo quits.
 canned_pane() {
   export STUB_TMUX_OUT=$'  \033[2mSTATUS       PR   TITLE\033[0m\n\033[48;5;237m\xe2\x80\xba              \033[32m\xe2\x9c\x93\033[39m ACME/shop#102\nPane is dead (status 0)'
+}
+
+# One successful recording (canned pane, an existing demo state file) shared by the tests that only read what it
+# left behind: every record run costs about half a second, and these four tests do not need a run of their own.
+# It runs before the tests start, so parallel tests inherit the result. REC_OUT, REC_RC, REC_CALLS and REC_NPX
+# hold its stderr, status, stub log and npx log; REC_DIR is its output directory (demo.cast, demo.svg).
+shared_record_run() {
+  setup_tmp
+  canned_pane
+  write_stubs
+  printf 'approved 101\n' >"$BBAPPROVE_DEMO_STATE"
+  capture_command REC_OUT REC_RC env PATH="$TEST_TMP/stubs:$SUITE_TMP/basic" "$DEMO" record
+  REC_CALLS="$(cat "$STUB_LOG")"
+  REC_NPX="$(cat "$NPX_LOG")"
+  REC_DIR="$DEMO_OUT_DIR"
+  REC_FREEZE="$TEST_TMP/stubs/freeze"
+  REC_STATE="$BBAPPROVE_DEMO_STATE"
+  REC_TMP="$TEST_TMP"
+  TEST_TMP=""
 }
 
 test_record_without_tmux_hints_and_exits_127() {
@@ -109,33 +129,24 @@ test_shots_without_freeze_hints_and_exits_127() {
 }
 
 test_record_drives_tmux_and_renders_with_cast2svg() {
-  setup_tmp
-  canned_pane
-  write_stubs
-  local out rc calls
-  capture_command out rc env PATH="$TEST_TMP/stubs:$SUITE_TMP/basic" "$DEMO" record
-  assert_status 0 "$rc" "record exits 0 when the stubs succeed"
-  calls="$(cat "$STUB_LOG")"
+  local calls="$REC_CALLS"
+  assert_status 0 "$REC_RC" "record exits 0 when the stubs succeed"
   assert_contains "$calls" "new-session" "record starts a detached tmux session"
   assert_contains "$calls" "send-keys" "record sends the scripted keys"
   assert_contains "$calls" "capture-pane" "record captures the pane"
   assert_contains "$calls" "kill-server" "record stops its tmux server"
   assert_contains "$calls" "go build -o" "record builds cast2svg"
-  assert_contains "$calls" "cast2svg --in $DEMO_OUT_DIR/demo.cast --out $DEMO_OUT_DIR/demo.svg --freeze $TEST_TMP/stubs/freeze" \
+  assert_contains "$calls" "cast2svg --in $REC_DIR/demo.cast --out $REC_DIR/demo.svg --freeze $REC_FREEZE" \
     "record renders with cast2svg and the freeze on PATH"
-  assert_eq "" "$(cat "$NPX_LOG")" "record never calls npx"
-  assert_eq "yes" "$([[ -f "$DEMO_OUT_DIR/demo.svg" ]] && echo yes || echo no)" "record writes demo.svg"
-  assert_eq "yes" "$([[ -f "$DEMO_OUT_DIR/demo.cast" ]] && echo yes || echo no)" "record writes demo.cast"
+  assert_eq "" "$REC_NPX" "record never calls npx"
+  assert_eq "yes" "$([[ -f "$REC_DIR/demo.svg" ]] && echo yes || echo no)" "record writes demo.svg"
+  assert_eq "yes" "$([[ -f "$REC_DIR/demo.cast" ]] && echo yes || echo no)" "record writes demo.cast"
 }
 
 test_record_cast_has_valid_header_and_events() {
-  setup_tmp
-  canned_pane
-  write_stubs
   local out rc cast
-  capture_command out rc env PATH="$TEST_TMP/stubs:$SUITE_TMP/basic" "$DEMO" record
-  assert_status 0 "$rc" "record exits 0 for the cast check"
-  cast="$DEMO_OUT_DIR/demo.cast"
+  assert_status 0 "$REC_RC" "record exits 0 for the cast check"
+  cast="$REC_DIR/demo.cast"
   capture_command out rc python3 -I -c '
 import json, sys
 lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
@@ -153,14 +164,8 @@ print(len(events))
 }
 
 test_record_leaves_the_demo_state_file_alone() {
-  setup_tmp
-  canned_pane
-  write_stubs
-  printf 'approved 101\n' >"$BBAPPROVE_DEMO_STATE"
-  local out rc
-  capture_command out rc env PATH="$TEST_TMP/stubs:$SUITE_TMP/basic" "$DEMO" record
-  assert_status 0 "$rc" "record exits 0 with an existing state file"
-  assert_eq "approved 101" "$(cat "$BBAPPROVE_DEMO_STATE")" "record uses its own state, not the demo's"
+  assert_status 0 "$REC_RC" "record exits 0 with an existing state file"
+  assert_eq "approved 101" "$(cat "$REC_STATE")" "record uses its own state, not the demo's"
 }
 
 test_shots_runs_freeze_three_times() {
@@ -199,15 +204,11 @@ test_shipped_shots_have_a_monospace_fallback() {
 }
 
 test_record_reports_progress_on_stderr() {
-  setup_tmp
-  canned_pane
-  write_stubs
-  local out rc
-  capture_command out rc env PATH="$TEST_TMP/stubs:$SUITE_TMP/basic" "$DEMO" record
-  assert_status 0 "$rc" "record exits 0 for the progress check"
+  local out="$REC_OUT"
+  assert_status 0 "$REC_RC" "record exits 0 for the progress check"
   assert_contains "$out" "recording 4 steps, about 9 s" "record says how long the recording takes"
-  assert_contains "$out" "rendering $DEMO_OUT_DIR/demo.svg from 1 frames" "record says it is rendering"
-  assert_contains "$out" "wrote $DEMO_OUT_DIR/demo.cast and $DEMO_OUT_DIR/demo.svg" "record says what it wrote"
+  assert_contains "$out" "rendering $REC_DIR/demo.svg from 1 frames" "record says it is rendering"
+  assert_contains "$out" "wrote $REC_DIR/demo.cast and $REC_DIR/demo.svg" "record says what it wrote"
 }
 
 test_record_refuses_a_frame_that_shows_a_local_path() {
@@ -274,4 +275,5 @@ test_build_embeds_a_fixed_version() {
 
 # Tests share no state (each has its own temp dir and stubs), so they run in parallel; BASH_TEST_JOBS=1 runs them serially.
 BASH_TEST_JOBS="${BASH_TEST_JOBS:-4}"
+shared_record_run
 run_tests "$@"

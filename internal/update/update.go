@@ -71,6 +71,7 @@ type Options struct {
 	GOOS        string           // defaults to runtime.GOOS (set by the caller)
 	GOARCH      string
 	InstallRoot string        // the running install: parent of the binary's directory, symlinks resolved
+	ExeDir      string        // Windows: the folder holding the running bbapprove.exe; defaults to the running executable's
 	Version     string        // the embedded build version
 	Slug        string        // owner/repo, default DefaultSlug
 	PathEnv     string        // $PATH, to find an installed symlink; defaults to os.Getenv("PATH")
@@ -81,6 +82,8 @@ type Options struct {
 	// OutTheme paints what goes to Stdout, ErrTheme what goes to Stderr. The zero value is plain text; each
 	// stream has its own theme because only one of them may be a terminal.
 	OutTheme, ErrTheme style.Theme
+
+	rename func(oldpath, newpath string) error // tests inject failures; defaults to os.Rename
 }
 
 // outln and errln print markup (see package style) with escaped arguments to the respective stream.

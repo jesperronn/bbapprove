@@ -26,10 +26,13 @@ import (
 // provenance / attestation verification is future work.
 
 // AssetName is the release asset for a platform. Only the platforms the release workflow builds are
-// supported.
+// supported. Windows has one build (amd64, also used on arm64) and ships as a zip; the rest as tar.gz.
 func AssetName(tag, goos, goarch string) (string, error) {
+	if goos == "windows" && (goarch == "amd64" || goarch == "arm64") {
+		return fmt.Sprintf("bbapprove-%s-windows-amd64.zip", tag), nil
+	}
 	if (goos != "darwin" && goos != "linux") || (goarch != "amd64" && goarch != "arm64") {
-		return "", fmt.Errorf("unsupported platform %s/%s: releases are built for darwin and linux on amd64 and arm64 only", goos, goarch)
+		return "", fmt.Errorf("unsupported platform %s/%s: releases are built for darwin and linux on amd64 and arm64, and windows on amd64 only", goos, goarch)
 	}
 	return fmt.Sprintf("bbapprove-%s-%s-%s.tar.gz", tag, goos, goarch), nil
 }
@@ -46,6 +49,9 @@ func (o Options) updateArchive(ctx context.Context, res *Result) int {
 	if err != nil {
 		o.failln("%v", err)
 		return 2
+	}
+	if o.GOOS == "windows" {
+		return o.updateWindows(ctx, res, asset)
 	}
 	oldRoot := o.InstallRoot
 	parent := filepath.Dir(oldRoot)
@@ -175,6 +181,10 @@ func notes(body string) string {
 
 // manualSteps explains how to do the archive update by hand when gh is not available.
 func (o Options) manualSteps(tag string) {
+	if o.GOOS == "windows" {
+		o.manualStepsWindows(tag)
+		return
+	}
 	asset := "bbapprove-" + tag + "-<os>-<arch>.tar.gz"
 	if a, err := AssetName(tag, o.GOOS, o.GOARCH); err == nil {
 		asset = a
@@ -188,6 +198,29 @@ The GitHub CLI ({cmd:gh}) is not installed, so bbapprove cannot download the rel
   5. switch by re-pointing your bbapprove symlink to {path:<new>/bin/bbapprove}; keep the old tree for rollback
 Or install gh ({path:https://cli.github.com}), run `+"`{cmd:gh auth login}`"+` and re-run bbapprove {flag:--update}.`,
 		o.releasesURL(), tag, asset, asset, o.InstallRoot)
+}
+
+// manualStepsWindows is manualSteps for the zip release, with PowerShell commands.
+func (o Options) manualStepsWindows(tag string) {
+	asset, _ := AssetName(tag, "windows", "amd64")
+	o.outln(`
+The GitHub CLI ({cmd:gh}) is not installed, so bbapprove cannot download the release for you. In PowerShell:
+  1. open {path:%s/latest} and note the tag (%s)
+  2. download into an empty folder:  {cmd:gh release download %s --repo %s -p %s -p SHA256SUMS}
+     (or download both files from the release page)
+  3. verify:  {cmd:(Get-FileHash %s -Algorithm SHA256).Hash}   must equal the line for %s in SHA256SUMS
+  4. extract: {cmd:Expand-Archive %s -DestinationPath .}   (creates a new folder; do not unpack over the current install)
+  5. close bbapprove, then rename {path:%s\%s} to {path:%s%s} and copy the new {path:%s} from the new folder into {path:%s}
+Your config in {path:%%AppData%%\bbapprove} is not part of the install folder and stays as it is.
+Or install gh ({path:https://cli.github.com}), run `+"`{cmd:gh auth login}`"+` and re-run bbapprove {flag:--update}.`,
+		o.releasesURL(), tag, tag, o.Slug, asset, asset, asset, asset, o.windowsDirText(), exeName, exeName, oldSuffix, exeName, o.windowsDirText())
+}
+
+func (o Options) windowsDirText() string {
+	if d, err := o.installDir(); err == nil {
+		return d
+	}
+	return "<your bbapprove folder>"
 }
 
 // printSwitch tells where the new tree is and how to switch to it and back. It never switches itself.

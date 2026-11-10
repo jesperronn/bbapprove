@@ -148,7 +148,7 @@ func TestAssetName(t *testing.T) {
 	if a, err := AssetName("v1.0.0-rc.3", "linux", "amd64"); err != nil || a != "bbapprove-v1.0.0-rc.3-linux-amd64.tar.gz" {
 		t.Errorf("%q %v", a, err)
 	}
-	for _, p := range [][2]string{{"windows", "amd64"}, {"darwin", "386"}, {"freebsd", "arm64"}, {"linux", "riscv64"}} {
+	for _, p := range [][2]string{{"windows", "386"}, {"darwin", "386"}, {"freebsd", "arm64"}, {"linux", "riscv64"}} {
 		if _, err := AssetName("v1", p[0], p[1]); err == nil || !strings.Contains(err.Error(), "unsupported platform") {
 			t.Errorf("%v: %v", p, err)
 		}
@@ -369,8 +369,8 @@ func TestUpdateArchiveAborts(t *testing.T) {
 
 func TestUpdateArchiveUnsupportedPlatform(t *testing.T) {
 	ac := newArchive(t)
-	ac.h.o.GOOS = "windows"
-	if code := Update(context.Background(), ac.h.o); code != 2 || !strings.Contains(ac.h.errOut.String(), "unsupported platform windows/arm64") {
+	ac.h.o.GOOS = "freebsd"
+	if code := Update(context.Background(), ac.h.o); code != 2 || !strings.Contains(ac.h.errOut.String(), "unsupported platform freebsd/arm64") {
 		t.Errorf("exit %d err %q", code, ac.h.errOut)
 	}
 	if ac.h.r.called("gh release download") {

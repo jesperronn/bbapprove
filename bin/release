@@ -11,7 +11,9 @@
 # -> commit "docs: changelog for VERSION" -> tag vVERSION -> confirm -> push main and the tag
 # -> gh run watch -> print the release URL.
 # Exit: 0 released (or dry run), 1 failed or declined, 2 usage error, 127 tool missing.
-# Env: RELEASE_DATE (default today), RELEASE_RUN_WAIT_SECONDS (default 5; wait between looking for the run).
+# Env: RELEASE_DATE (default today), BBAPPROVE_RELEASE_RUN_WAIT_SECONDS (default 60; how long to look for
+#      the Release workflow run after the push), BBAPPROVE_RELEASE_RUN_POLL_SECONDS (default 3; pause between
+#      looks, at least 1). Set the wait to 0 to look once.
 
 set -euo pipefail
 
@@ -84,6 +86,10 @@ if [[ ! "$version" =~ $semver ]]; then
 fi
 tag="v$version"
 today="${RELEASE_DATE:-$(date +%F)}"
+wait_s="${BBAPPROVE_RELEASE_RUN_WAIT_SECONDS:-60}"
+poll_s="${BBAPPROVE_RELEASE_RUN_POLL_SECONDS:-3}"
+[[ "$wait_s" =~ ^[0-9]+$ ]] || die "BBAPPROVE_RELEASE_RUN_WAIT_SECONDS must be a whole number of seconds"
+[[ "$poll_s" =~ ^[1-9][0-9]*$ ]] || die "BBAPPROVE_RELEASE_RUN_POLL_SECONDS must be a whole number of seconds, at least 1"
 
 need_tool git git
 need_tool gh gh
@@ -188,14 +194,63 @@ step "git push --atomic origin main $tag"
 git push --atomic origin main "refs/tags/$tag"
 
 # --- watch the workflow ---
-wait_s="${RELEASE_RUN_WAIT_SECONDS:-5}"
-run_id=""
-for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
-  run_id="$(gh run list --workflow Release --branch "$tag" --limit 1 --json databaseId --jq '.[0].databaseId // empty' 2>/dev/null || true)"
-  [[ -n "$run_id" ]] && break
-  sleep "$wait_s"
+# lookup_release_run: one `gh run list` for the tag. Sets run_id (empty when none), lookup_rc and lookup_err
+# (gh's stderr of this look). A failing look keeps polling like an empty one; the last one is reported.
+lookup_release_run() {
+  local err_file out
+  err_file="$(mktemp)"
+  if out="$(gh run list --workflow Release --branch "$tag" --limit 1 --json databaseId --jq '.[0].databaseId // empty' 2>"$err_file")"; then
+    lookup_rc=0
+  else
+    lookup_rc=$?
+    out=""
+  fi
+  lookup_err="$(cat "$err_file")"
+  rm -f "$err_file"
+  run_id="$out"
+}
+
+# actions_url: the repository's Actions page, from the origin URL (git@host:path or https://host/path).
+actions_url() {
+  local remote host path
+  remote="$(git remote get-url origin 2>/dev/null || true)"
+  remote="${remote%.git}"
+  case "$remote" in
+    git@*:*)
+      host="${remote#git@}"
+      host="${host%%:*}"
+      path="${remote#*:}"
+      ;;
+    https://*/* | http://*/*)
+      host="${remote#*://}"
+      path="${host#*/}"
+      host="${host%%/*}"
+      ;;
+    *) return 1 ;;
+  esac
+  echo "https://$host/$path/actions"
+}
+
+lookup_release_run
+polls_left=$((wait_s / poll_s))
+if [[ -z "$run_id" && "$polls_left" -gt 0 ]]; then echo "waiting for the Release workflow run to appear"; fi
+while [[ -z "$run_id" && "$polls_left" -gt 0 ]]; do
+  sleep "$poll_s"
+  polls_left=$((polls_left - 1))
+  lookup_release_run
 done
-[[ -n "$run_id" ]] || die "pushed $tag, but no Release workflow run appeared; check the Actions tab"
+if [[ -z "$run_id" ]]; then
+  if [[ "$lookup_rc" == 0 ]]; then
+    why="the last \`gh run list\` exited 0 with no run"
+  else
+    why="the last \`gh run list\` exited $lookup_rc: ${lookup_err:-(no output)}"
+  fi
+  msg="pushed $tag, but no Release workflow run appeared after $wait_s s; $why"
+  msg+=$'\n'"  by hand: gh run list --workflow Release --branch $tag"
+  actions="$(actions_url || true)"
+  msg+=$'\n'"  Actions: ${actions:-the Actions tab of the repository}"
+  die "$msg"
+fi
 step "gh run watch $run_id"
 if ! gh run watch "$run_id" --exit-status; then
   die "the Release workflow failed (run $run_id); see: gh run view $run_id --log-failed"

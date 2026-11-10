@@ -59,12 +59,12 @@ setup_fixture() {
   CALLS="$TEST_TMP/calls.log"
   export STUB_LOG="$CALLS" STUB_GIT_REAL="$REAL_GIT" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
   export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.test GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.test
-  export RELEASE_DATE=2026-02-03 RELEASE_RUN_WAIT_SECONDS=0
-  unset STUB_LINT_RC STUB_TEST_RC STUB_GH_AUTH_RC STUB_GH_WATCH_RC
+  export RELEASE_DATE=2026-02-03 BBAPPROVE_RELEASE_RUN_WAIT_SECONDS=0 BBAPPROVE_RELEASE_RUN_POLL_SECONDS=1
+  unset STUB_LINT_RC STUB_TEST_RC STUB_GH_AUTH_RC STUB_GH_WATCH_RC STUB_GH_RUN_APPEARS_ON STUB_GH_RUN_LIST_ERR
   if [[ -z "$TPL" ]]; then
     TPL="$(mktemp -d)"
     STUBS="$TPL/stubs"
-    use_stubs "$STUBS" git gh
+    use_stubs "$STUBS" git gh noop=sleep
     mkdir -p "$TPL/work/bin"
     cp "$PROJECT_ROOT/bin/release" "$PROJECT_ROOT/bin/release-notes" "$TPL/work/bin/"
     use_stubs "$TPL/work/bin" recorder=lint recorder=test
@@ -306,6 +306,62 @@ test_failing_workflow_exits_nonzero() {
   assert_status 1 "$RC" "failed workflow exits 1"
   assert_contains "$OUT" "the Release workflow failed (run 42)" "message names the run"
   assert_eq "" "$(grep '^gh release view' "$CALLS" || true)" "no URL is printed as success"
+}
+
+test_run_appearing_on_third_look_continues() {
+  setup_fixture
+  BBAPPROVE_RELEASE_RUN_WAIT_SECONDS=2 BBAPPROVE_RELEASE_RUN_POLL_SECONDS=1 STUB_GH_RUN_APPEARS_ON=3 run_release "" --yes 1.0.0
+  assert_status 0 "$RC" "run found on the third look: release succeeds"
+  assert_eq "3" "$(cat "$CALLS.runlist")" "looked for the run three times"
+  assert_eq "1" "$(grep -c 'waiting for the Release workflow run to appear' <<<"$OUT")" "progress note is printed once"
+  assert_contains "$(cat "$CALLS")" "gh run watch 42" "the run found on the third look is watched"
+  assert_contains "$OUT" "Released v1.0.0: https://example.test/releases/v1.0.0" "URL is printed"
+}
+
+test_run_found_at_once_prints_no_wait_note() {
+  setup_fixture
+  STUB_GH_RUN_APPEARS_ON=1 run_release "" --yes 1.0.0
+  assert_status 0 "$RC" "run found on the first look: release succeeds"
+  assert_eq "" "$(grep 'waiting for the Release workflow run' <<<"$OUT" || true)" "no progress note"
+  assert_eq "1" "$(cat "$CALLS.runlist")" "looked once"
+}
+
+test_run_never_appearing_gives_up_after_the_wait() {
+  setup_fixture
+  BBAPPROVE_RELEASE_RUN_WAIT_SECONDS=2 BBAPPROVE_RELEASE_RUN_POLL_SECONDS=1 STUB_GH_RUN_APPEARS_ON=99 run_release "" --yes 1.0.0
+  assert_status 1 "$RC" "run never appears: exits 1"
+  assert_contains "$OUT" "pushed v1.0.0, but no Release workflow run appeared after 2 s; the last \`gh run list\` exited 0 with no run" "says the lookup succeeded but found nothing"
+  assert_contains "$OUT" "by hand: gh run list --workflow Release --branch v1.0.0" "gives the command to look by hand"
+  assert_contains "$OUT" "Actions: the Actions tab of the repository" "falls back when the origin URL is a local path"
+  assert_eq "3" "$(cat "$CALLS.runlist")" "one look plus two polls within the wait"
+  assert_eq "" "$(grep '^gh run watch' "$CALLS" || true)" "nothing is watched"
+  assert_eq "" "$(grep '^gh release view' "$CALLS" || true)" "no URL is printed"
+}
+
+test_run_list_errors_are_reported_and_polling_continues() {
+  setup_fixture
+  BBAPPROVE_RELEASE_RUN_WAIT_SECONDS=2 BBAPPROVE_RELEASE_RUN_POLL_SECONDS=1 STUB_GH_RUN_LIST_ERR="HTTP 503: try again later" run_release "" --yes 1.0.0
+  assert_status 1 "$RC" "failing lookups exit 1"
+  assert_eq "3" "$(cat "$CALLS.runlist")" "a failing look is polled again until the wait is used up"
+  assert_contains "$OUT" "the last \`gh run list\` exited 1: HTTP 503: try again later" "the last gh error is in the message"
+  assert_contains "$OUT" "by hand: gh run list --workflow Release --branch v1.0.0" "gives the command to look by hand"
+  assert_eq "" "$(grep '^gh run watch' "$CALLS" || true)" "nothing is watched"
+}
+
+test_run_found_on_second_look_succeeds() {
+  setup_fixture
+  BBAPPROVE_RELEASE_RUN_WAIT_SECONDS=2 BBAPPROVE_RELEASE_RUN_POLL_SECONDS=1 STUB_GH_RUN_APPEARS_ON=2 run_release "" --yes 1.0.0
+  assert_status 0 "$RC" "a run found after an empty look succeeds"
+  assert_eq "2" "$(cat "$CALLS.runlist")" "looked twice"
+  assert_eq "" "$(grep 'exited' <<<"$OUT" || true)" "no failure note on a release that succeeds"
+}
+
+test_run_never_appearing_with_zero_wait_looks_once() {
+  setup_fixture
+  STUB_GH_RUN_APPEARS_ON=99 run_release "" --yes 1.0.0
+  assert_status 1 "$RC" "zero wait: exits 1 without waiting"
+  assert_eq "1" "$(cat "$CALLS.runlist")" "looked once"
+  assert_eq "" "$(grep 'waiting for the Release workflow run' <<<"$OUT" || true)" "no progress note"
 }
 
 run_tests "$@"

@@ -1,8 +1,19 @@
 #!/usr/bin/env bash
 # gh stub: STUB_GH_AUTH_RC / STUB_GH_WATCH_RC set the exit codes of `auth status` / `run watch`; logs to $STUB_LOG.
+# `run list` counts its calls in $STUB_LOG.runlist. STUB_GH_RUN_APPEARS_ON=N: no run until the Nth call
+# (unset: run 42 every time). STUB_GH_RUN_LIST_ERR=TEXT: every call writes TEXT to stderr and exits 1.
 case "${1:-} ${2:-}" in
   "auth status") exit "${STUB_GH_AUTH_RC:-0}" ;;
-  "run list") echo 42 ;;
+  "run list")
+    count_file="${STUB_LOG}.runlist"
+    n=$(($(cat "$count_file" 2>/dev/null || echo 0) + 1))
+    echo "$n" >"$count_file"
+    if [[ -n "${STUB_GH_RUN_LIST_ERR:-}" ]]; then
+      echo "$STUB_GH_RUN_LIST_ERR" >&2
+      exit 1
+    fi
+    if [[ -z "${STUB_GH_RUN_APPEARS_ON:-}" ]] || ((n >= STUB_GH_RUN_APPEARS_ON)); then echo 42; fi
+    ;;
   "run watch")
     echo "gh run watch $3" >>"$STUB_LOG"
     exit "${STUB_GH_WATCH_RC:-0}"

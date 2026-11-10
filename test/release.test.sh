@@ -69,7 +69,7 @@ build_template() {
   "$REAL_GIT" init -q --template= -b main "$TPL/work"
   "$REAL_GIT" init -q --bare --template= -b main "$TPL/origin.git"
   "$REAL_GIT" -C "$TPL/work" add -A
-  "$REAL_GIT" -C "$TPL/work" commit -q -m initial
+  "$REAL_GIT" -C "$TPL/work" -c user.name=t -c user.email=t@example.test commit -q -m initial
   "$REAL_GIT" -C "$TPL/work" remote add origin "$TPL/origin.git"
   "$REAL_GIT" -C "$TPL/work" push -q -u origin main
 }

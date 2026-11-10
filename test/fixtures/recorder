@@ -5,8 +5,10 @@
 # $STUB_<NAME>_LABEL replaces the logged name (and the "bin/" prefix).
 name="${0##*/}"
 label="$name"
-[[ "$(basename "$(dirname "$0")")" == bin ]] && label="bin/$name"
-var="$(printf '%s' "$name" | tr 'a-z-' 'A-Z_')"
+dir="${0%/*}"
+[[ "${dir##*/}" == bin ]] && label="bin/$name"
+var="${name^^}"
+var="${var//-/_}"
 lab="STUB_${var}_LABEL"
 echo "${!lab:-$label} $*" >>"$STUB_LOG"
 out="STUB_${var}_OUT" rc="STUB_${var}_RC"

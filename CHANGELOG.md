@@ -10,6 +10,9 @@ All notable changes to this project are documented here. The format follows
 - Maintainers: `bin/test --timings` prints the slowest shell suites, Go packages and Go tests and the total run time.
 - Maintainers: `bin/demo` runs bbapprove on fictional PRs with no server, and records the demo GIF (`vhs`) or SVG screenshots (`freeze`).
 
+### Fixed
+- The `?` help in the TUI wraps to the terminal width instead of cutting lines off, and leaves the list at least four rows on a short terminal.
+
 ### Internal
 - A fake Bitbucket Server (`internal/bbfake`) and golden characterization tests that pin the bash Bitbucket adapter's exact behaviour, as a safety net for porting it to Go.
 - Go tests share one fixed fake adapter and fake editor script per test binary instead of writing a script per test, and the parallel-apply test sleeps less; the Go suite runs about twice as fast.

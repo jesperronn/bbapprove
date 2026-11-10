@@ -294,23 +294,59 @@ func (m *Model) clamp() {
 	}
 }
 
-// helpArea is the extended help shown above the two status lines while `?` is on.
+// helpParagraph is one block of the extended help; hang is the indent of its wrapped continuation lines.
+type helpParagraph struct {
+	text string
+	hang int
+}
+
+var helpParagraphs = []helpParagraph{
+	{"↑/↓ j/k move   x/space mark   ctrl+a mark all eligible   u clear marks   r reload   . or h ignored", 2},
+	{"a approve+merge  d decline  c comment  i ignore  o open: instant, on the cursor row only", 2},
+	{"A D C: approve (eligible only) / decline / comment ALL MARKED rows; no marks = nothing; marks are cleared afterwards. Mouse: click row = cursor, left edge = mark, click the URL at the bottom = open, wheel = scroll, hover.", 0},
+	{"Hints: instant  a approve  d decline  c comment  i ignore  x mark  o open  ? help  q quit", 2},
+	{"Hints: batch    A approve marked  D decline marked  C comment marked  ctrl+a mark all  x mark  o open", 2},
+	{"The hint line shows the batch set while Shift is held (terminals with the kitty keyboard protocol).", 0},
+	{"Mouse capture disables native text selection and cmd-click on links; hold Shift to bypass it (Ghostty, iTerm2, kitty). Off with --no-mouse or BBAPPROVE_MOUSE=0.", 0},
+}
+
+// minListRows is how many list rows the help may never take away on a short terminal.
+const minListRows = 4
+
+// helpArea is the extended help shown above the two status lines while `?` is on, word-wrapped to
+// the terminal width. On a short terminal its tail is clipped so the list keeps minListRows rows.
 func (m *Model) helpArea() []string {
 	if !m.showHelp {
 		return nil
 	}
-	return []string{
-		"↑/↓ j/k move   x/space mark   ctrl+a mark all eligible   u clear marks   r reload   . or h ignored",
-		"a approve+merge  d decline  c comment  i ignore  o open: instant, on the cursor row only",
-		"A D C: approve (eligible only) / decline / comment ALL MARKED rows; no marks = nothing; marks",
-		"are cleared afterwards. Mouse: click row = cursor, left edge = mark, click the URL at the bottom = open,",
-		"wheel = scroll, hover.",
-		"Hints: instant  a approve  d decline  c comment  i ignore  x mark  o open  ? help  q quit",
-		"Hints: batch    A approve marked  D decline marked  C comment marked  ctrl+a mark all  x mark  o open",
-		"The hint line shows the batch set while Shift is held (terminals with the kitty keyboard protocol).",
-		"Mouse capture disables native text selection and cmd-click on links; hold Shift to bypass it",
-		"(Ghostty, iTerm2, kitty). Off with --no-mouse or BBAPPROVE_MOUSE=0.",
+	var out []string
+	for _, p := range helpParagraphs {
+		if m.width <= 0 {
+			out = append(out, p.text)
+			continue
+		}
+		hang := p.hang
+		if hang >= m.width {
+			hang = 0
+		}
+		for i, l := range strings.Split(ansi.Wrap(p.text, m.width-hang, ""), "\n") {
+			l = strings.TrimRight(l, " ")
+			if i > 0 {
+				l = strings.Repeat(" ", hang) + l
+			}
+			out = append(out, l)
+		}
 	}
+	if m.height > 0 {
+		limit := m.height - 1 - 2 - minListRows
+		if limit < 0 {
+			limit = 0
+		}
+		if len(out) > limit {
+			out = out[:limit]
+		}
+	}
+	return out
 }
 
 func (m *Model) footerHeight() int { return 2 + len(m.helpArea()) }

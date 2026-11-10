@@ -5,6 +5,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-10
+
 ### Changed
 - For Bitbucket, bbapprove now talks to the server itself instead of running the `adapters/bitbucket` shell script, so it no longer needs bash, curl or jq, and the same code runs on Windows. The settings list and `bbapprove doctor` show `adapter: built-in (bitbucket)`; setting `BBAPPROVE_ADAPTER`, or a `type` other than `bitbucket`, still runs that adapter program as before.
 - The built-in adapter behaves slightly differently from the script. The token is sent only in an HTTP header, never on a command line. A wrong or missing argument is a usage error with exit code 2. A network failure prints one short line such as `GET /rest/api/1.0/dashboard/pull-requests: connection failed` instead of curl's text. Comment and task counts are right on PRs with more than one page of activity. A trailing slash on `repository` is ignored. `auth token` no longer needs `repository`.

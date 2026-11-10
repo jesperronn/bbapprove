@@ -54,24 +54,9 @@ func (o Options) updateArchive(ctx context.Context, res *Result) int {
 		return fail("%s already exists; move or remove it first (nothing changed)", dest)
 	}
 
-	body, url := "", o.releasesURL()+"/tag/"+tag
-	out, err := o.capture(ctx, Cmd{Name: "gh", Args: []string{"release", "view", tag, "--repo", o.Slug, "--json", "body,url"}})
-	switch {
-	case errors.Is(err, exec.ErrNotFound):
-		o.manualSteps(tag)
-		return 2
-	case err != nil:
-		o.failln("cannot read release %s: %v", tag, err)
-		return 2
-	}
-	var rv struct{ Body, URL string }
-	if err := json.Unmarshal(out, &rv); err != nil {
-		o.failln("unexpected gh output for release %s: %v", tag, err)
-		return 2
-	}
-	body = rv.Body
-	if rv.URL != "" {
-		url = rv.URL
+	body, url, code := o.releaseNotes(ctx, tag)
+	if code != 0 {
+		return code
 	}
 
 	o.outln("\n{h:Plan:} install {ver:%s} -> {ver:%s} side by side (the running install is not modified)", res.Current.Raw, tag)
@@ -88,19 +73,10 @@ func (o Options) updateArchive(ctx context.Context, res *Result) int {
 		return fail("cannot create a scratch directory in %s: %v", parent, err)
 	}
 	defer os.RemoveAll(tmp)
-	dl := filepath.Join(tmp, "download")
-	if err := os.Mkdir(dl, 0o700); err != nil {
+	if err := o.downloadVerified(ctx, tag, asset, tmp); err != nil {
 		return fail("%v", err)
 	}
-	o.outln("{dim:Downloading %s ...}", asset)
-	if _, err := o.Runner.Run(ctx, Cmd{Name: "gh", Args: []string{"release", "download", tag, "--repo", o.Slug,
-		"-p", asset, "-p", "SHA256SUMS", "-D", dl}}); err != nil {
-		return fail("download failed: %v (nothing changed)", err)
-	}
-	if err := VerifyChecksum(filepath.Join(dl, asset), filepath.Join(dl, "SHA256SUMS"), asset); err != nil {
-		return fail("%v; aborting, download deleted, nothing changed", err)
-	}
-	o.outln("{ok:Checksum OK.} {dim:Unpacking ...}")
+	dl := filepath.Join(tmp, "download")
 	f, err := os.Open(filepath.Join(dl, asset))
 	if err != nil {
 		return fail("%v", err)
@@ -122,6 +98,49 @@ func (o Options) updateArchive(ctx context.Context, res *Result) int {
 	}
 	o.printSwitch(oldRoot, dest)
 	return 0
+}
+
+// releaseNotes reads the release body and URL with gh. A non-zero code is the exit code to return; a
+// missing gh prints the manual steps.
+func (o Options) releaseNotes(ctx context.Context, tag string) (body, url string, code int) {
+	url = o.releasesURL() + "/tag/" + tag
+	out, err := o.capture(ctx, Cmd{Name: "gh", Args: []string{"release", "view", tag, "--repo", o.Slug, "--json", "body,url"}})
+	switch {
+	case errors.Is(err, exec.ErrNotFound):
+		o.manualSteps(tag)
+		return "", "", 2
+	case err != nil:
+		o.failln("cannot read release %s: %v", tag, err)
+		return "", "", 2
+	}
+	var rv struct{ Body, URL string }
+	if err := json.Unmarshal(out, &rv); err != nil {
+		o.failln("unexpected gh output for release %s: %v", tag, err)
+		return "", "", 2
+	}
+	if rv.URL != "" {
+		url = rv.URL
+	}
+	return rv.Body, url, 0
+}
+
+// downloadVerified downloads asset and SHA256SUMS into <tmp>/download and checks the checksum. The error
+// text ends with what happened to the install ("nothing changed").
+func (o Options) downloadVerified(ctx context.Context, tag, asset, tmp string) error {
+	dl := filepath.Join(tmp, "download")
+	if err := os.Mkdir(dl, 0o700); err != nil {
+		return err
+	}
+	o.outln("{dim:Downloading %s ...}", asset)
+	if _, err := o.Runner.Run(ctx, Cmd{Name: "gh", Args: []string{"release", "download", tag, "--repo", o.Slug,
+		"-p", asset, "-p", "SHA256SUMS", "-D", dl}}); err != nil {
+		return fmt.Errorf("download failed: %v (nothing changed)", err)
+	}
+	if err := VerifyChecksum(filepath.Join(dl, asset), filepath.Join(dl, "SHA256SUMS"), asset); err != nil {
+		return fmt.Errorf("%v; aborting, download deleted, nothing changed", err)
+	}
+	o.outln("{ok:Checksum OK.} {dim:Unpacking ...}")
+	return nil
 }
 
 // notes truncates the release body to notesLines lines, drops terminal control characters (the text is

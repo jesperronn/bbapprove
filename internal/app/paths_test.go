@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -45,7 +46,7 @@ func newFixture(t *testing.T) *fixture {
 			t.Fatal(err)
 		}
 	}
-	t.Setenv("HOME", fx.home)
+	testfix.SetHome(t, fx.home)
 	t.Setenv("XDG_CONFIG_HOME", fx.xdg)
 	return fx
 }
@@ -53,7 +54,11 @@ func newFixture(t *testing.T) *fixture {
 // normalise replaces the fixture's directories with stable names.
 func (fx *fixture) normalise(s string) string {
 	s = strings.ReplaceAll(s, "/private/var/", "/var/")
-	return strings.NewReplacer(fx.repo, "$REPO", fx.xdg, "$XDG", fx.home, "$HOME", fx.base, "$BASE").Replace(s)
+	s = strings.NewReplacer(fx.repo, "$REPO", fx.xdg, "$XDG", fx.home, "$HOME", fx.base, "$BASE").Replace(s)
+	if runtime.GOOS == "windows" {
+		s = strings.ReplaceAll(s, `\`, "/") // the recorded output uses forward slashes
+	}
+	return s
 }
 
 func (fx *fixture) env(extra ...string) []string {
@@ -433,6 +438,7 @@ var pathCases = []pathCase{
 			RepoDir: fx.repo, IgnorePath: ign}
 	}},
 	{"adapter-failure", nil, func(t *testing.T, fx *fixture) Options {
+		testfix.RequireShell(t)
 		return Options{Environ: fx.env("BBAPPROVE_TOKEN=t", "BBAPPROVE_ADAPTER="+testfix.Adapter(), "FAKE_BODY=echo 'boom: list failed' >&2; exit 1", "BBAPPROVE_REPOSITORY=https://bb.example.com", "BBAPPROVE_AUTHOR_EMAIL=bot@example.com"),
 			RepoDir: fx.repo, IgnorePath: filepath.Join(fx.base, "none")}
 	}},

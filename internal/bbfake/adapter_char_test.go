@@ -19,12 +19,14 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"bbapprove/internal/adapter"
 	"bbapprove/internal/bbfake"
+	"bbapprove/internal/testfix"
 )
 
 var updateGolden = flag.Bool("update", false, "rewrite the golden files in testdata/")
@@ -361,6 +363,9 @@ var charCases = []charCase{
 	{name: "merge_retry_then_success_deletes_exactly_once", args: []string{"pr", "merge", url5}, sc: func(sc *bbfake.Scenario) { pr5(sc).StaleMerges = 2 }, check: func(t *testing.T, r result) {
 		eq(t, "exit", r.Exit, 0)
 		eq(t, "DELETE count", len(deletes(r)), 1)
+		if len(r.Requests) == 0 {
+			t.Fatal("the adapter made no requests")
+		}
 		eq(t, "the DELETE is the last request", r.Requests[len(r.Requests)-1].Method, "DELETE")
 	}},
 
@@ -521,6 +526,7 @@ type impl struct {
 
 func TestAdapterCharacterization(t *testing.T) {
 	t.Run("bash", func(t *testing.T) {
+		testfix.RequireShell(t) // the bash adapter needs bash, curl and jq
 		bash, tools := toolDir(t)
 		script, err := filepath.Abs("../../adapters/bitbucket")
 		if err != nil {
@@ -592,6 +598,9 @@ func runCase(t *testing.T, tc charCase, im impl) {
 			extraEnv["BBAPPROVE_BITBUCKET_TEST_MAX_TIME"] = tc.maxTime + "s"
 		}
 	}
+	if tc.op {
+		testfix.RequireShell(t) // the stub `op` is a shell script
+	}
 	path := im.path
 	opLog := filepath.Join(tmp, "op.log")
 	if tc.op {
@@ -616,6 +625,15 @@ echo "$v"
 	env := map[string]string{
 		"PATH": path, "HOME": tmp, "LC_ALL": "C", "NO_PROXY": "*", "OP_LOG": opLog,
 		"BBAPPROVE_BASE_URL": base, "BBAPPROVE_TOKEN": canary, "BBAPPROVE_RETRY_SLEEP": "0",
+	}
+	if runtime.GOOS == "windows" {
+		// Go's network stack and os.UserHomeDir need these; a bare PATH/HOME environment breaks them.
+		env["USERPROFILE"] = tmp
+		for _, k := range []string{"SYSTEMROOT", "SystemRoot", "WINDIR"} {
+			if v := os.Getenv(k); v != "" {
+				env[k] = v
+			}
+		}
 	}
 	for k, v := range extraEnv {
 		env[k] = v
@@ -705,7 +723,7 @@ var (
 
 func newRedactor(base, tmp, script string) redactor {
 	return redactor{strings.NewReplacer(
-		base, "<BASE>", tmp, "<TMP>", script, "<ADAPTER>", canary, "<CANARY>", opTok, "<TOKEN>", opCred, "<TOKEN>",
+		base, "<BASE>", tmp, "<TMP>", filepath.ToSlash(tmp), "<TMP>", script, "<ADAPTER>", filepath.ToSlash(script), "<ADAPTER>", canary, "<CANARY>", opTok, "<TOKEN>", opCred, "<TOKEN>",
 	)}
 }
 

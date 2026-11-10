@@ -39,6 +39,7 @@ esac`
 // fake returns the shared fake adapter and a per-test log path it appends every call to.
 func fake(t *testing.T) (path, log string) {
 	t.Helper()
+	testfix.RequireShell(t)
 	return testfix.Adapter(), filepath.Join(t.TempDir(), "argv.log")
 }
 
@@ -750,6 +751,9 @@ func TestIgnoredFooterShowsPath(t *testing.T) {
 	_, out, _ := run(t, env)
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	n := len(lines)
+	if n < 2 {
+		t.Fatalf("output has %d line(s), want the footer and the dry-run line:\n%s", n, out)
+	}
 	if want := "3 ignored via " + ip + " (see: bbapprove doctor)"; lines[n-2] != want || !strings.HasPrefix(lines[n-1], "Dry run") {
 		t.Errorf("footer wants %q before the dry-run line:\n%s", want, out)
 	}

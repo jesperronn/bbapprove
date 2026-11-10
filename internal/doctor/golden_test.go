@@ -4,6 +4,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -12,7 +13,11 @@ var updateGolden = flag.Bool("update", false, "rewrite the golden files in testd
 
 // normalize replaces the scratch directories so the output is stable across runs.
 func (r *rig) normalize(s string) string {
-	return strings.NewReplacer(r.root, "$ROOT", r.xdg, "$XDG").Replace(s)
+	s = strings.NewReplacer(r.root, "$ROOT", r.xdg, "$XDG").Replace(s)
+	if runtime.GOOS == "windows" {
+		s = strings.ReplaceAll(s, `\`, "/")
+	}
+	return s
 }
 
 func checkGolden(t *testing.T, name, got string) {

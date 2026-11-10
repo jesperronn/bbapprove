@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"bbapprove/internal/testfix"
 	"bbapprove/internal/update"
 )
 
@@ -56,6 +57,7 @@ type rig struct {
 
 func newRig(t *testing.T) *rig {
 	t.Helper()
+	testfix.RequireUnixModes(t) // the rig asserts on file modes and the adapter's exec bit
 	r := &rig{t: t, root: t.TempDir(), xdg: t.TempDir(), run: &fakeRunner{
 		releases: `[{"tagName":"v1.0.0","isPrerelease":false,"isDraft":false}]`,
 	}, tools: map[string]string{"git": "/usr/bin/git", "gh": "/usr/bin/gh", "op": "/usr/bin/op"}}

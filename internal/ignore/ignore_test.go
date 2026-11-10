@@ -4,8 +4,11 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
+
+	"bbapprove/internal/testfix"
 )
 
 func writeFile(t *testing.T, path, content string) {
@@ -38,8 +41,7 @@ func TestDefaultPath(t *testing.T) {
 
 	t.Run("XDG_CONFIG_HOME unset falls back to home", func(t *testing.T) {
 		home := t.TempDir()
-		t.Setenv("XDG_CONFIG_HOME", "")
-		t.Setenv("HOME", home)
+		testfix.SetHome(t, home)
 		want := filepath.Join(home, ".config", "bbapprove", "ignore")
 		if got := DefaultPath(); got != want {
 			t.Errorf("DefaultPath() = %q, want %q", got, want)
@@ -148,14 +150,14 @@ func TestAdd(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if perm := fi.Mode().Perm(); perm != 0o600 {
+		if perm := fi.Mode().Perm(); runtime.GOOS != "windows" && perm != 0o600 {
 			t.Errorf("file perm = %o, want 600", perm)
 		}
 		di, err := os.Stat(filepath.Dir(path))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if perm := di.Mode().Perm(); perm != 0o700 {
+		if perm := di.Mode().Perm(); runtime.GOOS != "windows" && perm != 0o700 {
 			t.Errorf("dir perm = %o, want 700", perm)
 		}
 	})

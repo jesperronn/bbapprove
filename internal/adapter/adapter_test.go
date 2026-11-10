@@ -18,6 +18,7 @@ import (
 // sleep/cat, and nothing else from the host.
 func fakeAdapter(t *testing.T, body string) *Client {
 	t.Helper()
+	testfix.RequireShell(t)
 	return &Client{Path: testfix.Adapter(), Token: "test-token",
 		Environ: []string{"PATH=" + os.Getenv("PATH"), "FAKE_BODY=" + body}}
 }

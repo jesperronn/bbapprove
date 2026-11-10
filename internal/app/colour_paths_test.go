@@ -38,6 +38,7 @@ var colourCases = func() []pathCase {
 			return plainOpts(fx, "--print-config", "--disallow", "a,b")
 		}},
 		{"dry-run-and-apply", []string{"--apply", "--hide-ignored"}, func(t *testing.T, fx *fixture) Options {
+			testfix.RequireShell(t)
 			return Options{Args: []string{"--hide-ignored"}, RepoDir: fx.repo, IgnorePath: filepath.Join(fx.base, "none"),
 				Environ: fx.env("BBAPPROVE_TOKEN=t", "BBAPPROVE_ADAPTER="+testfix.Adapter(), "FAKE_BODY=echo '[]'", "BBAPPROVE_REPOSITORY=https://bb.example.com", "BBAPPROVE_AUTHOR_EMAIL=bot@example.com")}
 		}},

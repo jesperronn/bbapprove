@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"bbapprove/internal/testfix"
 )
 
 const castText = `{"version": 2, "width": 20, "height": 3, "env": {"TERM": "xterm-256color"}}
@@ -22,6 +24,7 @@ const castText = `{"version": 2, "width": 20, "height": 3, "env": {"TERM": "xter
 // stubFreeze writes a freeze stand-in: it reads the frame on stdin and writes a small SVG with that text to -o.
 func stubFreeze(t *testing.T, body string) string {
 	t.Helper()
+	testfix.RequireShell(t)
 	p := filepath.Join(t.TempDir(), "freeze")
 	if body == "" {
 		body = `out=""; while [ $# -gt 0 ]; do [ "$1" = "-o" ] && out="$2"; shift; done

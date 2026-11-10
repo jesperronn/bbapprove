@@ -36,7 +36,7 @@ func newRig(t *testing.T, useXDG bool, editorBody string) *setupRig {
 	}
 	r := &setupRig{t: t, repo: t.TempDir()}
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testfix.SetHome(t, home)
 	if useXDG {
 		r.xdg = filepath.Join(t.TempDir(), "xdgdir")
 		kept = append(kept, "XDG_CONFIG_HOME="+r.xdg)

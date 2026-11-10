@@ -14,7 +14,9 @@ package testfix
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
+	"testing"
 )
 
 // adapterScript runs the shell snippet in $FAKE_BODY with the adapter's own arguments ($1, $2, ...).
@@ -63,5 +65,37 @@ func Editor() string { return path("editor") }
 func Cleanup() {
 	if dir != "" {
 		os.RemoveAll(dir)
+	}
+}
+
+// RequireShell skips t on Windows. The fake adapter and editor, and every test that writes a shell
+// script, need /bin/sh, which Windows cannot run.
+func RequireShell(t testing.TB) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("needs /bin/sh scripts, which Windows cannot execute")
+	}
+}
+
+// RequireUnixModes skips t on Windows, where files have no permission bits to assert on (every file
+// reads back as 0666, directories as 0777, and nothing is "executable").
+func RequireUnixModes(t testing.TB) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("needs Unix file permission bits, which Windows does not have")
+	}
+}
+
+// SetHome points the process's home directory at dir for the test: HOME on every OS plus USERPROFILE
+// on Windows, which is what os.UserHomeDir reads there. It also clears XDG_CONFIG_HOME and, on
+// Windows, points APPDATA and LocalAppData into dir so a per-user config never leaks in from the host.
+func SetHome(t testing.TB, dir string) {
+	t.Helper()
+	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", dir)
+		t.Setenv("APPDATA", filepath.Join(dir, "AppData", "Roaming"))
+		t.Setenv("LocalAppData", filepath.Join(dir, "AppData", "Local"))
 	}
 }

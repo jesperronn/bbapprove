@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 )
 
@@ -45,10 +46,10 @@ func TestSplitWords(t *testing.T) {
 func TestDefaultPath(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "")
 	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
-	if got := DefaultPath(env(map[string]string{"XDG_CONFIG_HOME": "/x"})); got != "/x/bbapprove/config.toml" {
+	if got := DefaultPath(env(map[string]string{"XDG_CONFIG_HOME": "/x"})); got != filepath.Join("/x", "bbapprove", "config.toml") {
 		t.Errorf("xdg: %q", got)
 	}
-	if got := DefaultPath(env(map[string]string{"HOME": "/h"})); got != "/h/.config/bbapprove/config.toml" {
+	if got := DefaultPath(env(map[string]string{"HOME": "/h"})); got != filepath.Join("/h", ".config", "bbapprove", "config.toml") {
 		t.Errorf("home: %q", got)
 	}
 }
@@ -60,7 +61,7 @@ func TestWriteTemplate(t *testing.T) {
 	}
 	st, _ := os.Stat(p)
 	dst, _ := os.Stat(filepath.Dir(p))
-	if st.Mode().Perm() != 0o600 || dst.Mode().Perm() != 0o700 {
+	if runtime.GOOS != "windows" && (st.Mode().Perm() != 0o600 || dst.Mode().Perm() != 0o700) {
 		t.Errorf("modes: file %v dir %v", st.Mode().Perm(), dst.Mode().Perm())
 	}
 	if b, _ := os.ReadFile(p); string(b) != Template {
@@ -77,7 +78,7 @@ func TestWriteTemplate(t *testing.T) {
 		t.Fatal(err)
 	}
 	st, _ = os.Stat(p)
-	if b, _ := os.ReadFile(p); string(b) != Template || st.Mode().Perm() != 0o600 {
+	if b, _ := os.ReadFile(p); string(b) != Template || (runtime.GOOS != "windows" && st.Mode().Perm() != 0o600) {
 		t.Error("force did not replace with 0600 template")
 	}
 }

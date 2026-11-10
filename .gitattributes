@@ -1,0 +1,2 @@
+# Text files are checked out with LF on every OS so recorded expected output and shell scripts match byte for byte on Windows.
+* text=auto eol=lf

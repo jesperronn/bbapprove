@@ -6,7 +6,7 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
-- Maintainers: `bin/test --timings` also lists the slowest shell tests and what is over the budgets `TEST_SLOW_SUITE_SECONDS` and `TEST_SLOW_TEST_SECONDS`, and `--timings-file FILE` writes every timing as JSON Lines for a nightly agent (see `docs/development.md`).
+- Maintainers: `bin/test --timings` also lists the slowest shell tests and what is over the budgets `TEST_SLOW_SUITE_SECONDS` and `TEST_SLOW_TEST_SECONDS` (see `docs/development.md`).
 
 ### Changed
 - Maintainers: the `bin/` commands and `bin/changelog` now colour their help the way bbapprove does, honouring `NO_COLOR` and `FORCE_COLOR`.

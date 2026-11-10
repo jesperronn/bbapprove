@@ -2,7 +2,7 @@
 # shellcheck shell=bash
 # test — run the bbapprove test suites: Go packages and the bash suites under test/.
 #
-# Usage: bin/test [--verbose] [--timings] [--timings-file FILE] [--no-go] [--no-shell] [TARGET...]
+# Usage: bin/test [--verbose] [--timings] [--no-go] [--no-shell] [TARGET...]
 #   no TARGET    go test ./... -count=1 -race, then every test/*.test.sh via bash
 #   TARGET       a *.test.sh file runs that suite; anything else is a Go package pattern
 #                relative to the project root, e.g. ./internal/tui
@@ -10,9 +10,6 @@
 #   --timings    after the run, print the slowest suites, Go packages, shell tests and Go tests, what is over
 #                budget (TEST_SLOW_SUITE_SECONDS, default 3, for suites and packages; TEST_SLOW_TEST_SECONDS,
 #                default 1, for tests; informational, never changes the exit code) and the total time
-#   --timings-file FILE  implies --timings; also write every measurement to FILE as JSON Lines:
-#                {"kind":"shell-suite|go-package|shell-test|go-test","name":"...","seconds":1.23,"over_budget":false}
-#                and a final {"kind":"total","seconds":N}
 #   --no-go      skip the Go tests
 #   --no-shell   skip the shell suites
 #
@@ -24,14 +21,13 @@ shopt -s nullglob
 
 usage_text() {
   cat <<'EOF'
-Usage: bin/test [--verbose] [--timings] [--timings-file FILE] [--no-go] [--no-shell] [TARGET...]
+Usage: bin/test [--verbose] [--timings] [--no-go] [--no-shell] [TARGET...]
 
   (no TARGET)  go test ./... -count=1 -race, then every test/*.test.sh
   TARGET       a *.test.sh file (runs that suite) or a Go package pattern such as ./internal/tui
   --verbose    pass --verbose to shell suites and -v to go test
   --timings    after the run, print suites, Go packages and the slowest shell and Go tests, slowest first, what is
                over budget (TEST_SLOW_SUITE_SECONDS=3, TEST_SLOW_TEST_SECONDS=1; informational only) and the total time
-  --timings-file FILE  implies --timings; write every measurement to FILE as JSON Lines
                ({"kind":"shell-suite|go-package|shell-test|go-test","name":...,"seconds":...,"over_budget":...}, then a "total" line)
   --no-go      skip the Go tests
   --no-shell   skip the shell suites
@@ -49,7 +45,6 @@ source "$PROJECT_ROOT/bin/lib/style.sh"
 
 verbose=0
 timings=0
-timings_file=""
 run_go=1
 run_shell=1
 targets=()
@@ -61,15 +56,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --verbose | -v) verbose=1 ;;
     --timings) timings=1 ;;
-    --timings-file)
-      if [[ $# -lt 2 ]]; then
-        echo "test: --timings-file needs a FILE" >&2
-        exit 2
-      fi
-      timings=1
-      timings_file="$2"
-      shift
-      ;;
     --no-go) run_go=0 ;;
     --no-shell) run_shell=0 ;;
     -*)
@@ -281,17 +267,6 @@ measurements_flagged() {
     { b = ($1 == "shell-suite" || $1 == "go-package") ? sb : tb; print $0, (($2 + 0) > (b + 0)) ? "true" : "false" }'
 }
 
-# write_timings_file FILE TOTAL_MS: every measurement as JSON Lines, then the total.
-write_timings_file() {
-  local file="$1" total="$2"
-  {
-    measurements_flagged | LC_ALL=C awk -F'\t' '
-      { n = $3; gsub(/\\/, "\\\\", n); gsub(/"/, "\\\"", n); gsub(/[\001-\037]/, " ", n)
-        printf "{\"kind\":\"%s\",\"name\":\"%s\",\"seconds\":%s,\"over_budget\":%s}\n", $1, n, $2, $4 }'
-    printf '{"kind":"total","seconds":%d.%03d}\n' $((total / 1000)) $((total % 1000))
-  } >"$file"
-}
-
 # report_timings TOTAL_MS: the --timings report.
 report_timings() {
   local total="$1" ms name secs bold="" reset=""
@@ -361,9 +336,7 @@ for suite in ${shell_suites[@]+"${shell_suites[@]}"}; do
 done
 
 if [[ $timings -eq 1 ]]; then
-  total_ms=$(($(now_ms) - run_start))
-  report_timings "$total_ms"
-  if [[ -n "$timings_file" ]]; then write_timings_file "$timings_file" "$total_ms"; fi
+  report_timings $(($(now_ms) - run_start))
 fi
 
 if [[ ${#failed[@]} -eq 0 ]]; then

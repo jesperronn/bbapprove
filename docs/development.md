@@ -53,22 +53,7 @@ test/                *.test.sh suites; test/lib/bash_test.sh is the shared harne
 
 `bin/test --timings` prints the slowest shell suites, Go packages, shell tests and Go tests (`TEST_TIMINGS_TOP`, default 10), then an `Over budget` list. The budgets are informational and never change the exit code: `TEST_SLOW_SUITE_SECONDS` (default 3) applies to shell suites and Go packages, `TEST_SLOW_TEST_SECONDS` (default 1) to single shell and Go tests. Shell tests are timed by `test/lib/bash_test.sh`, which appends `SECONDS<TAB>SUITE<TAB>TEST` lines to the file named by `BASH_TEST_TIMING_FILE` when that is set (`bin/test` sets it for you).
 
-For a machine-readable run, write every measurement, not just the top N:
-
-```bash
-bin/test --timings --timings-file "${TMPDIR:-/tmp}/timings.jsonl"
-```
-
-The file is JSON Lines, one object per measurement, then a total:
-
-```json
-{"kind":"shell-test","name":"release.test.sh:test_dry_run","seconds":1.234,"over_budget":true}
-{"kind":"total","seconds":41.2}
-```
-
-`kind` is `shell-suite`, `go-package`, `shell-test` or `go-test`; shell tests are named `suite.sh:test_name`, Go tests `package.TestName`.
-
-A nightly agent should run the command, take the entries with `"over_budget":true` and fix the slowest first: stub slow external calls, make waits configurable env vars set to `0` in tests, or share fixtures. Never delete assertions to gain speed. Re-run and confirm the entry is under budget and `bin/test` still passes.
+A nightly agent should run `bin/test --timings`, read the `Over budget` list (every entry over a budget, slowest first, not just the top N) and fix the slowest first: stub slow external calls, make waits configurable env vars set to `0` in tests, or share fixtures. Never delete assertions to gain speed. Re-run and confirm the entry is gone from the list and `bin/test` still passes.
 
 ## Adding a `bin/` script
 

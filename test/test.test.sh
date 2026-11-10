@@ -253,24 +253,15 @@ test_timings_with_target_and_failure_exit() {
   cleanup_test_tmp
 }
 
-test_timings_file_is_json_lines() {
+test_timings_lists_shell_tests_and_budgets() {
   setup_fixture
-  local f="$TEST_TMP/t.jsonl" lines
   export TEST_SLOW_SUITE_SECONDS=1000 TEST_SLOW_TEST_SECONDS=1000
-  run_testsh --timings-file "$f"
+  run_testsh --timings
   unset TEST_SLOW_SUITE_SECONDS TEST_SLOW_TEST_SECONDS
-  assert_status 0 "$TESTSH_STATUS" "--timings-file exits 0"
-  assert_contains "$TESTSH_OUT" "Slowest shell tests (top 10)" "--timings-file implies --timings"
+  assert_status 0 "$TESTSH_STATUS" "--timings exits 0"
+  assert_contains "$TESTSH_OUT" "Slowest shell tests (top 10)" "the shell tests section is shown"
   assert_contains "$TESTSH_OUT" "a.test.sh:test_fake" "shell tests are shown as suite:test"
   assert_contains "$TESTSH_OUT" "Over budget: none" "huge budgets: nothing is over"
-  lines="$(<"$f")"
-  assert_contains "$lines" '{"kind":"shell-suite","name":"a.test.sh","seconds":' "a shell-suite entry"
-  assert_contains "$lines" '{"kind":"shell-test","name":"a.test.sh:test_fake","seconds":0.5,"over_budget":false}' "a shell-test entry"
-  assert_contains "$lines" '{"kind":"total","seconds":' "a total entry"
-  [[ "$(grep -vc '^{"kind":"[a-z-]*",.*}$' "$f" || true)" == 0 ]] || test_fail "every line is one JSON object" "$lines"
-  test_pass "every line is one JSON object"
-  assert_contains "$lines" '{"kind":"go-package","name":"x/slow","seconds":1.8,"over_budget":false}' "go-package entry"
-  assert_contains "$lines" '"kind":"go-test","name":"x/slow.TestB"' "go-test entry"
   cleanup_test_tmp
 }
 
@@ -278,13 +269,12 @@ test_over_budget_flags_and_keeps_exit_code() {
   setup_fixture
   export NO_COLOR=1
   export TEST_SLOW_SUITE_SECONDS=0 TEST_SLOW_TEST_SECONDS=0.4
-  run_testsh --timings --timings-file "$TEST_TMP/t.jsonl"
+  run_testsh --timings
   assert_status 0 "$TESTSH_STATUS" "being over budget keeps exit 0"
   assert_contains "$TESTSH_OUT" "go-package  x/slow" "slow package listed (1.8s > 0s)"
   assert_contains "$TESTSH_OUT" "shell-test  a.test.sh:test_fake" "shell test over 0.4s listed"
   assert_contains "$TESTSH_OUT" "go-test     x/slow.TestB" "go test over 0.4s listed"
   assert_not_contains "$TESTSH_OUT" "go-test     x/slow.TestA" "go test under 0.4s not listed"
-  assert_contains "$(<"$TEST_TMP/t.jsonl")" '"kind":"go-package","name":"x/fast","seconds":0.02,"over_budget":true' "suite budget 0 flags every package"
   unset NO_COLOR TEST_SLOW_SUITE_SECONDS TEST_SLOW_TEST_SECONDS
   cleanup_test_tmp
 }

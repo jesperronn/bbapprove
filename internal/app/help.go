@@ -1,6 +1,7 @@
 package app
 
 import (
+	"runtime"
 	"strings"
 
 	"bbapprove/internal/style"
@@ -32,11 +33,27 @@ func topicsMarkup() string {
 	return b.String()
 }
 
+// helpGOOS is the OS the help text describes; tests change it. The markup below is written for Unix.
+var helpGOOS = runtime.GOOS
+
+// forOS rewrites the config-path spellings of markup for goos: on Windows the default home is
+// %AppData% and the separator is a backslash. Every other OS gets the text as written.
+func forOS(goos, markup string) string {
+	if goos != "windows" {
+		return markup
+	}
+	return strings.NewReplacer(
+		"$XDG_CONFIG_HOME/bbapprove/", `$XDG_CONFIG_HOME\bbapprove\`,
+		"~/.config/bbapprove/", `%AppData%\bbapprove\`,
+		"(default ~/.config)", `(default %AppData%)`,
+	).Replace(markup)
+}
+
 // topicUsageFor renders one topic with the given theme.
 func topicUsageFor(t style.Theme, name string) (string, bool) {
 	for _, h := range helpTopics {
 		if h.name == name {
-			return t.MustRender(h.markup), true
+			return t.MustRender(forOS(helpGOOS, h.markup)), true
 		}
 	}
 	return "", false
@@ -130,7 +147,8 @@ user_token_name, delete_source_branch) with comments. Nothing site- or person-sp
 effective settings and which of flag, env, file or default each came from (never a secret).
 
 {h:Lookup:} the first that exists wins: {flag:--config} {val:FILE}, {env:BBAPPROVE_CONFIG} (both must exist), {path:<repo>/bbapprove.config.toml}
-(the parent of the binary's directory, like adapters/; git-ignored), then {path:$XDG_CONFIG_HOME/bbapprove/config.toml}
+(the install root: the parent of the binary's bin/ directory, or the binary's own directory when it is not in
+bin/, as in the Windows archive; git-ignored), then {path:$XDG_CONFIG_HOME/bbapprove/config.toml}
 (default {path:~/.config/bbapprove/config.toml}).
 
 {h:Precedence} per setting: command line > environment > file > built-in default. Environment names:
@@ -285,7 +303,7 @@ Colour only on a terminal; {env:NO_COLOR} turns it off, {env:FORCE_COLOR}=1 forc
 `
 
 // doctorUsageFor renders the doctor help with the given theme.
-func doctorUsageFor(t style.Theme) string { return t.MustRender(doctorUsageMarkup) }
+func doctorUsageFor(t style.Theme) string { return t.MustRender(forOS(helpGOOS, doctorUsageMarkup)) }
 
 // doctorUsage returns the plain doctor help.
 func doctorUsage() string { return doctorUsageFor(style.Theme{}) }

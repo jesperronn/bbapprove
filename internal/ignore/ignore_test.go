@@ -43,6 +43,9 @@ func TestDefaultPath(t *testing.T) {
 		home := t.TempDir()
 		testfix.SetHome(t, home)
 		want := filepath.Join(home, ".config", "bbapprove", "ignore")
+		if runtime.GOOS == "windows" {
+			want = filepath.Join(home, "AppData", "Roaming", "bbapprove", "ignore") // %AppData%, set by SetHome
+		}
 		if got := DefaultPath(); got != want {
 			t.Errorf("DefaultPath() = %q, want %q", got, want)
 		}

@@ -428,3 +428,23 @@ func TestSettingsWithRowsReplacesNamedRows(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadFindsAppDataConfigOnWindows(t *testing.T) {
+	s := newSandbox(t)
+	appdata := s.writeXDG(t, `repository = "https://appdata.example.com"`) // s.xdg stands in for %AppData%
+	in := s.input(nil)
+	in.Env = func(k string) string {
+		if k == "APPDATA" {
+			return s.xdg
+		}
+		return ""
+	}
+	in.GOOS = "windows"
+	c, err := Load(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.File != appdata || c.Repository.Value != "https://appdata.example.com" {
+		t.Errorf("File = %q, repository = %q; want the %%AppData%% config %q", c.File, c.Repository.Value, appdata)
+	}
+}

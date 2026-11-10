@@ -5,7 +5,8 @@ user_token_name, delete_source_branch) with comments. Nothing site- or person-sp
 effective settings and which of flag, env, file or default each came from (never a secret).
 
 Lookup: the first that exists wins: --config FILE, BBAPPROVE_CONFIG (both must exist), <repo>/bbapprove.config.toml
-(the parent of the binary's directory, like adapters/; git-ignored), then $XDG_CONFIG_HOME/bbapprove/config.toml
+(the install root: the parent of the binary's bin/ directory, or the binary's own directory when it is not in
+bin/, as in the Windows archive; git-ignored), then $XDG_CONFIG_HOME/bbapprove/config.toml
 (default ~/.config/bbapprove/config.toml).
 
 Precedence per setting: command line > environment > file > built-in default. Environment names:

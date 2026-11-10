@@ -80,8 +80,8 @@ func (r *report) compactHeader() {
 		exe = res
 	}
 	bin := "     " + r.pad(style.Dim, "binary", compactLabelWidth) + r.p(style.Path, exe)
-	// the root is implied by the binary's location (<root>/bin/<binary>) unless it is somewhere else; -v has its own root line
-	if !o.Verbose && filepath.Dir(filepath.Dir(exe)) != filepath.Clean(o.InstallRoot) {
+	// the root is implied by the binary's location (<root>/bin/<binary> or <root>/<binary>) unless it is somewhere else; -v has its own root line
+	if !o.Verbose && config.RootOfExecutable(exe) != filepath.Clean(o.InstallRoot) {
 		bin += " " + r.p(style.Dim, "(root ") + r.p(style.Path, o.InstallRoot) + r.p(style.Dim, ")")
 	}
 	onPath, err := o.LookPath("bbapprove")
@@ -144,8 +144,8 @@ func (r *report) compactConfig(cfg *config.Config, err error) {
 		}
 		r.printLookup(cands, winner, exists)
 	default:
-		text := r.p(style.Path, cfg.File) + " " + r.p(style.Dim, "("+[...]string{"--config flag", "BBAPPROVE_CONFIG", "repo root", "XDG config"}[winner]+")") + ", valid TOML"
-		if st, err := os.Stat(cfg.File); r.o.Verbose && err == nil {
+		text := r.p(style.Path, cfg.File) + " " + r.p(style.Dim, "("+cands[winner].label+")") + ", valid TOML"
+		if st, err := os.Stat(cfg.File); r.o.Verbose && r.o.unixModes() && err == nil {
 			mode := st.Mode().Perm()
 			text += fmt.Sprintf(", mode %04o", mode)
 			if mode&0o077 != 0 {
@@ -247,7 +247,7 @@ func (r *report) checkSettings(cfg *config.Config) {
 // compactAdapter reports only a problem: a working adapter is part of the tool, and its type and path are in the settings list.
 func (r *report) compactAdapter(cfg *config.Config) {
 	path := cfg.Adapter.Value
-	if !strings.Contains(path, "/") {
+	if !strings.ContainsAny(path, `/\`) {
 		if p, err := r.o.LookPath(path); err == nil {
 			path = p
 		}
@@ -256,7 +256,7 @@ func (r *report) compactAdapter(cfg *config.Config) {
 	switch {
 	case err != nil:
 		r.problem(cfg.Type.Value, "adapter "+r.p(style.Path, path)+" does not exist", "check type / BBAPPROVE_ADAPTER, or reinstall (bin/build --install)")
-	case st.IsDir() || st.Mode().Perm()&0o111 == 0:
+	case st.IsDir() || r.o.unixModes() && st.Mode().Perm()&0o111 == 0:
 		r.problem(cfg.Type.Value, "adapter "+r.p(style.Path, path)+" exists but is not executable", "chmod +x "+r.p(style.Path, path))
 	}
 }
@@ -288,7 +288,7 @@ func (r *report) compactToken(cfg *config.Config) {
 func (r *report) compactIgnore() {
 	path := r.o.IgnorePath
 	if path == "" {
-		r.problem("ignore", "no home directory: cannot locate the ignore list", "set XDG_CONFIG_HOME or HOME")
+		r.problem("ignore", "no home directory: cannot locate the ignore list", r.noHomeFix())
 		return
 	}
 	st, err := os.Stat(path)
@@ -302,10 +302,14 @@ func (r *report) compactIgnore() {
 		if lerr == nil {
 			lerr = err
 		}
-		r.problem("ignore", r.p(style.Path, path)+" exists but is unreadable ("+lerr.Error()+"); bbapprove fails closed and refuses to run", "chmod 600 "+r.p(style.Path, path))
+		r.problem("ignore", r.p(style.Path, path)+" exists but is unreadable ("+lerr.Error()+"); bbapprove fails closed and refuses to run", r.unreadableFix(path))
 		return
 	}
-	r.area("ok", "ignore", "%s, %s, %04o", r.p(style.Path, path), plural(len(entries), "entry", "entries"), st.Mode().Perm())
+	if !r.o.unixModes() {
+		r.area("ok", "ignore", "%s, %s", r.p(style.Path, path), plural(len(entries), "entry", "entries"))
+	} else {
+		r.area("ok", "ignore", "%s, %s, %04o", r.p(style.Path, path), plural(len(entries), "entry", "entries"), st.Mode().Perm())
+	}
 	r.ignoreNote()
 }
 
@@ -439,4 +443,20 @@ func plural(n int, one, many string) string {
 		return "1 " + one
 	}
 	return fmt.Sprintf("%d %s", n, many)
+}
+
+// unreadableFix is the advice for an ignore list that cannot be read.
+func (r *report) unreadableFix(path string) string {
+	if !r.o.unixModes() {
+		return "check that the file is readable by you: " + r.p(style.Path, path)
+	}
+	return "chmod 600 " + r.p(style.Path, path)
+}
+
+// noHomeFix is the advice when no config home can be found.
+func (r *report) noHomeFix() string {
+	if r.o.GOOS == "windows" {
+		return "set XDG_CONFIG_HOME or APPDATA"
+	}
+	return "set XDG_CONFIG_HOME or HOME"
 }

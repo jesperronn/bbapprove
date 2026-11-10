@@ -11,21 +11,14 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"bbapprove/internal/userconfig"
 )
 
-// DefaultPath returns $XDG_CONFIG_HOME/bbapprove/ignore when XDG_CONFIG_HOME is
-// set, otherwise ~/.config/bbapprove/ignore. If the home directory cannot be
-// determined it returns "", which makes Load, Add and Remove fail.
-func DefaultPath() string {
-	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
-		return filepath.Join(dir, "bbapprove", "ignore")
-	}
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return ""
-	}
-	return filepath.Join(home, ".config", "bbapprove", "ignore")
-}
+// DefaultPath returns the ignore list next to the config file: $XDG_CONFIG_HOME/bbapprove/ignore when
+// XDG_CONFIG_HOME is set, else %AppData%\bbapprove\ignore on Windows, else ~/.config/bbapprove/ignore.
+// If no such directory can be determined it returns "", which makes Load, Add and Remove fail.
+func DefaultPath() string { return userconfig.Path(os.Getenv, "ignore") }
 
 // normalize trims and lowercases a dependency name or file line.
 func normalize(s string) string {

@@ -123,4 +123,4 @@ classes to 16-colour SGR codes (`Theme`), so output follows the terminal theme: 
 - Decline and batch actions ask for confirmation; empty comments are refused.
 - The token never appears on a command line (no `--token` flag); with no token source the core exits 1 before any adapter call.
 - No secrets in logs or `--print-config`; the core hands the token to the adapter via `BBAPPROVE_TOKEN`.
-- The config lives outside the tree (`~/.config/bbapprove`), mode 0600, and is never overwritten without `--force`.
+- The config lives outside the tree (`$XDG_CONFIG_HOME/bbapprove`, else `~/.config/bbapprove`, on Windows `%AppData%\bbapprove`), mode 0600 (Unix), and is never overwritten without `--force`.

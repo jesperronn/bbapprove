@@ -18,6 +18,7 @@ import (
 
 	"bbapprove/internal/rules"
 	"bbapprove/internal/style"
+	"bbapprove/internal/userconfig"
 )
 
 // Where a setting's value came from.
@@ -66,6 +67,7 @@ type Value struct {
 type Input struct {
 	Env     func(string) string // environment lookup (last-wins over Environ)
 	RepoDir string              // repo root: <repo>/bbapprove.config.toml, <repo>/adapters/<type>, <repo>/disallow.txt
+	GOOS    string              // OS whose user-config location to search; empty means the running OS
 
 	// Command-line values; empty means "not given".
 	ConfigFlag    string
@@ -89,23 +91,23 @@ type Config struct {
 	Warnings    []string // e.g. unknown keys; the caller prints them to stderr
 }
 
-// ConfigHome returns $XDG_CONFIG_HOME or ~/.config as seen through env, falling back to the process.
-func ConfigHome(env func(string) string) string {
-	if x := env("XDG_CONFIG_HOME"); x != "" {
-		return x
+// RootOfExecutable is the install root for the binary at exe: the parent of the directory holding it
+// when that directory is named bin (<root>/bin/bbapprove-go, the git checkout and Unix archive layout),
+// else the directory itself (<root>/bbapprove.exe, the Windows archive layout).
+func RootOfExecutable(exe string) string {
+	dir := filepath.Dir(exe)
+	if strings.EqualFold(filepath.Base(dir), "bin") {
+		return filepath.Dir(dir)
 	}
-	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
-		return x
-	}
-	home := env("HOME")
-	if home == "" {
-		home, _ = os.UserHomeDir()
-	}
-	if home == "" {
-		return ""
-	}
-	return filepath.Join(home, ".config")
+	return dir
 }
+
+// ConfigHome returns the directory that holds bbapprove's per-user files: $XDG_CONFIG_HOME (as seen
+// through env, falling back to the process) on any OS, else %AppData% on Windows, else ~/.config.
+func ConfigHome(env func(string) string) string { return userconfig.Home(env) }
+
+// ConfigHomeOn is ConfigHome as goos sees it (empty means the running OS); doctor uses it to report on the OS it is told.
+func ConfigHomeOn(goos string, env func(string) string) string { return userconfig.HomeOn(goos, env) }
 
 // Load finds and parses the config file and merges every source. It fails when an explicitly named
 // file is missing, or the file is unreadable or malformed TOML. Missing required settings are NOT an
@@ -125,8 +127,8 @@ func Load(in Input) (*Config, error) {
 		c.File = explicit
 	} else {
 		cands := []string{filepath.Join(in.RepoDir, ConfigName)}
-		if h := ConfigHome(in.Env); h != "" {
-			cands = append(cands, filepath.Join(h, "bbapprove", "config.toml"))
+		if h := ConfigHomeOn(in.GOOS, in.Env); h != "" {
+			cands = append(cands, filepath.Join(h, userconfig.Dir, "config.toml"))
 		}
 		c.Searched = cands
 		for _, p := range cands {

@@ -30,7 +30,7 @@ From a clone (needs Go, see `go.mod`): `bin/build --install` builds and links `b
 ## Set up
 
 ```
-bbapprove --init                 # writes ~/.config/bbapprove/config.toml from the template; edit repository and author_email
+bbapprove --init                 # writes ~/.config/bbapprove/config.toml (Windows: %AppData%\bbapprove\config.toml) from the template; edit repository and author_email
 export BBAPPROVE_TOKEN=...       # a Bitbucket HTTP access token; or name a 1Password item with --token-name
 bbapprove doctor                 # checks the result
 ```

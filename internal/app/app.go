@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -20,6 +19,7 @@ import (
 	"bbapprove/internal/rules"
 	"bbapprove/internal/style"
 	"bbapprove/internal/update"
+	"bbapprove/internal/userconfig"
 )
 
 // Options carries everything the process environment would otherwise provide.
@@ -34,7 +34,7 @@ type Options struct {
 	StderrTTY bool
 	Width     int    // terminal width; only used when IsTTY
 	Version   string // build version shown in the help text
-	// IgnorePath overrides the per-user ignore file (default: ignore.DefaultPath(), honouring
+	// IgnorePath overrides the per-user ignore file (default: next to the config file, honouring
 	// XDG_CONFIG_HOME from Environ first). Mainly for tests.
 	IgnorePath string
 	// First-run setup (see config.Setup). Interactive reports stdin AND stderr are terminals; nil means
@@ -56,15 +56,12 @@ func (o Options) firstRun() config.FirstRun {
 		ErrTheme: o.errTheme(), OutTheme: o.outTheme()}
 }
 
-// ignorePath is the per-user ignore list: Options.IgnorePath, else $XDG_CONFIG_HOME/bbapprove/ignore.
+// ignorePath is the per-user ignore list: Options.IgnorePath, else the file next to the config file.
 func (o Options) ignorePath() string {
 	if o.IgnorePath != "" {
 		return o.IgnorePath
 	}
-	if x := o.env("XDG_CONFIG_HOME"); x != "" {
-		return filepath.Join(x, "bbapprove", "ignore")
-	}
-	return ignore.DefaultPath()
+	return userconfig.Path(o.env, "ignore")
 }
 
 // errf prints a message to stderr, painted with the stderr theme. markup is in the {class:text} syntax of

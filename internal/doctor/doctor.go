@@ -139,7 +139,7 @@ func Run(ctx context.Context, o Options) int {
 	r.t = style.New(r.color)
 
 	cfg, cfgErr := config.Load(config.Input{
-		Env: o.env, RepoDir: o.InstallRoot, ConfigFlag: o.ConfigFlag, TokenNameFlag: o.TokenNameFlag, DisallowFlag: o.DisallowFlag,
+		Env: o.env, RepoDir: o.InstallRoot, GOOS: o.GOOS, ConfigFlag: o.ConfigFlag, TokenNameFlag: o.TokenNameFlag, DisallowFlag: o.DisallowFlag,
 	})
 	if cfgErr != nil {
 		cfg = nil
@@ -166,15 +166,19 @@ func (r *report) lookup() (cands []candidate, winner int, exists func(string) bo
 	o := r.o
 	env := o.env
 	repoPath := filepath.Join(o.InstallRoot, config.ConfigName)
-	var xdgPath string
-	if h := config.ConfigHome(env); h != "" {
-		xdgPath = filepath.Join(h, "bbapprove", "config.toml")
+	var userPath string
+	if h := config.ConfigHomeOn(o.GOOS, env); h != "" {
+		userPath = filepath.Join(h, "bbapprove", "config.toml")
+	}
+	userLabel := "XDG config"
+	if o.GOOS == "windows" && env("XDG_CONFIG_HOME") == "" {
+		userLabel = "AppData config" // %AppData%\bbapprove\config.toml
 	}
 	cands = []candidate{
 		{"--config flag", o.ConfigFlag},
 		{"BBAPPROVE_CONFIG", env("BBAPPROVE_CONFIG")},
 		{"repo root", repoPath},
-		{"XDG config", xdgPath},
+		{userLabel, userPath},
 	}
 	exists = func(p string) bool {
 		st, err := os.Stat(p)
@@ -196,6 +200,10 @@ func (r *report) lookup() (cands []candidate, winner int, exists func(string) bo
 	}
 	return cands, winner, exists
 }
+
+// unixModes reports whether file permission bits mean anything on the reported OS: Windows files have
+// none, so the mode note and the executable check are skipped there.
+func (o Options) unixModes() bool { return o.GOOS != "windows" }
 
 func normalizeAll(parts []string) []string {
 	var out []string

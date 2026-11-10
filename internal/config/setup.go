@@ -10,11 +10,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
 
 	"bbapprove/internal/style"
+	"bbapprove/internal/userconfig"
 )
 
 // Template is the example config embedded in the binary, so first-run setup works from a release
@@ -26,15 +28,10 @@ import (
 //go:embed bbapprove.config.template
 var Template string
 
-// DefaultPath is where first-run setup creates the config: $XDG_CONFIG_HOME/bbapprove/config.toml
-// (else ~/.config/bbapprove/config.toml), outside the install tree so upgrades never lose it.
-func DefaultPath(env func(string) string) string {
-	h := ConfigHome(env)
-	if h == "" {
-		return ""
-	}
-	return filepath.Join(h, "bbapprove", "config.toml")
-}
+// DefaultPath is where first-run setup creates the config: $XDG_CONFIG_HOME/bbapprove/config.toml,
+// else %AppData%\bbapprove\config.toml on Windows, else ~/.config/bbapprove/config.toml; outside the
+// install tree so upgrades never lose it.
+func DefaultPath(env func(string) string) string { return userconfig.Path(env, "config.toml") }
 
 // ErrExists is returned by WriteTemplate when the file is already there and force is false.
 var ErrExists = errors.New("file already exists")
@@ -43,7 +40,7 @@ var ErrExists = errors.New("file already exists")
 // existing file unless force is set.
 func WriteTemplate(path string, force bool) error {
 	if path == "" {
-		return errors.New("cannot determine a config location (set HOME or XDG_CONFIG_HOME, or pass --config FILE)")
+		return errors.New("cannot determine a config location (set HOME or XDG_CONFIG_HOME, or APPDATA on Windows, or pass --config FILE)")
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
@@ -276,7 +273,14 @@ func askYes(rd *bufio.Reader) bool {
 }
 
 // createHint is the manual two-line instruction for creating the config at path, painted by t.
-func createHint(t style.Theme, path string) string {
+func createHint(t style.Theme, path string) string { return createHintFor(runtime.GOOS, t, path) }
+
+// createHintFor is createHint for goos: cmd.exe and PowerShell both take mkdir and copy, not mkdir -p and cp.
+func createHintFor(goos string, t style.Theme, path string) string {
+	if goos == "windows" {
+		return t.Sprintf("  {cmd:mkdir} {path:\"%s\"} && {cmd:copy} bbapprove.config.template {path:\"%s\"}\n  (or: bbapprove {flag:--init}), then edit it.\n",
+			path[:max(strings.LastIndexAny(path, `/\`), 0)], path)
+	}
 	return t.Sprintf("  {cmd:mkdir -p} {path:%s} && {cmd:cp} bbapprove.config.template {path:%s}\n  (or: bbapprove {flag:--init}), then edit it.\n",
 		shellQuote(filepath.Dir(path)), shellQuote(path))
 }

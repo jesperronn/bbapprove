@@ -6,7 +6,10 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strings"
 	"testing"
+
+	"bbapprove/internal/style"
 )
 
 func TestEmbeddedTemplateMatchesRoot(t *testing.T) {
@@ -80,5 +83,34 @@ func TestWriteTemplate(t *testing.T) {
 	st, _ = os.Stat(p)
 	if b, _ := os.ReadFile(p); string(b) != Template || (runtime.GOOS != "windows" && st.Mode().Perm() != 0o600) {
 		t.Error("force did not replace with 0600 template")
+	}
+}
+
+func TestRootOfExecutable(t *testing.T) {
+	j := filepath.Join
+	for _, tc := range []struct{ name, exe, want string }{
+		{"checkout layout", j("opt", "bbapprove", "bin", "bbapprove-go"), j("opt", "bbapprove")},
+		{"Windows archive layout", j("C", "tools", "bbapprove-v1", "bbapprove.exe"), j("C", "tools", "bbapprove-v1")},
+		{"bin in upper case", j("opt", "bbapprove", "BIN", "bbapprove-go"), j("opt", "bbapprove")},
+		{"a directory merely called binary", j("opt", "binary", "bbapprove"), j("opt", "binary")},
+		{"nested bin", j("opt", "bin", "x", "bbapprove"), j("opt", "bin", "x")},
+	} {
+		if got := RootOfExecutable(tc.exe); got != tc.want {
+			t.Errorf("%s: RootOfExecutable(%q) = %q, want %q", tc.name, tc.exe, got, tc.want)
+		}
+	}
+}
+
+func TestCreateHintFor(t *testing.T) {
+	unix := createHintFor("linux", style.Theme{}, "/h/.config/bbapprove/config.toml")
+	if want := "mkdir -p /h/.config/bbapprove && cp bbapprove.config.template /h/.config/bbapprove/config.toml"; !strings.Contains(unix, want) {
+		t.Errorf("unix hint = %q", unix)
+	}
+	win := createHintFor("windows", style.Theme{}, `C:\Users\me\AppData\Roaming\bbapprove\config.toml`)
+	if want := `mkdir "C:\Users\me\AppData\Roaming\bbapprove" && copy bbapprove.config.template "C:\Users\me\AppData\Roaming\bbapprove\config.toml"`; !strings.Contains(win, want) {
+		t.Errorf("windows hint = %q", win)
+	}
+	if strings.Contains(win, "mkdir -p") || strings.Contains(win, " cp ") {
+		t.Errorf("windows hint uses Unix commands: %q", win)
 	}
 }

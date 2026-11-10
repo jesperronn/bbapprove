@@ -10,6 +10,7 @@ import (
 	"golang.org/x/term"
 
 	"bbapprove/internal/app"
+	"bbapprove/internal/config"
 	"bbapprove/internal/tui"
 )
 
@@ -47,7 +48,7 @@ func main() {
 	}))
 }
 
-// repoDir is the parent of the directory holding the binary (<repo>/bin/bbapprove-go -> <repo>).
+// repoDir is the install root of the running binary (see config.RootOfExecutable).
 func repoDir() string {
 	exe, err := os.Executable()
 	if err != nil {
@@ -56,7 +57,7 @@ func repoDir() string {
 	if r, err := filepath.EvalSymlinks(exe); err == nil {
 		exe = r
 	}
-	return filepath.Dir(filepath.Dir(exe))
+	return config.RootOfExecutable(exe)
 }
 
 // wantsTUI reports whether -i selects the interactive TUI. --print-config and --init are handled by

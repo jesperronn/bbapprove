@@ -5,8 +5,10 @@ How to cut a release with `bin/release`, what the Release workflow publishes, an
 ## Flow
 
 1. While working, add entries under `## [Unreleased]` in `CHANGELOG.md` (Keep a Changelog headings `### Added`, `### Changed`, `### Fixed`).
-2. Preview: `bin/release --dry-run 1.0.0` (read-only checks; prints every step it would take).
-3. Release: `bin/release 1.0.0` (or `1.0.0-rc.3`; no leading `v`; a `-` makes it a pre-release).
+2. Preview: `bin/release --dry-run` (read-only checks; prints every step it would take).
+3. Release: `bin/release` takes the version from the conventional commits since the last tag (`bin/changelog next`). Or name it: `bin/release 1.0.0` (or `1.0.0-rc.3`; no leading `v`; a `-` makes it a pre-release). A named version that differs from the suggestion prints `note: conventional commits suggest vX.Y.Z` and the release goes on.
+
+With no version and nothing releasable (only docs, test or chore commits) it stops: pass a version to release anyway. The release notes are always the hand-written `[Unreleased]` section.
 
 Preconditions (checked first, nothing is changed if one fails): on `main`, clean tree, not behind `origin/main`, tag `vX.Y.Z` unused locally and on origin, `gh auth status` ok, `[Unreleased]` not empty.
 Local commits ahead of origin are allowed; they are pushed too.
@@ -18,7 +20,7 @@ Exit codes: 0 released, 1 failed or declined, 2 usage error, 127 tool missing. `
 
 ## Changelog generator
 
-`bin/changelog` derives the next version and a CHANGELOG section from the conventional-commit subjects since the last `v*` tag. It is a maintainer tool (`cmd/changelog`, library `internal/release`); the release archives do not contain it, and `bin/release` does not use it yet.
+`bin/changelog` derives the next version and a CHANGELOG section from the conventional-commit subjects since the last `v*` tag. It is a maintainer tool (`cmd/changelog`, library `internal/release`); the release archives do not contain it. `bin/release` derives the version from `next` when VERSION is omitted and suggests it otherwise; the notes it publishes stay the hand-written `[Unreleased]` section.
 
 ```
 bin/changelog next                    # prints vX.Y.Z; exit 0 releasable, 3 nothing releasable

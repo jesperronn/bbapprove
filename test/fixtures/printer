@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Silent printing stub, no logging. Symlink it under the tool's name (use_stubs DIR printer=changelog).
+# Prints $STUB_<NAME>_OUT if set and exits with $STUB_<NAME>_RC (default 1, so a test that does not set it sees
+# a failing tool). NAME is upper-cased, '-' -> '_'.
+name="${0##*/}"
+var="$(printf '%s' "$name" | tr 'a-z-' 'A-Z_')"
+out="STUB_${var}_OUT" rc="STUB_${var}_RC"
+[[ -z "${!out:-}" ]] || printf '%s\n' "${!out}"
+exit "${!rc:-1}"

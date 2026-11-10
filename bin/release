@@ -2,14 +2,17 @@
 # shellcheck shell=bash
 # release — cut a release: changelog, commit, annotated tag, push, then watch the Release workflow
 #
-# Usage: bin/release [--dry-run] [--yes] VERSION
-#   VERSION    semver without a leading v: 1.0.0 or 1.0.0-rc.3 (a "-" marks a pre-release)
+# Usage: bin/release [--dry-run] [--yes] [VERSION]
+#   VERSION    semver without a leading v: 1.0.0 or 1.0.0-rc.3 (a "-" marks a pre-release). Omitted: taken from
+#              `bin/changelog next` (conventional commits since the last tag). Given and different from that
+#              suggestion: a one-line note is printed and the release goes on.
 #   --dry-run  run the read-only checks and print every step it WOULD take; changes nothing
 #   --yes      do not ask before pushing
 # Steps: preconditions (on main, clean, not behind origin, tag unused, gh logged in, CHANGELOG
 # [Unreleased] not empty) -> bin/lint -> bin/test -> move [Unreleased] under "## [VERSION] - DATE"
 # -> commit "docs: changelog for VERSION" -> tag vVERSION -> confirm -> push main and the tag
 # -> gh run watch -> print the release URL.
+# The release notes stay the hand-written [Unreleased] section; bin/changelog only suggests the version.
 # Exit: 0 released (or dry run), 1 failed or declined, 2 usage error, 127 tool missing.
 # Env: RELEASE_DATE (default today), BBAPPROVE_RELEASE_RUN_WAIT_SECONDS (default 60; how long to look for
 #      the Release workflow run after the push), BBAPPROVE_RELEASE_RUN_POLL_SECONDS (default 3; pause between
@@ -26,9 +29,12 @@ REPO="$(cd "$(dirname "$SELF")/.." && pwd -P)"
 
 usage() {
   cat <<'USAGE'
-Usage: bin/release [--dry-run] [--yes] VERSION
+Usage: bin/release [--dry-run] [--yes] [VERSION]
 
 VERSION is semver without a leading v, e.g. 1.0.0 or 1.0.0-rc.3 (a "-" marks a pre-release).
+  Omitted, it is taken from the conventional commits since the last tag (bin/changelog next); with
+  only docs, test or chore commits that fails, so pass VERSION to release anyway. A VERSION that
+  differs from the suggestion prints a note and the release goes on.
   --dry-run   run the read-only checks and print every step it would take; changes nothing
   --yes       do not ask before pushing
   -h, --help  this text
@@ -74,17 +80,12 @@ while [[ $# -gt 0 ]]; do
   esac
   shift
 done
-[[ -n "$version" ]] || {
-  usage >&2
-  exit 2
-}
 
 semver='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
-if [[ ! "$version" =~ $semver ]]; then
+if [[ -n "$version" && ! "$version" =~ $semver ]]; then
   echo "release: not a semver version: $version (expected e.g. 1.0.0 or 1.0.0-rc.3, no leading v)" >&2
   exit 2
 fi
-tag="v$version"
 today="${RELEASE_DATE:-$(date +%F)}"
 wait_s="${BBAPPROVE_RELEASE_RUN_WAIT_SECONDS:-60}"
 poll_s="${BBAPPROVE_RELEASE_RUN_POLL_SECONDS:-3}"
@@ -95,12 +96,33 @@ need_tool git git
 need_tool gh gh
 cd "$REPO"
 
+# The version the conventional commits suggest (bin/changelog next prints vX.Y.Z; exit 3: nothing releasable).
+suggest_rc=0
+suggest_out="$("$REPO/bin/changelog" next 2>&1)" || suggest_rc=$?
+suggested=""
+if [[ "$suggest_rc" == 0 && "${suggest_out#v}" =~ $semver ]]; then suggested="${suggest_out#v}"; fi
+derived=0
+if [[ -z "$version" ]]; then
+  if [[ "$suggest_rc" == 3 ]]; then
+    die "nothing releasable since the last tag (only docs/test/chore commits); pass VERSION to release anyway"
+  fi
+  [[ -n "$suggested" ]] || die "cannot derive the version: ${suggest_out:-bin/changelog next exited $suggest_rc}"
+  version="$suggested"
+  derived=1
+fi
+tag="v$version"
+
 # unreleased_body: the lines under "## [Unreleased]" up to the next "## [" heading.
 unreleased_body() { awk '/^## \[/ { if (on) exit; on = ($0 ~ /^## \[Unreleased\]/); next } on { print }' CHANGELOG.md; }
 
 step() { if [[ "$dry" == 1 ]]; then echo "[dry-run] would $*"; else echo "==> $*"; fi; }
 
-echo "Release $tag ($today)"
+if [[ "$derived" == 1 ]]; then
+  echo "Release $tag ($today); version derived from conventional commits (bin/changelog next)"
+else
+  echo "Release $tag ($today)"
+  [[ -z "$suggested" || "$suggested" == "$version" ]] || echo "note: conventional commits suggest v$suggested"
+fi
 if [[ "$version" == *-* ]]; then echo "This is a pre-release (version has a '-')."; else echo "This is a stable release."; fi
 [[ "$dry" == 1 ]] && echo "Dry run: nothing will be committed, tagged or pushed."
 

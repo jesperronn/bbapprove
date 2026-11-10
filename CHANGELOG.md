@@ -15,6 +15,7 @@ All notable changes to this project are documented here. The format follows
 - The TUI opens a PR (`o`) with the system default browser on Windows (`rundll32 url.dll,FileProtocolHandler`), `open` on macOS and `xdg-open` elsewhere.
 - Releases include a Windows zip, `bbapprove-<tag>-windows-amd64.zip`, with `bbapprove.exe` and the docs, listed in `SHA256SUMS`. The README explains the PowerShell install.
 - Maintainers: CI installs shfmt so `bin/lint` enforces shell formatting, and the Windows Go job now blocks merging.
+- Maintainers: `bin/release` takes the version from the conventional commits when you leave VERSION out, and prints a note when the version you give differs from that suggestion.
 - Maintainers: `bin/package` builds the release archives and `SHA256SUMS` locally, and the Release workflow now uses it.
 
 ### Fixed

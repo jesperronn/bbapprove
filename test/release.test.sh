@@ -64,7 +64,7 @@ build_template() {
   use_stubs "$STUBS" git gh noop=sleep
   mkdir -p "$TPL/work/bin"
   cp "$PROJECT_ROOT/bin/release" "$PROJECT_ROOT/bin/release-notes" "$TPL/work/bin/"
-  use_stubs "$TPL/work/bin" recorder=lint recorder=test
+  use_stubs "$TPL/work/bin" recorder=lint recorder=test printer=changelog
   printf '%s\n' "$CHANGELOG_BEFORE" >"$TPL/work/CHANGELOG.md"
   "$REAL_GIT" init -q --template= -b main "$TPL/work"
   "$REAL_GIT" init -q --bare --template= -b main "$TPL/origin.git"
@@ -83,7 +83,7 @@ setup_fixture() {
   export STUB_LOG="$CALLS" STUB_GIT_REAL="$REAL_GIT" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
   export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.test GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.test
   export RELEASE_DATE=2026-02-03 BBAPPROVE_RELEASE_RUN_WAIT_SECONDS=0 BBAPPROVE_RELEASE_RUN_POLL_SECONDS=1
-  unset STUB_LINT_RC STUB_TEST_RC STUB_GH_AUTH_RC STUB_GH_WATCH_RC STUB_GH_RUN_APPEARS_ON STUB_GH_RUN_LIST_ERR
+  unset STUB_LINT_RC STUB_TEST_RC STUB_GH_AUTH_RC STUB_GH_WATCH_RC STUB_GH_RUN_APPEARS_ON STUB_GH_RUN_LIST_ERR STUB_CHANGELOG_OUT STUB_CHANGELOG_RC
   cp -R "$TPL/work" "$W"
   cp -R "$TPL/origin.git" "$O"
   link_script "$TPL/work/bin/release" "$W/bin/release"
@@ -126,13 +126,57 @@ test_bad_versions_exit_2() {
 test_usage_errors_and_help() {
   setup_fixture
   run_release n
-  assert_status 2 "$RC" "no VERSION exits 2"
+  assert_status 1 "$RC" "no VERSION and a failing bin/changelog exits 1"
+  assert_contains "$OUT" "cannot derive the version" "and says so"
   run_release n --bogus 1.0.0
   assert_status 2 "$RC" "unknown flag exits 2"
   assert_contains "$OUT" "unknown option: --bogus" "unknown flag is named"
   run_release n --help
   assert_status 0 "$RC" "--help exits 0"
   assert_contains "$OUT" "Usage: bin/release" "--help prints usage"
+}
+
+test_omitted_version_is_derived_from_conventional_commits() {
+  setup_fixture
+  STUB_CHANGELOG_RC=0 STUB_CHANGELOG_OUT=v1.2.0 run_release "" --yes
+  assert_status 0 "$RC" "release without VERSION succeeds"
+  assert_contains "$OUT" "Release v1.2.0 (2026-02-03); version derived from conventional commits" "the header says it was derived"
+  assert_contains "$OUT" "Released v1.2.0: https://example.test/releases/v1.2.0" "the derived version is released"
+  assert_eq "v1.2.0" "$("$REAL_GIT" -C "$W" tag)" "the tag has the derived version"
+  assert_eq "docs: changelog for 1.2.0" "$("$REAL_GIT" -C "$W" log -1 --format=%s)" "commit message has the derived version"
+  assert_not_contains "$OUT" "note: conventional commits suggest" "no note when nothing differs"
+}
+
+test_nothing_releasable_without_version_fails() {
+  setup_fixture
+  STUB_CHANGELOG_RC=3 run_release "" --yes
+  assert_status 1 "$RC" "nothing releasable exits 1"
+  assert_contains "$OUT" "nothing releasable since the last tag (only docs/test/chore commits); pass VERSION to release anyway" "message explains and names the way out"
+  assert_nothing_changed "nothing releasable"
+}
+
+test_nothing_releasable_with_version_goes_on_silently() {
+  setup_fixture
+  STUB_CHANGELOG_RC=3 run_release "" --yes 1.0.0
+  assert_status 0 "$RC" "an explicit VERSION releases anyway"
+  assert_not_contains "$OUT" "note:" "a failed suggestion prints no note"
+}
+
+test_differing_version_prints_a_note_and_goes_on() {
+  setup_fixture
+  STUB_CHANGELOG_RC=0 STUB_CHANGELOG_OUT=v1.1.0 run_release "" --yes 1.0.0
+  assert_status 0 "$RC" "a differing VERSION does not block"
+  assert_contains "$OUT" "note: conventional commits suggest v1.1.0" "the note names the suggestion"
+  assert_contains "$OUT" "Released v1.0.0:" "the given version is released"
+  STUB_CHANGELOG_RC=0 STUB_CHANGELOG_OUT=v1.0.0 run_release "" --dry-run 1.0.0
+  assert_not_contains "$OUT" "note:" "a matching VERSION prints no note"
+}
+
+test_changelog_failure_without_version_is_reported() {
+  setup_fixture
+  STUB_CHANGELOG_RC=1 STUB_CHANGELOG_OUT="changelog: git failed" run_release "" --yes
+  assert_status 1 "$RC" "a failing bin/changelog exits 1"
+  assert_contains "$OUT" "cannot derive the version: changelog: git failed" "its message is passed on"
 }
 
 test_not_on_main_fails() {

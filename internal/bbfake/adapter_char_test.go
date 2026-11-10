@@ -671,6 +671,9 @@ echo "$v"
 
 	red := newRedactor(base, tmp, script)
 	r := result{Exit: exit, Stdout: red.text(stdout.String()), Stderr: red.text(stderr.String()), raw: stdout.String(), base: base}
+	if runtime.GOOS == "windows" { // the OS's own error text for a missing file
+		r.Stderr = strings.ReplaceAll(r.Stderr, "The system cannot find the file specified.", "no such file or directory")
+	}
 	for _, a := range tc.args {
 		r.Args = append(r.Args, a)
 	}

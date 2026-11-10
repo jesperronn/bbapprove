@@ -273,7 +273,10 @@ func askYes(rd *bufio.Reader) bool {
 }
 
 // createHint is the manual two-line instruction for creating the config at path, painted by t.
-func createHint(t style.Theme, path string) string { return createHintFor(runtime.GOOS, t, path) }
+func createHint(t style.Theme, path string) string { return createHintFor(HintGOOS, t, path) }
+
+// HintGOOS is the OS createHint writes commands for. Tests that record the Unix hint set it to "linux".
+var HintGOOS = runtime.GOOS
 
 // createHintFor is createHint for goos: cmd.exe and PowerShell both take mkdir and copy, not mkdir -p and cp.
 func createHintFor(goos string, t style.Theme, path string) string {
@@ -282,7 +285,7 @@ func createHintFor(goos string, t style.Theme, path string) string {
 			path[:max(strings.LastIndexAny(path, `/\`), 0)], path)
 	}
 	return t.Sprintf("  {cmd:mkdir -p} {path:%s} && {cmd:cp} bbapprove.config.template {path:%s}\n  (or: bbapprove {flag:--init}), then edit it.\n",
-		shellQuote(filepath.Dir(path)), shellQuote(path))
+		shellQuote(path[:max(strings.LastIndex(path, "/"), 0)]), shellQuote(path))
 }
 
 func shellQuote(s string) string {

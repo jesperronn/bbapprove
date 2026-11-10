@@ -236,7 +236,7 @@ func checkoutHandler(status, branch string, ffOK bool) func(Cmd) ([]byte, error)
 			if !ffOK {
 				return nil, errors.New("exit status 1")
 			}
-		case strings.HasSuffix(c.Name, "bin/bbapprove"):
+		case strings.HasSuffix(filepath.ToSlash(c.Name), "bin/bbapprove"):
 			return []byte("bbapprove v1.1.0\n"), nil
 		}
 		return nil, nil

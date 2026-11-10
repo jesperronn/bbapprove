@@ -183,7 +183,7 @@ func printConfigTTY(t *testing.T, tty bool, env ...string) string {
 	if code != 0 {
 		t.Fatalf("code %d: %s", code, se.String())
 	}
-	return strings.ReplaceAll(so.String(), dir, "$DIR")
+	return onWindows(strings.ReplaceAll(so.String(), dir, "$DIR"))
 }
 
 func TestColouredPrintConfig(t *testing.T) {
@@ -213,7 +213,7 @@ func TestColouredPrintConfigWithoutFile(t *testing.T) {
 	for tty, w := range map[bool]*bytes.Buffer{true: &col, false: &plain} {
 		dir := t.TempDir()
 		Run(context.Background(), Options{Args: []string{"--print-config"}, Environ: []string{"XDG_CONFIG_HOME=" + dir}, RepoDir: dir, Stdout: w, Stderr: &bytes.Buffer{}, IsTTY: tty})
-		s := strings.ReplaceAll(w.String(), dir, "$DIR")
+		s := onWindows(strings.ReplaceAll(w.String(), dir, "$DIR"))
 		w.Reset()
 		w.WriteString(s)
 	}

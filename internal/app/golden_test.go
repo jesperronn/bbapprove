@@ -50,7 +50,7 @@ func printConfigRun(t *testing.T, env []string) string {
 	if code != 0 {
 		t.Fatalf("code %d: %s", code, se.String())
 	}
-	return strings.ReplaceAll(so.String(), dir, "$DIR")
+	return onWindows(strings.ReplaceAll(so.String(), dir, "$DIR"))
 }
 
 func TestGoldenPlainPrintConfig(t *testing.T) {

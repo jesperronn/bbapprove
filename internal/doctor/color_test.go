@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"bbapprove/internal/testfix"
 )
 
 var sgrRe = regexp.MustCompile("\x1b\\[[0-9;]*m")
@@ -122,6 +124,7 @@ func plainGutter(s string) string {
 }
 
 func TestStrippedColourEqualsPlain(t *testing.T) {
+	testfix.RequireUnixModes(t) // every scenario builds a rig
 	scenarios := map[string]func() *rig{
 		"ok": func() *rig { return goldenRig(t) },
 		"update": func() *rig {

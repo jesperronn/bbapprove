@@ -14,6 +14,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"bbapprove/internal/testfix"
 )
 
 type ent struct {
@@ -113,6 +115,7 @@ func TestExtractRejectsMalicious(t *testing.T) {
 }
 
 func TestExtractModesAndLayout(t *testing.T) {
+	testfix.RequireUnixModes(t)
 	data := tarball(t,
 		ent{name: "./top/", typ: tar.TypeDir, mode: 0o755},
 		ent{name: "./top/bin/tool", body: "x", mode: 0o4755},  // setuid

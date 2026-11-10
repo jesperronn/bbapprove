@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -55,10 +54,7 @@ func newFixture(t *testing.T) *fixture {
 func (fx *fixture) normalise(s string) string {
 	s = strings.ReplaceAll(s, "/private/var/", "/var/")
 	s = strings.NewReplacer(fx.repo, "$REPO", fx.xdg, "$XDG", fx.home, "$HOME", fx.base, "$BASE").Replace(s)
-	if runtime.GOOS == "windows" {
-		s = strings.ReplaceAll(s, `\`, "/") // the recorded output uses forward slashes
-	}
-	return s
+	return onWindows(s) // the recorded output uses forward slashes
 }
 
 func (fx *fixture) env(extra ...string) []string {

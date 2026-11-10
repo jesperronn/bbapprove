@@ -52,7 +52,8 @@ func TestDefaultPath(t *testing.T) {
 	if got := DefaultPath(env(map[string]string{"XDG_CONFIG_HOME": "/x"})); got != filepath.Join("/x", "bbapprove", "config.toml") {
 		t.Errorf("xdg: %q", got)
 	}
-	if got := DefaultPath(env(map[string]string{"HOME": "/h"})); got != filepath.Join("/h", ".config", "bbapprove", "config.toml") {
+	// without XDG_CONFIG_HOME Windows uses %AppData% (see internal/userconfig), not ~/.config
+	if got := DefaultPath(env(map[string]string{"HOME": "/h"})); runtime.GOOS != "windows" && got != filepath.Join("/h", ".config", "bbapprove", "config.toml") {
 		t.Errorf("home: %q", got)
 	}
 }

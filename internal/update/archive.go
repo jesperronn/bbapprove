@@ -16,6 +16,8 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+
+	"bbapprove/internal/userconfig"
 )
 
 // Archive installs are updated SIDE BY SIDE: the new release is unpacked into a new sibling directory
@@ -226,7 +228,8 @@ func (o Options) windowsDirText() string {
 // printSwitch tells where the new tree is and how to switch to it and back. It never switches itself.
 func (o Options) printSwitch(oldRoot, dest string) {
 	o.outln("\n{ok:Installed the new release} into {path:%s}", dest)
-	o.outln("Config: {path:$XDG_CONFIG_HOME/bbapprove/config.toml} (default {path:~/.config/bbapprove/config.toml}) is untouched and shared by both trees.")
+	xdgCfg, defCfg := userconfig.Display(o.GOOS, "config.toml")
+	o.outln("Config: {path:%s} (default {path:%s}) is untouched and shared by both trees.", xdgCfg, defCfg)
 	oldCfg := filepath.Join(oldRoot, "bbapprove.config.toml")
 	if _, err := os.Stat(oldCfg); err == nil {
 		o.outln("The old tree has its own {path:%s}: copy it into the new tree ({cmd:cp} {path:%s} {path:%s/}) or into the XDG path above.", oldCfg, oldCfg, dest)

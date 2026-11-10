@@ -3,3 +3,4 @@ bbapprove.config.toml
 !demo/bbapprove.config.toml
 disallow.txt
 dist/
+demo/demo.cast

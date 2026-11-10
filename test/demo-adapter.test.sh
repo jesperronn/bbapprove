@@ -138,9 +138,10 @@ test_no_real_hosts_or_people() {
   files=("$PROJECT_ROOT/adapters/demo" "$PROJECT_ROOT/bin/demo" "$PROJECT_ROOT/test/demo-adapter.test.sh")
   while IFS= read -r f; do files+=("$f"); done < <(find "$PROJECT_ROOT/demo" -type f ! -name '*.gif' ! -name '*.svg' 2>/dev/null)
   hosts="$(grep -hoE 'https?://[^/[:space:]"'\''\\]+' "${files[@]}" 2>/dev/null | sed -E 's#^https?://##' | sort -u || true)"
-  assert_eq "$(grep -vE '(^|\.)example\.com$' <<<"$hosts" || true)" "" "every host is example.com (checked: $(tr '\n' ' ' <<<"$hosts"))"
+  # www.w3.org is the SVG XML namespace named in demo/cast2svg, not a host that is contacted.
+  assert_eq "$(grep -vE '(^|\.)example\.com$|^www\.w3\.org$' <<<"$hosts" || true)" "" "every host is example.com (checked: $(tr '\n' ' ' <<<"$hosts"))"
   mails="$(grep -hoE '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+' "${files[@]}" 2>/dev/null | sort -u || true)"
-  assert_eq "$(grep -vE '@example\.com$' <<<"$mails" || true)" "" "every email is at example.com"
+  assert_eq "$(grep -vE '@(example\.com|acme\.test)$' <<<"$mails" || true)" "" "every email is at example.com or acme.test"
 }
 
 run_tests "$@"

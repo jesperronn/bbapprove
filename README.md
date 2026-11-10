@@ -1,8 +1,15 @@
 # bbapprove
 
-Approve and merge Renovate PRs on Bitbucket Server from the terminal. It lists the PRs where you are a
-reviewer, says which are safe to take (minor, patch and digest updates by your bot), and with `--apply` approves
-and merges them. Nothing changes without `--apply`. There is also an interactive TUI (`-i`).
+Approve and merge the safe Renovate pull requests on Bitbucket Server from the terminal.
+
+![bbapprove -i on fictional PRs: one is approved and merged](demo/demo.svg)
+
+It lists the PRs where you are a reviewer and marks which are safe to take (minor, patch and digest updates by
+your bot). `bbapprove --apply` approves and merges them; without `--apply` nothing changes. `-i` opens the TUI shown above.
+
+![A dry run: eligible rows have a blank STATUS, the others say why they are skipped](demo/shots/list.svg)
+
+Try it without a server: `bin/demo run`. The images use fictional PRs; `bin/demo regenerate` refreshes them.
 
 ## Install
 

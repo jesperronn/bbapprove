@@ -10,9 +10,12 @@ repository = "https://bitbucket.example.com/projects/ACME"
 # Named token item: the demo adapter answers `auth token` with demo-token, so no 1Password lookup happens.
 user_token_name = "demo-token"
 
-author_email = "renovate-bot@example.com"
+author_email = "renovate-bot@acme.test"
 
 # The fictional PR "pay-sdk" is skipped by this rule.
 disallow = ["pay-sdk"]
 
 delete_source_branch = true
+
+# The update check's repository is a placeholder, so the doctor screenshot shows no real project name.
+update_repo = "ACME/bbapprove"

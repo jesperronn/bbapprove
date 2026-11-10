@@ -3,7 +3,7 @@
 # lint — lint the bbapprove project: shellcheck for shell scripts, gofmt and go vet for Go.
 #
 # Usage: bin/lint [--autofix] [PATH...]
-#   no PATH     lint the whole project: shellcheck on bin/*, adapters/*, test/*.sh and
+#   no PATH     lint the whole project: shellcheck on bin/*, adapters/*, demo/*.sh, test/*.sh and
 #               test/lib/*.sh (bash scripts only), gofmt -l . and go vet ./...
 #   PATH...     lint only those files or directories. Go files (and the packages they
 #               belong to) go to gofmt and go vet; shell files go to shellcheck; other
@@ -113,7 +113,7 @@ full=0
 
 if [[ ${#path_args[@]} -eq 0 ]]; then
   full=1
-  for f in bin/* bin/lib/* adapters/* test/*.sh test/lib/*.sh; do
+  for f in bin/* bin/lib/* adapters/* demo/*.sh test/*.sh test/lib/*.sh; do
     if [[ -f "$f" ]] && is_shell_file "$f"; then
       shell_files+=("$f")
     fi

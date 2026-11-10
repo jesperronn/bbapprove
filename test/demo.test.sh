@@ -25,53 +25,67 @@ test_usage_and_unknown_commands() {
   local out rc
   capture_command out rc "$DEMO"
   assert_status 2 "$rc" "no command exits 2"
-  assert_contains "$out" "bin/demo record" "usage lists record"
+  assert_contains "$out" "Subcommands:" "no command prints the help"
+  assert_contains "$out" "regenerate" "help lists regenerate"
   capture_command out rc "$DEMO" --help
   assert_status 0 "$rc" "--help exits 0"
+  assert_contains "$out" "reset" "--help lists reset"
+  capture_command out rc "$DEMO" -h
+  assert_status 0 "$rc" "-h exits 0"
   capture_command out rc "$DEMO" bogus
-  assert_status 2 "$rc" "unknown command exits 2"
-  capture_command out rc "$DEMO" list extra
-  assert_status 2 "$rc" "list takes no arguments"
+  assert_status 2 "$rc" "unknown subcommand exits 2"
+  assert_contains "$out" "unknown subcommand: bogus" "unknown subcommand is named"
+  assert_contains "$out" "run list record shots regenerate reset help" "unknown subcommand lists the valid ones"
 }
 
-test_record_without_vhs_hints_and_exits_127() {
+test_help_is_plain_without_a_terminal_and_coloured_when_forced() {
   setup_tmp
   local out rc
-  capture_command out rc env PATH="$TEST_TMP/empty:/usr/bin:/bin" "$DEMO" record
-  assert_status 127 "$rc" "record exits 127 when vhs is missing"
-  assert_contains "$out" "brew install vhs" "record prints the install hint"
+  capture_command out rc env -u FORCE_COLOR "$DEMO" --help
+  assert_status 0 "$rc" "help exits 0 without a terminal"
+  assert_not_contains "$out" $'\033[' "help is plain when stdout is not a terminal"
+  capture_command out rc env FORCE_COLOR=1 "$DEMO" --help
+  assert_contains "$out" $'\033[1;35mrecord' "subcommand names use the cmd colour when forced"
+  capture_command out rc env NO_COLOR=1 FORCE_COLOR=1 "$DEMO" --help
+  assert_not_contains "$out" $'\033[' "NO_COLOR wins over FORCE_COLOR"
 }
 
-test_shots_without_freeze_hints_and_exits_127() {
+test_each_subcommand_has_its_own_help() {
   setup_tmp
-  local out rc
-  capture_command out rc env PATH="$TEST_TMP/empty:/usr/bin:/bin" "$DEMO" shots
-  assert_status 127 "$rc" "shots exits 127 when freeze is missing"
-  assert_contains "$out" "charmbracelet/tap/freeze" "shots prints the install hint"
+  local out rc sub
+  for sub in run list record shots regenerate reset; do
+    capture_command out rc "$DEMO" help "$sub"
+    assert_status 0 "$rc" "bin/demo help $sub exits 0"
+    assert_contains "$out" "Usage: bin/demo $sub" "bin/demo help $sub names its usage"
+  done
+  capture_command out rc "$DEMO" record --help
+  assert_status 0 "$rc" "record --help exits 0"
+  assert_contains "$out" "Needs:" "record --help says what it needs"
+  capture_command out rc "$DEMO" list --help
+  assert_status 0 "$rc" "list --help exits 0 and does not run bbapprove"
+  assert_contains "$out" "Usage: bin/demo list" "list --help prints its own page"
 }
 
-test_record_runs_vhs_on_the_tape_and_resets_state() {
+test_reset_removes_the_state_file_and_is_idempotent() {
   setup_tmp
-  mkdir -p "$TEST_TMP/bin"
-  use_stubs "$TEST_TMP/bin" recorder=vhs
-  printf 'approved 101\n' >"$BBAPPROVE_DEMO_STATE"
   local out rc
-  capture_command out rc env PATH="$TEST_TMP/bin:/usr/bin:/bin" "$DEMO" record
-  assert_status 0 "$rc" "record exits with vhs's status"
-  assert_contains "$(cat "$STUB_LOG")" "vhs demo/demo.tape" "record runs vhs on demo/demo.tape"
-  if [[ -e "$BBAPPROVE_DEMO_STATE" ]]; then test_fail "record starts from the fresh demo data"; fi
-  test_pass "record starts from the fresh demo data"
+  printf 'approved 102\n' >"$BBAPPROVE_DEMO_STATE"
+  capture_command out rc "$DEMO" reset
+  assert_status 0 "$rc" "reset exits 0"
+  assert_contains "$out" "removed $BBAPPROVE_DEMO_STATE" "reset names the file it removed"
+  assert_eq "no" "$([[ -e "$BBAPPROVE_DEMO_STATE" ]] && echo yes || echo no)" "reset deletes the state file"
+  capture_command out rc "$DEMO" reset
+  assert_status 0 "$rc" "reset exits 0 when there is nothing to remove"
+  assert_contains "$out" "nothing to remove" "reset says so when there is nothing to remove"
 }
 
-test_shots_runs_freeze_for_both_screens() {
+test_regenerate_checks_tools_before_recording() {
   setup_tmp
-  mkdir -p "$TEST_TMP/bin"
-  use_stubs "$TEST_TMP/bin" recorder=freeze
   local out rc
-  capture_command out rc env PATH="$TEST_TMP/bin:/usr/bin:/bin" "$DEMO" shots
-  assert_status 0 "$rc" "shots exits with freeze's status"
-  assert_contains "$(cat "$STUB_LOG")" "freeze --execute bin/demo list -o demo/list.svg" "shots writes the list screen"
-  assert_contains "$(cat "$STUB_LOG")" "print-config.svg" "shots writes the config screen"
+  make_tool_dir "$TEST_TMP/basic"
+  capture_command out rc env PATH="$TEST_TMP/basic" "$DEMO" regenerate
+  assert_status 127 "$rc" "regenerate exits 127 when tmux is missing"
+  assert_contains "$out" "tmux is not installed (needed by regenerate)" "regenerate names the missing tool"
 }
 
 run_tests "$@"

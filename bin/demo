@@ -1,30 +1,145 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
-# demo — bbapprove on fictional PRs with no server: run it, list them, record the demo GIF or make the SVG screenshots
+# demo — bbapprove on fictional PRs with no server: run it, list it, record the demo animation, make the
+# README screenshots, refresh both (regenerate) or reset the demo data. `bin/demo --help` lists the subcommands.
 #
-# Usage: bin/demo run [ARGS...]   the TUI (bbapprove -i) with no ARGS; with ARGS, bbapprove with exactly those
-#        bin/demo list           the plain list (a dry run), as in the README
-#        bin/demo record         vhs demo/demo.tape writes demo/demo.gif (starts from the fresh demo data)
-#        bin/demo shots          freeze writes demo/list.svg and demo/print-config.svg (fresh demo data)
-#   Data: adapters/demo (built-in fictional PRs; approvals and merges are kept in a temp file, reset with
-#   rm -f "${TMPDIR:-/tmp}/bbapprove-demo-state"). Config: demo/bbapprove.config.toml.
-#   record needs vhs (brew install vhs); shots needs freeze (brew install charmbracelet/tap/freeze).
-#   Exit: 0 ok, 2 usage error, 127 the tool is not installed.
+# Env: BBAPPROVE_DEMO_STATE  the state file (default ${TMPDIR:-/tmp}/bbapprove-demo-state)
+#      BBAPPROVE_FREEZE      the freeze binary for shots (default: freeze on PATH)
+#      DEMO_OUT_DIR          replaces demo/ as the output directory of record and shots (for tests)
+#      NO_COLOR, FORCE_COLOR colour rule, as for bbapprove: off with NO_COLOR, on for a terminal or FORCE_COLOR
+# Exit: 0 ok, 2 usage error, 127 a tool is not installed, 130 interrupted; otherwise the step's own status.
 
 set -euo pipefail
 
-usage() {
-  cat >&2 <<'EOF_USAGE'
-Usage: bin/demo run [ARGS...]
-       bin/demo list
-       bin/demo record
-       bin/demo shots
-EOF_USAGE
-}
-
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 CONFIG="demo/bbapprove.config.toml"
-STATE="${BBAPPROVE_DEMO_STATE:-${TMPDIR:-/tmp}/bbapprove-demo-state}"
+demo_tmp="${TMPDIR:-/tmp}"
+demo_tmp="${demo_tmp%/}"
+STATE="${BBAPPROVE_DEMO_STATE:-$demo_tmp/bbapprove-demo-state}"
+OUT="${DEMO_OUT_DIR:-$ROOT/demo}"
+FREEZE_VERSION=v0.2.2
+SUBCOMMANDS="run list record shots regenerate reset help"
+
+# paint CLASS FD TEXT: TEXT in the colour of CLASS (the SGR codes of internal/style) when colour is on for file
+# descriptor FD, else TEXT unchanged. Colour follows the internal/style rule: NO_COLOR turns it off; otherwise it
+# is on for a terminal on FD or when FORCE_COLOR is set.
+paint() {
+  local class="$1" fd="$2" text="$3" sgr=""
+  case "$class" in
+    title) sgr=1 ;;
+    heading) sgr="1;36" ;;
+    cmd) sgr="1;35" ;;
+    dim) sgr=2 ;;
+  esac
+  if [[ -z "$sgr" || -n "${NO_COLOR:-}" ]]; then printf '%s' "$text"; return 0; fi
+  if [[ -t "$fd" || -n "${FORCE_COLOR:-}" ]]; then
+    printf '\033[%sm%s\033[0m' "$sgr" "$text"
+  else
+    printf '%s' "$text"
+  fi
+}
+
+# row NAME WIDTH FD TEXT: one aligned help line: the subcommand NAME in the cmd colour, padded to WIDTH, then TEXT.
+row() {
+  local name="$1" width="$2" fd="$3" text="$4" padded
+  printf -v padded '%-*s' "$width" "$name"
+  printf '  %s  %s\n' "$(paint cmd "$fd" "$padded")" "$text"
+}
+
+# help_main FD: the top-level page: a title, the subcommands, and where the state file is.
+help_main() {
+  local fd="$1"
+  paint title "$fd" "bin/demo: bbapprove on fictional PRs, with no server"; echo
+  echo
+  paint heading "$fd" "Usage:"; echo " bin/demo SUBCOMMAND [ARGS...]"
+  echo
+  paint heading "$fd" "Subcommands:"; echo
+  row run 10 "$fd" "the TUI on the demo data; ARGS are passed to bbapprove"
+  row list 10 "$fd" "the plain list, a dry run; ARGS are passed to bbapprove (list --apply approves)"
+  row record 10 "$fd" "record demo/demo.svg, the animation, from the TUI in tmux"
+  row shots 10 "$fd" "write demo/shots/*.svg, the README screenshots, with freeze"
+  row regenerate 10 "$fd" "refresh every README asset: record, then shots (this is how they are refreshed)"
+  row reset 10 "$fd" "delete the state file, so the demo starts over"
+  row help 10 "$fd" "this page, or bin/demo help SUBCOMMAND for that subcommand's page"
+  echo
+  paint dim "$fd" "state: $STATE (bin/demo reset deletes it)"; echo
+  paint dim "$fd" "bin/demo SUBCOMMAND --help says what it reads, writes and needs."; echo
+}
+
+# help_sub NAME FD: the page for one subcommand. Returns 1 for an unknown name.
+help_sub() {
+  local name="$1" fd="$2"
+  case "$name" in
+    run)
+      paint heading "$fd" "Usage:"; echo " bin/demo run [ARGS...]"
+      echo "The TUI (bbapprove -i) on the fictional PRs. With ARGS, bbapprove runs with exactly those arguments."
+      echo "Because ARGS go to bbapprove, 'bin/demo run --help' prints bbapprove's own help; use 'bin/demo help run'"
+      echo "for this page."
+      sub_footer "$fd" "the state file (approvals and merges); bin/build's binary bin/bbapprove-go when it is stale" \
+        "nothing beyond Go, which the launcher uses to build bbapprove" \
+        "BBAPPROVE_DEMO_STATE" "bbapprove's status (0 ok)"
+      ;;
+    list)
+      paint heading "$fd" "Usage:"; echo " bin/demo list [ARGS...]"
+      echo "The plain list of the demo PRs, a dry run. With no ARGS nothing changes; ARGS go to bbapprove, so"
+      echo "'bin/demo list --apply' approves and merges the eligible demo PRs in the state file."
+      sub_footer "$fd" "the state file" "nothing beyond Go, which the launcher uses to build bbapprove" \
+        "BBAPPROVE_DEMO_STATE" "bbapprove's status (0 ok)"
+      ;;
+    record)
+      paint heading "$fd" "Usage:"; echo " bin/demo record"
+      echo "Drives the demo TUI in a detached tmux session (list, j, a, q), captures it, and writes the animation."
+      sub_footer "$fd" "demo/record.sh and the demo data; from the TUI it writes DEMO_OUT_DIR/demo.cast (git-ignored) and DEMO_OUT_DIR/demo.svg (default demo/)" \
+        "tmux (your system's package manager), freeze $FREEZE_VERSION (as for shots) and go, which builds demo/cast2svg" \
+        "DEMO_OUT_DIR, DEMO_TICK_MS, DEMO_TICK_SLEEP, DEMO_READY_TIMEOUT (see demo/record.sh)" \
+        "0 recorded, 1 the TUI did not start or the render failed, 127 tmux, freeze or go missing, 130 interrupted (the tmux session and temp files are removed)"
+      ;;
+    shots)
+      paint heading "$fd" "Usage:"; echo " bin/demo shots"
+      echo "Writes the three README screenshots from the fresh demo data: the list, the doctor report and the help."
+      sub_footer "$fd" "DEMO_OUT_DIR/shots/list.svg, doctor.svg and help.svg (default demo/shots/); the font file is stripped" \
+        "freeze $FREEZE_VERSION: GOBIN=DIR go install github.com/charmbracelet/freeze@$FREEZE_VERSION, then DIR on PATH or set BBAPPROVE_FREEZE" \
+        "BBAPPROVE_FREEZE, DEMO_OUT_DIR" \
+        "0 written, 127 freeze missing, 130 interrupted"
+      ;;
+    regenerate)
+      paint heading "$fd" "Usage:"; echo " bin/demo regenerate"
+      echo "Refreshes every README asset: runs record, then shots, then lists the files written with their sizes."
+      echo "All three tools are checked before the first step starts."
+      sub_footer "$fd" "demo/demo.svg, demo/demo.cast (git-ignored) and demo/shots/*.svg (under DEMO_OUT_DIR)" \
+        "tmux, freeze and go (see bin/demo record --help and shots --help)" \
+        "BBAPPROVE_FREEZE, DEMO_OUT_DIR and the record variables" \
+        "0 refreshed, 127 a tool missing (named in the message), 130 interrupted"
+      ;;
+    reset)
+      paint heading "$fd" "Usage:"; echo " bin/demo reset"
+      echo "Deletes the demo state file, so the next run starts from the built-in data. Running it twice is fine."
+      sub_footer "$fd" "removes the state file only" "nothing" "BBAPPROVE_DEMO_STATE" "0 always"
+      ;;
+    help)
+      paint heading "$fd" "Usage:"; echo " bin/demo help [SUBCOMMAND]"
+      echo "The main page, or the page of SUBCOMMAND (the same as bin/demo SUBCOMMAND --help)."
+      sub_footer "$fd" "nothing" "nothing" "nothing" "0 shown, 2 unknown subcommand"
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+# sub_footer FD READS NEEDS ENV EXIT: the labelled lines of a subcommand page.
+sub_footer() {
+  local fd="$1"
+  paint heading "$fd" "Reads/writes:"; echo " $2"
+  paint heading "$fd" "Needs:"; echo " $3"
+  paint heading "$fd" "Env:"; echo " $4"
+  paint heading "$fd" "Exit:"; echo " $5"
+}
+
+# unknown NAME: the message for an unknown subcommand, with the valid ones; exit 2.
+unknown() {
+  echo "demo: unknown subcommand: $1" >&2
+  echo "valid subcommands: $SUBCOMMANDS (bin/demo --help)" >&2
+  exit 2
+}
 
 # bbapprove_demo ARGS...: runs bbapprove on the demo config. The caller's BBAPPROVE_* settings and XDG config
 # are dropped, so the demo's own config, adapter and data are what show, and the real ignore list is not read.
@@ -39,47 +154,181 @@ bbapprove_demo() {
   exec "$ROOT/bin/bbapprove" --config "$CONFIG" "$@"
 }
 
-# need TOOL HINT: exit 127 with HINT when TOOL is not on PATH.
+# state_hint: one dim line on stderr when stderr is a terminal, so a user knows where the demo state lives.
+state_hint() {
+  if [[ -t 2 ]]; then paint dim 2 "state: $STATE (bin/demo reset starts over)" >&2; echo >&2; fi
+}
+
+# need TOOL STEP HINT: exit 127 when TOOL is not on PATH; the message names the step that needs it.
 need() {
   if ! command -v "$1" >/dev/null 2>&1; then
-    echo "demo: $1 is not installed; $2" >&2
+    echo "demo: $1 is not installed (needed by $2); $3" >&2
     exit 127
   fi
 }
 
-# reset_state: the next run starts from the built-in data.
-reset_state() {
-  rm -f -- "$STATE"
-}
+# on_interrupt: an interrupt or termination ends the script through its EXIT trap, so temp files are removed.
+on_interrupt() { exit 130; }
+
+cmd_run() { state_hint; bbapprove_demo "$@"; }
+
+cmd_list() { state_hint; bbapprove_demo "$@"; }
 
 cmd_record() {
-  need vhs "install it with: brew install vhs"
-  reset_state
+  need tmux record "install it with your system's package manager"
+  need go record "install Go, which builds demo/cast2svg"
+  find_freeze record >/dev/null
   cd "$ROOT"
-  vhs demo/demo.tape
+  bash "$ROOT/demo/record.sh"
 }
+
+# find_freeze STEP: prints the freeze to run: $BBAPPROVE_FREEZE, else freeze on PATH. Exit 127 with a hint otherwise.
+find_freeze() {
+  local step="${1:-shots}" f="${BBAPPROVE_FREEZE:-}"
+  if [[ -z "$f" ]]; then f="$(command -v freeze 2>/dev/null || true)"; fi
+  if [[ -z "$f" || ! -x "$f" ]]; then
+    echo "demo: freeze is not installed (needed by $step); install the pinned version with: GOBIN=DIR go install github.com/charmbracelet/freeze@$FREEZE_VERSION, then put DIR on PATH or set BBAPPROVE_FREEZE" >&2
+    exit 127
+  fi
+  printf '%s\n' "$f"
+}
+
+# size_kb FILE: "29 KB" (rounded up).
+size_kb() {
+  local bytes
+  bytes="$(wc -c <"$1" | tr -d ' ')"
+  echo "$(((bytes + 1023) / 1024)) KB"
+}
+
+# SHOT_FONT: the font stack for the screenshots. freeze embeds nothing here (the font file is stripped below), so
+# the browser or viewer picks the first installed family. The generic monospace last keeps the columns aligned.
+SHOT_FONT="JetBrains Mono, Menlo, Consolas, 'DejaVu Sans Mono', monospace"
+
+# shot FREEZE NAME COMMAND [WIDTH]: freeze runs COMMAND with colour forced on and writes OUT/shots/NAME.svg. WIDTH
+# (pixels) widens the window when freeze's own estimate clips the longest line. The checkout, the temp directory
+# and the home directory are shown as <repo>, <tmp> and ~, so no user name or machine path is published. The
+# embedded JetBrains Mono font (about 350 KB of base64) is dropped; the SVG then names SHOT_FONT.
+shot() {
+  local freeze="$1" name="$2" cmd="$3" width="${4:-}" file tmpdir
+  local -a size=()
+  file="$OUT/shots/$name.svg"
+  if [[ -n "$width" ]]; then size=(--width "$width"); fi
+  tmpdir="${TMPDIR:-/tmp}"
+  tmpdir="${tmpdir%/}"
+  echo "shots: rendering $name with freeze" >&2
+  env -u NO_COLOR FORCE_COLOR=1 "$freeze" --execute "sh -c '$cmd 2>/dev/null | sed -e \"s#$ROOT#<repo>#g\" -e \"s#$tmpdir#<tmp>#g\" -e \"s#$HOME#~#g\"'" \
+    --font.family "$SHOT_FONT" --window ${size[@]+"${size[@]}"} -o "$file" >/dev/null </dev/null
+  sed -e '/@font-face {/,/^}/d' "$file" >"$file.tmp" && mv "$file.tmp" "$file"
+  echo "shots: wrote $file ($(size_kb "$file"))" >&2
+}
+
+# shot_path STUBDIR: the PATH for the doctor screen. STUBDIR (a stub gh that is logged in) comes first, then
+# bin/ of this checkout, so `bbapprove` is this build, then PATH without any other directory that holds a
+# different bbapprove. Without this, doctor reports a shadowed binary on the machine that made the shot.
+shot_path() {
+  local d out=""
+  local IFS=:
+  for d in $PATH; do
+    if [[ -n "$d" && -x "$d/bbapprove" ]] && ! [[ "$d/bbapprove" -ef "$ROOT/bin/bbapprove" ]]; then continue; fi
+    out="${out:+$out:}$d"
+  done
+  printf '%s:%s:%s\n' "$1" "$ROOT/bin" "$out"
+}
+
+# write_gh_stub DIR: a gh whose `auth status` succeeds, for the doctor screen only. Nothing else is simulated.
+write_gh_stub() {
+  mkdir -p "$1"
+  printf '%s\n' '#!/usr/bin/env bash' '[[ "$*" == "auth status" ]] && exit 0' 'exit 1' >"$1/gh"
+  chmod +x "$1/gh"
+}
+
+SHOTS_TMP=""
+cleanup_shots() { [[ -n "$SHOTS_TMP" ]] && rm -rf "$SHOTS_TMP"; return 0; }
 
 cmd_shots() {
-  need freeze "install it with: brew install charmbracelet/tap/freeze"
-  reset_state
+  local freeze stubs
+  freeze="$(find_freeze shots)"
   cd "$ROOT"
-  freeze --execute "bin/demo list" -o demo/list.svg
-  freeze --execute "bin/demo run --print-config" -o demo/print-config.svg
+  SHOTS_TMP="$(mktemp -d)"
+  trap cleanup_shots EXIT
+  trap on_interrupt INT TERM
+  export BBAPPROVE_DEMO_STATE="$SHOTS_TMP/state"
+  stubs="$SHOTS_TMP/stubs"
+  write_gh_stub "$stubs"
+  mkdir -p "$OUT/shots"
+  if [[ "${DEMO_PREBUILD:-1}" != 0 ]]; then
+    echo "shots: building bbapprove $("$ROOT/demo/build.sh") (a fixed version, so the help screenshot does not change per commit)" >&2
+  fi
+  shot "$freeze" list "bin/demo list"
+  shot "$freeze" doctor "env PATH=$(shot_path "$stubs") bin/demo run doctor --offline" 1000
+  shot "$freeze" help "bin/demo run --help"
 }
 
+# cmd_regenerate: record, then shots. Every tool is checked first, so nothing is recorded when shots cannot run.
+cmd_regenerate() {
+  local f
+  need tmux regenerate "install it with your system's package manager"
+  need go regenerate "install Go, which builds demo/cast2svg"
+  find_freeze regenerate >/dev/null
+  cmd_record
+  cmd_shots
+  echo "regenerate: written"
+  for f in "$OUT/demo.svg" "$OUT/shots/list.svg" "$OUT/shots/doctor.svg" "$OUT/shots/help.svg"; do
+    if [[ ! -f "$f" ]]; then echo "regenerate: missing $f" >&2; exit 1; fi
+    echo "  $f ($(size_kb "$f"))"
+  done
+}
+
+# cmd_reset: deletes the state file. Idempotent.
+cmd_reset() {
+  if [[ -e "$STATE" ]]; then
+    rm -f -- "$STATE"
+    echo "reset: removed $STATE"
+  else
+    echo "reset: nothing to remove ($STATE does not exist)"
+  fi
+}
+
+trap on_interrupt INT TERM
+
 cmd="${1:-}"
-[[ $# -eq 0 ]] || shift
+if [[ -z "$cmd" ]]; then
+  help_main 2
+  exit 2
+fi
+shift
+
+# Subcommands other than run and list take no arguments; --help and -h show their page first. run and list
+# pass their arguments on, so `bin/demo run --help` is bbapprove's own help (the README's help screen).
 case "$cmd" in
-  run)
-    if [[ $# -eq 0 ]]; then set -- -i; fi
-    bbapprove_demo "$@"
+  -h|--help) help_main 1; exit 0 ;;
+  help)
+    if [[ $# -eq 0 ]]; then help_main 1; exit 0; fi
+    case "$1" in -h|--help) help_sub help 1; exit 0 ;; esac
+    help_sub "$1" 1 || unknown "$1"
+    exit 0
     ;;
-  list)
-    [[ $# -eq 0 ]] || { echo "demo: list takes no arguments" >&2; exit 2; }
-    bbapprove_demo
+  run|list) ;;
+  record|shots|regenerate|reset)
+    case "${1:-}" in
+      -h|--help) help_sub "$cmd" 1; exit 0 ;;
+    esac
+    [[ $# -eq 0 ]] || { echo "demo: $cmd takes no arguments (bin/demo $cmd --help)" >&2; exit 2; }
     ;;
-  record) [[ $# -eq 0 ]] || { echo "demo: record takes no arguments" >&2; exit 2; }; cmd_record ;;
-  shots) [[ $# -eq 0 ]] || { echo "demo: shots takes no arguments" >&2; exit 2; }; cmd_shots ;;
-  -h|--help) usage; exit 0 ;;
-  *) usage; exit 2 ;;
+  *) unknown "$cmd" ;;
+esac
+
+if [[ "$cmd" == list || "$cmd" == run ]]; then
+  case "${1:-}" in
+    -h|--help) if [[ "$cmd" == list ]]; then help_sub list 1; exit 0; fi ;;
+  esac
+fi
+
+case "$cmd" in
+  run) if [[ $# -eq 0 ]]; then set -- -i; fi; cmd_run "$@" ;;
+  list) cmd_list "$@" ;;
+  record) cmd_record ;;
+  shots) cmd_shots ;;
+  regenerate) cmd_regenerate ;;
+  reset) cmd_reset ;;
 esac

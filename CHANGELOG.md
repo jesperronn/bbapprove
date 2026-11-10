@@ -8,7 +8,7 @@ All notable changes to this project are documented here. The format follows
 ### Added
 - `bbapprove doctor` prints one line per area; every problem carries its fix on its own line and the last line only counts them. `bbapprove doctor -v` adds the lookup order, file mode, tool paths and environment, without printing any fact twice.
 - Maintainers: `bin/test --timings` prints the slowest shell suites, Go packages and Go tests and the total run time.
-- Maintainers: `bin/demo` runs bbapprove on fictional PRs with no server, and records the demo GIF (`vhs`) or SVG screenshots (`freeze`).
+- Maintainers: `bin/demo` runs bbapprove on fictional PRs with no server, with `--help` per subcommand. `bin/demo regenerate` records the demo animation from a tmux session, draws it with `freeze` and a small Go program in `demo/cast2svg`, and writes the SVG screenshots with `freeze`; it needs only tmux, freeze and Go, and neither needs Homebrew.
 
 ### Fixed
 - The `?` help in the TUI wraps to the terminal width instead of cutting lines off, and leaves the list at least four rows on a short terminal.

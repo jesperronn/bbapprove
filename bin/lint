@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
-# lint — lint the bbapprove project: shellcheck for shell scripts, gofmt and go vet for Go.
+# lint — lint the bbapprove project: shellcheck and shfmt for shell scripts, gofmt and go vet for Go.
 #
 # Usage: bin/lint [--autofix] [PATH...]
-#   no PATH     lint the whole project: shellcheck on bin/*, adapters/*, demo/*.sh, test/*.sh and
-#               test/lib/*.sh (bash scripts only), gofmt -l . and go vet ./...
+#   no PATH     lint the whole project: shellcheck and shfmt -d on bin/*, adapters/*, demo/*.sh,
+#               test/*.sh and test/lib/*.sh (bash scripts only), gofmt -l . and go vet ./...
 #   PATH...     lint only those files or directories. Go files (and the packages they
-#               belong to) go to gofmt and go vet; shell files go to shellcheck; other
+#               belong to) go to gofmt and go vet; shell files go to shellcheck and shfmt; other
 #               files are skipped with a note. Directories are searched recursively.
-#   --autofix   rewrite the Go targets with gofmt -w (shellcheck only reports)
+#   --autofix   rewrite the Go targets with gofmt -w and the shell targets with shfmt -w
+#               (shellcheck only reports)
 #   -h, --help  show this help
 #
 # Exit: 0 clean, 1 a tool reported problems (every tool still runs), 2 usage error,
-#       127 a required tool (shellcheck, go, gofmt) is not installed.
+#       127 a required tool (shellcheck, go, gofmt) is not installed. shfmt is optional: when it
+#       is missing the shell formatting check is skipped with a note (brew install shfmt).
+#       shfmt takes its style (two spaces, indented case branches) from .editorconfig.
 
 set -euo pipefail
 shopt -s nullglob
@@ -24,10 +27,12 @@ Usage: bin/lint [--autofix] [PATH...]
 Lints the bbapprove project. With no PATH, lints everything; otherwise lints only
 the given files and directories.
 
-  --autofix   run gofmt -w on the Go targets (shellcheck only reports)
+  --autofix   run gofmt -w on the Go targets and shfmt -w on the shell targets
+              (shellcheck only reports)
   -h, --help  show this help
 
-Exit: 0 clean, 1 problems found, 2 usage error, 127 missing tool.
+Exit: 0 clean, 1 problems found, 2 usage error, 127 missing tool. shfmt is optional
+and skipped with a note when it is not installed.
 EOF
 }
 
@@ -190,6 +195,37 @@ if [[ ${#shell_files[@]} -gt 0 ]]; then
     if [[ -n "$out" ]]; then printf '%s\n' "$out"; fi
     echo "shellcheck: ${#shell_files[@]} file(s) FAILED"
     failures+=(shellcheck)
+  fi
+fi
+
+if [[ ${#shell_files[@]} -gt 0 ]]; then
+  if ! command -v shfmt >/dev/null 2>&1; then
+    echo "shfmt: not installed, skipping (brew install shfmt)"
+  else
+    status=0
+    if [[ $autofix -eq 1 ]]; then
+      out="$(shfmt -w "${shell_files[@]}" 2>&1)" || status=$?
+      if [[ $status -eq 0 ]]; then
+        out="$(shfmt -d "${shell_files[@]}" 2>&1)" || status=$?
+      fi
+    else
+      out="$(shfmt -d "${shell_files[@]}" 2>&1)" || status=$?
+    fi
+    if [[ $status -eq 0 ]]; then
+      if [[ $autofix -eq 1 ]]; then
+        echo "shfmt ok (autofix applied)"
+      else
+        echo "shfmt ok"
+      fi
+    else
+      if [[ -n "$out" ]]; then printf '%s\n' "$out"; fi
+      if [[ $autofix -eq 1 ]]; then
+        echo "shfmt: FAILED (autofix error)"
+      else
+        echo "shfmt: needs formatting (bin/lint --autofix fixes these)"
+      fi
+      failures+=(shfmt)
+    fi
   fi
 fi
 

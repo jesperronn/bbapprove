@@ -9,6 +9,8 @@ bin/test --no-go 2>&1 | grep -E 'FAIL|TEST SUMMARY'
 bin/test --timings                # after the run: slowest suites, Go packages and Go tests, total time
 ```
 
+`bin/lint [--autofix] [PATH...]` runs shellcheck and shfmt on shell scripts and gofmt and go vet on Go. shfmt takes two-space indentation and indented `case` branches from `.editorconfig`; it is optional (skipped with a note when not installed, `brew install shfmt`), and `--autofix` rewrites formatting with `gofmt -w` and `shfmt -w`.
+
 `bin/lint-commits [--title TEXT] [--body-file FILE] [RANGE]` checks commit messages (default `origin/main..HEAD`) and PR text against the message policy in AGENTS.md; run it before pushing.
 
 The launcher `bin/bbapprove` rebuilds `bin/bbapprove-go` whenever `go.mod`, `go.sum` or any `cmd/`/`internal/` `.go` file is newer than it, so edit, run `bin/bbapprove`, repeat. Without Go and without a binary it exits 127.

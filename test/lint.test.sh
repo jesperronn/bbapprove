@@ -24,7 +24,7 @@ LINT_STATUS=0
 LINT_PATH=""
 
 # Fake project with bin/lint copied in, a mix of shell and Go files, and stubs for
-# the three external tools (on PATH) that only record their argv to LINT_TEST_LOG.
+# the external tools (on PATH) that only record their argv to LINT_TEST_LOG.
 setup_fixture() {
   TEST_TMP="$(mktemp -d)"
   PROJ="$TEST_TMP/proj"
@@ -40,13 +40,13 @@ setup_fixture() {
   printf '# readme\n' >"$PROJ/README.md"
 
   # Fixed recording stubs from test/fixtures, symlinked; they log "NAME ARGS" to $STUB_LOG.
-  use_stubs "$TEST_TMP/stubs" recorder=shellcheck recorder=gofmt go-stub=go
+  use_stubs "$TEST_TMP/stubs" recorder=shellcheck recorder=shfmt recorder=gofmt go-stub=go
   export STUB_LOG="$TEST_TMP/calls.log"
 
   export LINT_TEST_LOG="$STUB_LOG"
   : >"$LINT_TEST_LOG"
   export PATH="$TEST_TMP/stubs:$ORIG_PATH"
-  unset STUB_SHELLCHECK_RC STUB_GOFMT_OUT STUB_GOFMT_RC STUB_GO_RC
+  unset STUB_SHFMT_OUT STUB_SHFMT_RC STUB_SHELLCHECK_RC STUB_GOFMT_OUT STUB_GOFMT_RC STUB_GO_RC
   LINT_PATH=""
 }
 
@@ -191,6 +191,86 @@ test_missing_go_exits_127_only_when_go_needed() {
   run_lint internal/pkg/p.go
   assert_status 127 "$LINT_STATUS" "Go targets without go exit 127"
   assert_contains "$LINT_OUT" "lint: go is not installed" "missing go is named"
+  cleanup_test_tmp
+}
+
+test_shfmt_checks_the_shell_targets() {
+  setup_fixture
+  run_lint
+  local log
+  log="$(<"$LINT_TEST_LOG")"
+  assert_status 0 "$LINT_STATUS" "clean shfmt keeps exit 0"
+  assert_contains "$log" "shfmt -d bin/lint bin/tool adapters/x test/a.test.sh test/lib/h.sh" "no args: shfmt -d gets the same shell files as shellcheck"
+  assert_contains "$LINT_OUT" "shfmt ok" "no args: shfmt summary line"
+  cleanup_test_tmp
+}
+
+test_shfmt_diff_fails_run_and_is_shown() {
+  setup_fixture
+  export STUB_SHFMT_OUT="-	echo tab
++  echo spaces" STUB_SHFMT_RC=1
+  run_lint
+  local log
+  log="$(<"$LINT_TEST_LOG")"
+  assert_status 1 "$LINT_STATUS" "a shfmt diff makes exit 1"
+  assert_contains "$LINT_OUT" "+  echo spaces" "the shfmt diff is printed"
+  assert_contains "$LINT_OUT" "shfmt: needs formatting" "shfmt failure is reported"
+  assert_contains "$LINT_OUT" "lint: FAILED: shfmt" "final line names shfmt"
+  assert_contains "$log" "gofmt -l ." "gofmt still runs after shfmt fails"
+  assert_contains "$log" "go vet ./..." "go vet still runs after shfmt fails"
+  cleanup_test_tmp
+}
+
+test_missing_shfmt_is_a_note_not_an_error() {
+  setup_fixture
+  local no_shfmt="$TEST_TMP/no-shfmt"
+  make_tool_dir "$no_shfmt"
+  cp "$TEST_TMP/stubs/shellcheck" "$TEST_TMP/stubs/gofmt" "$TEST_TMP/stubs/go" "$no_shfmt/"
+  LINT_PATH="$no_shfmt"
+  local found
+  found="$(env PATH="$LINT_PATH" bash -c 'command -v shfmt' || true)"
+  assert_eq "" "$found" "fixture PATH has no shfmt"
+  run_lint
+  assert_status 0 "$LINT_STATUS" "missing shfmt does not change the exit status"
+  assert_contains "$LINT_OUT" "shfmt: not installed, skipping (brew install shfmt)" "missing shfmt is noted"
+  assert_contains "$LINT_OUT" "shellcheck: 5 file(s) ok" "shellcheck still runs without shfmt"
+  assert_contains "$LINT_OUT" "go vet ok" "go vet still runs without shfmt"
+  cleanup_test_tmp
+}
+
+test_autofix_runs_shfmt_w_and_ends_clean() {
+  setup_fixture
+  run_lint --autofix test/a.test.sh internal/pkg/p.go
+  local log
+  log="$(<"$LINT_TEST_LOG")"
+  assert_status 0 "$LINT_STATUS" "--autofix with shfmt exits 0"
+  assert_contains "$log" "shfmt -w test/a.test.sh" "--autofix runs shfmt -w on the shell targets"
+  assert_not_contains "$log" "shfmt -w internal" "--autofix does not hand Go files to shfmt"
+  assert_contains "$LINT_OUT" "shfmt ok (autofix applied)" "--autofix reports the shfmt result"
+  cleanup_test_tmp
+}
+
+test_autofix_fails_when_shfmt_still_reports() {
+  setup_fixture
+  export STUB_SHFMT_OUT="parse error" STUB_SHFMT_RC=1
+  run_lint --autofix test/a.test.sh
+  assert_status 1 "$LINT_STATUS" "a shfmt error during --autofix makes exit 1"
+  assert_contains "$LINT_OUT" "shfmt: FAILED (autofix error)" "the autofix error is reported"
+  cleanup_test_tmp
+}
+
+test_shfmt_gets_only_the_shell_path_args() {
+  setup_fixture
+  run_lint README.md internal/pkg/p.go test/a.test.sh
+  local log
+  log="$(<"$LINT_TEST_LOG")"
+  assert_contains "$log" "shfmt -d test/a.test.sh" "path args: only the shell file goes to shfmt"
+  assert_not_contains "$log" "shfmt -d test/a.test.sh internal" "path args: Go file is not passed to shfmt"
+  assert_not_contains "$log" "README.md" "path args: skipped file is not passed to any tool"
+  : >"$LINT_TEST_LOG"
+  run_lint internal/pkg/p.go
+  assert_not_contains "$(<"$LINT_TEST_LOG")" "shfmt" "Go-only targets do not run shfmt"
+  assert_not_contains "$LINT_OUT" "shfmt" "Go-only targets print no shfmt line"
   cleanup_test_tmp
 }
 

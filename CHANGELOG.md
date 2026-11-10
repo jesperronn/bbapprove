@@ -8,6 +8,7 @@ All notable changes to this project are documented here. The format follows
 ### Added
 - `bbapprove doctor` prints one line per area; every problem carries its fix on its own line and the last line only counts them. `bbapprove doctor -v` adds the lookup order, file mode, tool paths and environment, without printing any fact twice.
 - Maintainers: `bin/test --timings` prints the slowest shell suites, Go packages and Go tests and the total run time.
+- Maintainers: `bin/lint` checks shell formatting with shfmt when it is installed, and `bin/lint --autofix` rewrites it.
 - Maintainers: `bin/demo` runs bbapprove on fictional PRs with no server, with `--help` per subcommand. `bin/demo regenerate` records the demo animation from a tmux session, draws it with `freeze` and a small Go program in `demo/cast2svg`, and writes the SVG screenshots with `freeze`; it needs only tmux, freeze and Go, and neither needs Homebrew.
 
 ### Fixed

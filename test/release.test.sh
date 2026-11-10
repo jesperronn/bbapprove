@@ -64,6 +64,7 @@ build_template() {
   use_stubs "$STUBS" git gh noop=sleep
   mkdir -p "$TPL/work/bin"
   cp "$PROJECT_ROOT/bin/release" "$PROJECT_ROOT/bin/release-notes" "$TPL/work/bin/"
+  add_style_lib "$TPL/work/bin"
   use_stubs "$TPL/work/bin" recorder=lint recorder=test printer=changelog
   printf '%s\n' "$CHANGELOG_BEFORE" >"$TPL/work/CHANGELOG.md"
   "$REAL_GIT" init -q --template= -b main "$TPL/work"

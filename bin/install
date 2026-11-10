@@ -16,8 +16,10 @@ while [[ -L "$SELF" ]]; do
   if [[ "$target" == /* ]]; then SELF="$target"; else SELF="$(dirname "$SELF")/$target"; fi
 done
 REPO="$(cd "$(dirname "$SELF")/.." && pwd -P)"
+# shellcheck source=lib/style.sh
+source "$REPO/bin/lib/style.sh"
 
-usage() {
+usage_text() {
   cat <<'USAGE'
 Usage: bin/install [--prefix DIR] [--force]
 
@@ -27,6 +29,8 @@ Builds bbapprove and symlinks the launcher (bin/bbapprove) to DIR/bbapprove.
   -h, --help     this text
 USAGE
 }
+
+usage() { usage_text | style_help; }
 
 args=()
 while [[ $# -gt 0 ]]; do

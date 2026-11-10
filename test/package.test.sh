@@ -23,6 +23,7 @@ setup_repo() {
   OUT="$TEST_TMP/out"
   mkdir -p "$REPO/bin" "$REPO/adapters"
   link_script "$PACKAGE" "$REPO/bin/package"
+  add_style_lib "$REPO/bin"
   use_stubs "$REPO/bin" package-build=build
   printf '#!/usr/bin/env bash\n' >"$REPO/bin/bbapprove"
   printf '#!/usr/bin/env bash\n' >"$REPO/adapters/bitbucket"

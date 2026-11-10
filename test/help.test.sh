@@ -56,6 +56,7 @@ test_fixture_script_without_description_is_flagged_and_lib_excluded() {
   TEST_TMP="$(mktemp -d)"
   mkdir -p "$TEST_TMP/bin/lib"
   cp "$HELP" "$TEST_TMP/bin/help"
+  add_style_lib "$TEST_TMP/bin"
   printf '#!/usr/bin/env bash\n# shellcheck shell=bash\n# good — does a thing\n' >"$TEST_TMP/bin/good"
   printf '#!/usr/bin/env bash\necho hi\n' >"$TEST_TMP/bin/nodesc"
   printf '#!/usr/bin/env bash\n# hidden — in lib\n' >"$TEST_TMP/bin/lib/hidden"

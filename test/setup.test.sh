@@ -24,6 +24,7 @@ setup_repo() {
   TOOLS="$TEST_TMP/tools"
   mkdir -p "$REPO/bin"
   cp "$SETUP" "$REPO/bin/setup"
+  add_style_lib "$REPO/bin"
   printf 'module bbapprove\n\ngo 1.21\n' >"$REPO/go.mod"
   use_stubs "$REPO/bin" recorder=build
   chmod +x "$REPO/bin/setup"

@@ -14,11 +14,15 @@ while [[ -L "$SELF" ]]; do
   if [[ "$target" == /* ]]; then SELF="$target"; else SELF="$(dirname "$SELF")/$target"; fi
 done
 REPO="$(cd "$(dirname "$SELF")/.." && pwd -P)"
+# shellcheck source=lib/style.sh
+source "$REPO/bin/lib/style.sh"
 
-usage() {
+usage_text() {
   echo "Usage: bin/help"
   echo "Lists every command in bin/ with a one-line description."
 }
+
+usage() { usage_text | style_help; }
 
 case "${1:-}" in
   "") ;;
@@ -33,7 +37,8 @@ case "${1:-}" in
     ;;
 esac
 
-echo "bbapprove maintainer commands (bin/):"
+paint title 1 "bbapprove maintainer commands (bin/):"
+echo
 echo
 for f in "$REPO"/bin/*; do
   [[ -f "$f" && -x "$f" ]] || continue
@@ -41,9 +46,10 @@ for f in "$REPO"/bin/*; do
   # Skip compiled files such as bin/bbapprove-go: only scripts have a shebang.
   [[ "$(head -c 2 "$f")" == "#!" ]] || continue
   desc="$(grep -m1 "^# $name — " "$f" | cut -d' ' -f4- || true)"
-  printf '  %-14s %s\n' "$name" "${desc:-(no description line)}"
+  printf '  %s %s\n' "$(paint cmd 1 "$(printf '%-14s' "$name")")" "${desc:-(no description line)}"
 done
-cat <<'FLOW'
+{
+  cat <<'FLOW'
 
 Standard flow:
   bin/setup               check tools, download modules, build        (once per clone)
@@ -52,3 +58,4 @@ Standard flow:
   bin/release X.Y.Z       changelog, tag, push, watch the release workflow
 Every command takes --help.
 FLOW
+} | style_help

@@ -10,7 +10,7 @@
 
 set -euo pipefail
 
-usage() {
+usage_text() {
   cat <<'EOF2'
 Usage: bin/release-notes [--changelog FILE] TAG
 
@@ -19,7 +19,11 @@ Exit: 0 printed, 1 section missing or empty, 2 usage error.
 EOF2
 }
 
+usage() { usage_text | style_help; }
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+# shellcheck source=lib/style.sh
+source "$ROOT/bin/lib/style.sh"
 changelog="$ROOT/CHANGELOG.md"
 tag=""
 while [[ $# -gt 0 ]]; do

@@ -1,0 +1,3 @@
+# Follow `source` directives, so the bin/ scripts are checked together with bin/lib/style.sh.
+external-sources=true
+source-path=SCRIPTDIR

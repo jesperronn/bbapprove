@@ -29,6 +29,7 @@ setup_fixture() {
   PROJ="$TEST_TMP/proj"
   mkdir -p "$PROJ/bin" "$PROJ/test" "$TEST_TMP/stubs"
   link_script "$TESTSH" "$PROJ/bin/test"
+  add_style_lib "$PROJ/bin"
 
   # Fixed fixtures, symlinked: three fake suites (b sleeps for FAKE_SLOW_B, FAKE_FAIL_SUITE fails) and a go stub
   # that logs its argv and prints canned `go test -json` lines under STUB_GO_JSON=timings.

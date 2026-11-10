@@ -22,6 +22,7 @@ setup_repo() {
   REPO="$TEST_TMP/repo"
   mkdir -p "$REPO/bin" "$TEST_TMP/stubs" "$TEST_TMP/empty"
   cp "$INSTALL" "$REPO/bin/install"
+  add_style_lib "$REPO/bin"
   printf '#!/usr/bin/env bash\necho "build $*" >>"$TEST_TMP/calls.log"\n' >"$REPO/bin/build"
   printf '#!/usr/bin/env bash\nexit 0\n' >"$TEST_TMP/stubs/go"
   chmod +x "$REPO/bin/install" "$REPO/bin/build" "$TEST_TMP/stubs/go"

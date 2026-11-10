@@ -17,7 +17,7 @@
 set -euo pipefail
 shopt -s nullglob
 
-usage() {
+usage_text() {
   cat <<'EOF'
 Usage: bin/test [--verbose] [--timings] [--no-go] [--no-shell] [TARGET...]
 
@@ -33,7 +33,11 @@ Exit: 0 all passed, 1 a suite failed, 2 usage error.
 EOF
 }
 
+usage() { usage_text | style_help; }
+
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+# shellcheck source=lib/style.sh
+source "$PROJECT_ROOT/bin/lib/style.sh"
 
 verbose=0
 timings=0
@@ -201,7 +205,7 @@ run_go_json() {
 # report_timings TOTAL_MS: the --timings report.
 report_timings() {
   local total="$1" ms name secs bold="" reset=""
-  if [[ -z "${NO_COLOR:-}" && -t 1 ]]; then
+  if style_on 1; then
     bold=$'\033[1m'
     reset=$'\033[0m'
   fi

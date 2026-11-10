@@ -18,7 +18,11 @@
 
 set -euo pipefail
 
-usage() {
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+# shellcheck source=lib/style.sh
+source "$ROOT/bin/lib/style.sh"
+
+usage_text() {
   cat <<'EOF_USAGE'
 Usage: bin/lint-commits [--title TEXT] [--body-file FILE] [RANGE]
 
@@ -32,6 +36,8 @@ Checks commit messages against the message policy in AGENTS.md (mechanical rules
 Exit: 0 clean, 1 violations, 2 usage error.
 EOF_USAGE
 }
+
+usage() { usage_text | style_help; }
 
 die_usage() {
   echo "lint-commits: $1" >&2

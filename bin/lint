@@ -20,7 +20,7 @@
 set -euo pipefail
 shopt -s nullglob
 
-usage() {
+usage_text() {
   cat <<'EOF'
 Usage: bin/lint [--autofix] [PATH...]
 
@@ -36,7 +36,11 @@ and skipped with a note when it is not installed.
 EOF
 }
 
+usage() { usage_text | style_help; }
+
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+# shellcheck source=lib/style.sh
+source "$PROJECT_ROOT/bin/lib/style.sh"
 
 autofix=0
 path_args=()
@@ -190,7 +194,7 @@ if [[ ${#shell_files[@]} -gt 0 ]]; then
   status=0
   out="$(shellcheck ${shell_files[@]+"${shell_files[@]}"} 2>&1)" || status=$?
   if [[ $status -eq 0 ]]; then
-    echo "shellcheck: ${#shell_files[@]} file(s) ok"
+    echo "shellcheck: ${#shell_files[@]} file(s) $(paint ok 1 ok)"
   else
     if [[ -n "$out" ]]; then printf '%s\n' "$out"; fi
     echo "shellcheck: ${#shell_files[@]} file(s) FAILED"
@@ -215,7 +219,7 @@ if [[ ${#shell_files[@]} -gt 0 ]]; then
       if [[ $autofix -eq 1 ]]; then
         echo "shfmt ok (autofix applied)"
       else
-        echo "shfmt ok"
+        echo "shfmt $(paint ok 1 ok)"
       fi
     else
       if [[ -n "$out" ]]; then printf '%s\n' "$out"; fi
@@ -251,7 +255,7 @@ if [[ $go_wanted -eq 1 ]]; then
   else
     out="$(gofmt -l "${gofmt_targets[@]}" 2>&1)" || status=$?
     if [[ $status -eq 0 && -z "$out" ]]; then
-      echo "gofmt ok"
+      echo "gofmt $(paint ok 1 ok)"
     else
       if [[ -n "$out" ]]; then
         echo "gofmt: needs formatting (bin/lint --autofix fixes these):"
@@ -265,7 +269,7 @@ if [[ $go_wanted -eq 1 ]]; then
   status=0
   out="$(go vet "${vet_targets[@]}" 2>&1)" || status=$?
   if [[ $status -eq 0 ]]; then
-    echo "go vet ok"
+    echo "go vet $(paint ok 1 ok)"
   else
     if [[ -n "$out" ]]; then printf '%s\n' "$out"; fi
     echo "go vet: FAILED"

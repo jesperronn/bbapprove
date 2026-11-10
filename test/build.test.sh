@@ -41,6 +41,7 @@ setup_repo() {
     use_stubs "$GO_STUBS" go
   fi
   link_script "$BUILD" "$REPO/bin/build"
+  add_style_lib "$REPO/bin"
   printf '#!/usr/bin/env bash\necho launcher\n' >"$REPO/bin/bbapprove"
   chmod +x "$REPO/bin/bbapprove"
   printf 'module bbapprove\n\ngo 1.21\n' >"$REPO/go.mod"

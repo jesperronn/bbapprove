@@ -26,8 +26,10 @@ while [[ -L "$SELF" ]]; do
   if [[ "$target" == /* ]]; then SELF="$target"; else SELF="$(dirname "$SELF")/$target"; fi
 done
 REPO="$(cd "$(dirname "$SELF")/.." && pwd -P)"
+# shellcheck source=lib/style.sh
+source "$REPO/bin/lib/style.sh"
 
-usage() {
+usage_text() {
   cat <<'USAGE'
 Usage: bin/release [--dry-run] [--yes] [VERSION]
 
@@ -43,8 +45,10 @@ Needs a clean main in sync with origin, a filled "## [Unreleased]" in CHANGELOG.
 USAGE
 }
 
+usage() { usage_text | style_help; }
+
 die() {
-  echo "release: $*" >&2
+  echo "$(paint err 2 "release:") $*" >&2
   exit 1
 }
 

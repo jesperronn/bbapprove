@@ -13,10 +13,12 @@ while [[ -L "$SELF" ]]; do
   if [[ "$target" == /* ]]; then SELF="$target"; else SELF="$(dirname "$SELF")/$target"; fi
 done
 REPO="$(cd "$(dirname "$SELF")/.." && pwd)"
+# shellcheck source=lib/style.sh
+source "$REPO/bin/lib/style.sh"
 
 TARGETS=(darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64)
 
-usage() {
+usage_text() {
   cat <<'USAGE'
 Usage: bin/package TAG [--out DIR] [--only OS/ARCH ...]
 
@@ -35,6 +37,8 @@ Every archive is one top-level folder named like the archive without its extensi
 Needs Go, tar, and zip (Windows target). Exit: 0 ok, 1 build failed, 2 usage error, 127 tool missing.
 USAGE
 }
+
+usage() { usage_text | style_help; }
 
 die_usage() {
   echo "bbapprove: $1" >&2

@@ -12,6 +12,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+# shellcheck source=lib/style.sh
+source "$ROOT/bin/lib/style.sh"
 CONFIG="demo/bbapprove.config.toml"
 demo_tmp="${TMPDIR:-/tmp}"
 demo_tmp="${demo_tmp%/}"
@@ -19,28 +21,6 @@ STATE="${BBAPPROVE_DEMO_STATE:-$demo_tmp/bbapprove-demo-state}"
 OUT="${DEMO_OUT_DIR:-$ROOT/demo}"
 FREEZE_VERSION=v0.2.2
 SUBCOMMANDS="run list record shots regenerate reset help"
-
-# paint CLASS FD TEXT: TEXT in the colour of CLASS (the SGR codes of internal/style) when colour is on for file
-# descriptor FD, else TEXT unchanged. Colour follows the internal/style rule: NO_COLOR turns it off; otherwise it
-# is on for a terminal on FD or when FORCE_COLOR is set.
-paint() {
-  local class="$1" fd="$2" text="$3" sgr=""
-  case "$class" in
-    title) sgr=1 ;;
-    heading) sgr="1;36" ;;
-    cmd) sgr="1;35" ;;
-    dim) sgr=2 ;;
-  esac
-  if [[ -z "$sgr" || -n "${NO_COLOR:-}" ]]; then
-    printf '%s' "$text"
-    return 0
-  fi
-  if [[ -t "$fd" || -n "${FORCE_COLOR:-}" ]]; then
-    printf '\033[%sm%s\033[0m' "$sgr" "$text"
-  else
-    printf '%s' "$text"
-  fi
-}
 
 # row NAME WIDTH FD TEXT: one aligned help line: the subcommand NAME in the cmd colour, padded to WIDTH, then TEXT.
 row() {

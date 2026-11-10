@@ -166,6 +166,12 @@ use_stubs() {
   done
 }
 
+# add_style_lib BINDIR: put bin/lib/style.sh, which every bin/ script sources, next to a script copied into BINDIR.
+add_style_lib() {
+  mkdir -p "$1/lib"
+  cp "$(dirname "${BASH_SOURCE[0]}")/../../bin/lib/style.sh" "$1/lib/style.sh"
+}
+
 # link_script SRC DEST: hardlink the script under test into a fake repo (a copy is a fresh, cold executable on
 # macOS; a hardlink shares the already-warm inode). Falls back to cp across filesystems. Never write to DEST.
 link_script() {

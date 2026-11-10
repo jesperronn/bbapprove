@@ -56,13 +56,23 @@ func (b ClientBackend) Decline(ctx context.Context, pr adapter.PR, comment strin
 // Opener opens a URL in the user's browser.
 type Opener func(url string) error
 
-// DefaultOpener uses `open` on darwin and `xdg-open` elsewhere.
-func DefaultOpener(url string) error {
-	name := "xdg-open"
-	if runtime.GOOS == "darwin" {
-		name = "open"
+// OpenCommand is the program and arguments that open url in the default browser on goos: rundll32 on
+// Windows (not `cmd /c start`, which would treat the & in a URL as a command separator), `open` on macOS,
+// `xdg-open` elsewhere.
+func OpenCommand(goos, url string) (name string, args []string) {
+	switch goos {
+	case "windows":
+		return "rundll32", []string{"url.dll,FileProtocolHandler", url}
+	case "darwin":
+		return "open", []string{url}
 	}
-	cmd := exec.Command(name, url)
+	return "xdg-open", []string{url}
+}
+
+// DefaultOpener opens the URL with OpenCommand for the running OS.
+func DefaultOpener(url string) error {
+	name, args := OpenCommand(runtime.GOOS, url)
+	cmd := exec.Command(name, args...)
 	if err := cmd.Start(); err != nil {
 		return err
 	}

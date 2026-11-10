@@ -16,6 +16,8 @@ All notable changes to this project are documented here. The format follows
 ### Fixed
 - Maintainers: when `bin/release` cannot find the Release workflow run after a push, it reports the last `gh run list` error (or that the lookup succeeded with no run), the command to look by hand and the Actions page. The wait is set by `BBAPPROVE_RELEASE_RUN_WAIT_SECONDS` and `BBAPPROVE_RELEASE_RUN_POLL_SECONDS`, which replace `RELEASE_RUN_WAIT_SECONDS`.
 
+- The TUI opens a PR (`o`) with the system default browser on Windows (`rundll32 url.dll,FileProtocolHandler`), `open` on macOS and `xdg-open` elsewhere.
+
 ## [1.1.0] - 2026-11-10
 
 ### Added

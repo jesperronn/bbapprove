@@ -210,6 +210,12 @@ run_test_function() {
   end_time="$(bash_test_now)"
   BASH_TEST_CASES=$((BASH_TEST_CASES + 1))
 
+  # Opt-in per-test timing for bin/test --timings: one "SECONDS<TAB>SUITE<TAB>TEST" line per test.
+  if [[ -n "${BASH_TEST_TIMING_FILE:-}" ]]; then
+    printf '%s\t%s\t%s\n' "$(LC_ALL=C awk -v s="$(bash_test_normalize_time "$start_time")" -v e="$(bash_test_normalize_time "$end_time")" 'BEGIN { printf "%.3f", e - s }')" \
+      "$(basename "$0")" "$test_name" >>"$BASH_TEST_TIMING_FILE"
+  fi
+
   if [[ "${BASH_TEST_VERBOSE}" == "1" ]]; then
     bash_test_time_line "$test_name" "$start_time" "$end_time"
   fi

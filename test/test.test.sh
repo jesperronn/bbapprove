@@ -40,7 +40,7 @@ setup_fixture() {
   export TESTSH_TEST_LOG="$STUB_LOG"
   : >"$TESTSH_TEST_LOG"
   export PATH="$TEST_TMP/stubs:$ORIG_PATH"
-  unset STUB_GO_RC FAKE_FAIL_SUITE FAKE_SLOW_B STUB_GO_LOG_MATCH STUB_GO_LOG_PREFIX STUB_GO_FAIL STUB_GO_WRITE_BINARY TEST_TIMINGS_TOP
+  unset STUB_GO_RC FAKE_FAIL_SUITE FAKE_SLOW_B STUB_GO_LOG_MATCH STUB_GO_LOG_PREFIX STUB_GO_FAIL STUB_GO_WRITE_BINARY TEST_TIMINGS_TOP TEST_SLOW_SUITE_SECONDS TEST_SLOW_TEST_SECONDS FAKE_TEST_SECONDS
 }
 
 # run_testsh ARGS...: run bin/test from the fixture project; sets TESTSH_OUT and TESTSH_STATUS.
@@ -250,6 +250,42 @@ test_timings_with_target_and_failure_exit() {
   assert_status 1 "$TESTSH_STATUS" "--timings keeps the failing exit code"
   assert_contains "$TESTSH_OUT" "b.test.sh" "target suite timed"
   assert_not_contains "$TESTSH_OUT" "a.test.sh" "other suites not run"
+  cleanup_test_tmp
+}
+
+test_timings_file_is_json_lines() {
+  setup_fixture
+  local f="$TEST_TMP/t.jsonl" lines
+  run_testsh --timings-file "$f"
+  assert_status 0 "$TESTSH_STATUS" "--timings-file exits 0"
+  assert_contains "$TESTSH_OUT" "Slowest shell tests (top 10)" "--timings-file implies --timings"
+  assert_contains "$TESTSH_OUT" "a.test.sh:test_fake" "shell tests are shown as suite:test"
+  lines="$(<"$f")"
+  assert_contains "$lines" '{"kind":"shell-suite","name":"a.test.sh","seconds":' "a shell-suite entry"
+  assert_contains "$lines" '{"kind":"shell-test","name":"a.test.sh:test_fake","seconds":0.5,"over_budget":false}' "a shell-test entry"
+  assert_contains "$lines" '{"kind":"total","seconds":' "a total entry"
+  [[ "$(grep -vc '^{"kind":"[a-z-]*",.*}$' "$f" || true)" == 0 ]] || test_fail "every line is one JSON object" "$lines"
+  test_pass "every line is one JSON object"
+  assert_contains "$lines" '{"kind":"go-package","name":"x/slow","seconds":1.8,"over_budget":false}' "go-package entry"
+  assert_contains "$lines" '"kind":"go-test","name":"x/slow.TestB"' "go-test entry"
+  cleanup_test_tmp
+}
+
+test_over_budget_flags_and_keeps_exit_code() {
+  setup_fixture
+  export NO_COLOR=1
+  export TEST_SLOW_SUITE_SECONDS=0 TEST_SLOW_TEST_SECONDS=0.4
+  run_testsh --timings --timings-file "$TEST_TMP/t.jsonl"
+  assert_status 0 "$TESTSH_STATUS" "being over budget keeps exit 0"
+  assert_contains "$TESTSH_OUT" "go-package  x/slow" "slow package listed (1.8s > 0s)"
+  assert_contains "$TESTSH_OUT" "shell-test  a.test.sh:test_fake" "shell test over 0.4s listed"
+  assert_contains "$TESTSH_OUT" "go-test     x/slow.TestB" "go test over 0.4s listed"
+  assert_not_contains "$TESTSH_OUT" "go-test     x/slow.TestA" "go test under 0.4s not listed"
+  assert_contains "$(<"$TEST_TMP/t.jsonl")" '"kind":"go-package","name":"x/fast","seconds":0.02,"over_budget":true' "suite budget 0 flags every package"
+  export TEST_SLOW_SUITE_SECONDS=1000 TEST_SLOW_TEST_SECONDS=1000
+  run_testsh --timings
+  assert_contains "$TESTSH_OUT" "Over budget: none" "huge budgets: none"
+  unset NO_COLOR TEST_SLOW_SUITE_SECONDS TEST_SLOW_TEST_SECONDS
   cleanup_test_tmp
 }
 

@@ -49,4 +49,20 @@ BASH_TEST_JOBS=2 run_tests test_a test_b'
   assert_contains "$out" "SUMMARY: 2 test(s), 2 assertion(s)" "passing parallel tests are counted"
 }
 
+test_timing_file_gets_one_line_per_test() {
+  local f script
+  f="$(mktemp)"
+  script='source "$1"
+test_a() { test_pass "a"; }
+test_b() { test_pass "b"; }
+run_tests test_a test_b
+BASH_TEST_JOBS=2 run_tests test_a test_b'
+  BASH_TEST_TIMING_FILE="$f" NO_COLOR=1 bash -c "$script" _ "$PROJECT_ROOT/test/lib/bash_test.sh" >/dev/null 2>&1
+  assert_eq "4" "$(wc -l <"$f" | tr -d ' ')" "one line per test, serial and parallel"
+  assert_eq "test_a" "$(awk -F'\t' 'NR == 1 { print $3 }' "$f")" "the line ends with the test name"
+  [[ "$(awk -F'\t' '$1 ~ /^[0-9]+\.[0-9]+$/ && $2 != "" { n++ } END { print n }' "$f")" == 4 ]] || test_fail "lines are SECONDS, SUITE, TEST" "$(<"$f")"
+  test_pass "lines are SECONDS, SUITE, TEST"
+  rm -f "$f"
+}
+
 run_tests "$@"

@@ -183,9 +183,20 @@ bash_test_now() {
   bash_test_normalize_time "$EPOCHREALTIME"
 }
 
+# bash_test_time_line NAME START END: the verbose [TIME] line for a test that ran from START to END (two
+# EPOCHREALTIME values, either radix). Reads no clock, so tests can pass fixed values.
+bash_test_time_line() {
+  local name="$1"
+  local start_time end_time elapsed
+  start_time="$(bash_test_normalize_time "$2")"
+  end_time="$(bash_test_normalize_time "$3")"
+  elapsed="$(LC_ALL=C awk -v s="$start_time" -v e="$end_time" 'BEGIN { printf "%.2f", e - s }')"
+  bash_test_color_print "${BASH_TEST_C_CYAN}" "[TIME] $name: ${elapsed}s"
+}
+
 run_test_function() {
   local test_name="$1"
-  local start_time="" end_time="" elapsed=""
+  local start_time="" end_time=""
 
   test_run "$test_name"
   start_time="$(bash_test_now)"
@@ -194,8 +205,7 @@ run_test_function() {
   BASH_TEST_CASES=$((BASH_TEST_CASES + 1))
 
   if [[ "${BASH_TEST_VERBOSE}" == "1" ]]; then
-    elapsed="$(LC_ALL=C awk -v s="$start_time" -v e="$end_time" 'BEGIN { printf "%.2f", e - s }')"
-    bash_test_color_print "${BASH_TEST_C_CYAN}" "[TIME] $test_name: ${elapsed}s"
+    bash_test_time_line "$test_name" "$start_time" "$end_time"
   fi
 }
 

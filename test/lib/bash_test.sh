@@ -311,11 +311,14 @@ run_tests() {
 # environment that reliably lacks everything else (e.g. go, shellcheck), wherever the real ones live.
 make_tool_dir() {
   local dir="$1" tool path
+  local -a same_name=()
   shift
   mkdir -p "$dir"
   for tool in bash env dirname basename readlink find sort cat tr mkdir rm uname sed grep head wc mktemp cp chmod ln pwd printf test dd sleep touch "$@"; do
     path="$(command -v "$tool" 2>/dev/null || true)"
     [[ "$path" == /* ]] || continue
-    ln -sf "$path" "$dir/$tool"
+    # Links named like their target go in one ln call: a fork per tool added up to 0.2 s.
+    if [[ "${path##*/}" == "$tool" ]]; then same_name+=("$path"); else ln -sf "$path" "$dir/$tool"; fi
   done
+  ln -sf "${same_name[@]}" "$dir/"
 }

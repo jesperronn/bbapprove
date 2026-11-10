@@ -273,5 +273,5 @@ test_build_embeds_a_fixed_version() {
 }
 
 # Tests share no state (each has its own temp dir and stubs), so they run in parallel; BASH_TEST_JOBS=1 runs them serially.
-BASH_TEST_JOBS="${BASH_TEST_JOBS:-8}"
+BASH_TEST_JOBS="${BASH_TEST_JOBS:-4}"
 run_tests "$@"

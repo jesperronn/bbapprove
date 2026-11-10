@@ -11,7 +11,12 @@ source "$PROJECT_ROOT/test/lib/bash_test.sh"
 ORIG_PATH="$PATH"
 TEST_TMP=""
 PROJ=""
-cleanup_test_tmp() { [[ -n "$TEST_TMP" ]] && rm -rf "$TEST_TMP"; TEST_TMP=""; PATH="$ORIG_PATH"; return 0; }
+cleanup_test_tmp() {
+  [[ -n "$TEST_TMP" ]] && rm -rf "$TEST_TMP"
+  TEST_TMP=""
+  PATH="$ORIG_PATH"
+  return 0
+}
 trap 'cleanup_test_tmp' EXIT
 
 TESTSH_OUT=""
@@ -194,13 +199,16 @@ test_timings_orders_slowest_first() {
   # In the report the slow suite precedes the fast ones.
   local rep="${out#*==> TIMINGS}"
   local lb la
-  lb="$(line_no "$rep" "  b.test.sh")"; la="$(line_no "$rep" "  a.test.sh")"
+  lb="$(line_no "$rep" "  b.test.sh")"
+  la="$(line_no "$rep" "  a.test.sh")"
   [[ -n "$lb" && -n "$la" && "$lb" -lt "$la" ]] || test_fail "suite b (slow) listed before a" "$rep"
   test_pass "suites sorted slowest first"
-  lb="$(line_no "$rep" "x/slow")"; la="$(line_no "$rep" "x/fast")"
+  lb="$(line_no "$rep" "x/slow")"
+  la="$(line_no "$rep" "x/fast")"
   [[ -n "$lb" && -n "$la" && "$lb" -lt "$la" ]] || test_fail "package x/slow listed before x/fast" "$rep"
   test_pass "packages sorted slowest first"
-  lb="$(line_no "$rep" "x/slow.TestB")"; la="$(line_no "$rep" "x/slow.TestA")"
+  lb="$(line_no "$rep" "x/slow.TestB")"
+  la="$(line_no "$rep" "x/slow.TestA")"
   [[ -n "$lb" && -n "$la" && "$lb" -lt "$la" ]] || test_fail "TestB (1.5s) listed before TestA (0.25s)" "$rep"
   test_pass "tests sorted slowest first"
   cleanup_test_tmp

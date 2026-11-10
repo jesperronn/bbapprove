@@ -11,7 +11,12 @@ source "$PROJECT_ROOT/test/lib/bash_test.sh"
 ORIG_PATH="$PATH"
 TEST_TMP=""
 PROJ=""
-cleanup_test_tmp() { [[ -n "$TEST_TMP" ]] && rm -rf "$TEST_TMP"; TEST_TMP=""; PATH="$ORIG_PATH"; return 0; }
+cleanup_test_tmp() {
+  [[ -n "$TEST_TMP" ]] && rm -rf "$TEST_TMP"
+  TEST_TMP=""
+  PATH="$ORIG_PATH"
+  return 0
+}
 trap 'cleanup_test_tmp' EXIT
 
 LINT_OUT=""

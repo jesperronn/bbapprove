@@ -33,7 +33,11 @@ Exit: 0 clean, 1 violations, 2 usage error.
 EOF_USAGE
 }
 
-die_usage() { echo "lint-commits: $1" >&2; usage >&2; exit 2; }
+die_usage() {
+  echo "lint-commits: $1" >&2
+  usage >&2
+  exit 2
+}
 
 title=""
 have_title=0
@@ -42,17 +46,27 @@ have_body=0
 range=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -h | --help) usage; exit 0 ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
     --title)
       [[ $# -ge 2 ]] || die_usage "--title needs a value"
-      title="$2"; have_title=1; shift ;;
+      title="$2"
+      have_title=1
+      shift
+      ;;
     --body-file)
       [[ $# -ge 2 ]] || die_usage "--body-file needs a value"
-      body_file="$2"; have_body=1; shift ;;
+      body_file="$2"
+      have_body=1
+      shift
+      ;;
     -*) die_usage "unknown option: $1" ;;
     *)
       [[ -z "$range" ]] || die_usage "only one RANGE is allowed"
-      range="$1" ;;
+      range="$1"
+      ;;
   esac
   shift
 done
@@ -123,7 +137,7 @@ if [[ $have_body -eq 1 ]]; then
   check_body body "$body_text"
 fi
 
-if [[ -n "$range" || ( $have_title -eq 0 && $have_body -eq 0 ) ]]; then
+if [[ -n "$range" || ($have_title -eq 0 && $have_body -eq 0) ]]; then
   if [[ -z "$range" ]]; then
     if git rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
       range="origin/main..HEAD"

@@ -9,7 +9,11 @@ INSTALL="$PROJECT_ROOT/bin/install"
 source "$PROJECT_ROOT/test/lib/bash_test.sh"
 
 TEST_TMP=""
-cleanup_test_tmp() { [[ -n "$TEST_TMP" ]] && rm -rf "$TEST_TMP"; TEST_TMP=""; return 0; }
+cleanup_test_tmp() {
+  [[ -n "$TEST_TMP" ]] && rm -rf "$TEST_TMP"
+  TEST_TMP=""
+  return 0
+}
 trap 'cleanup_test_tmp' EXIT
 
 # Fake repo: bin/install plus a bin/build that only records its argv; a stub go on PATH.

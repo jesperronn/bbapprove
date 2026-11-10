@@ -9,7 +9,11 @@ HELP="$PROJECT_ROOT/bin/help"
 source "$PROJECT_ROOT/test/lib/bash_test.sh"
 
 TEST_TMP=""
-cleanup_test_tmp() { [[ -n "$TEST_TMP" ]] && rm -rf "$TEST_TMP"; TEST_TMP=""; return 0; }
+cleanup_test_tmp() {
+  [[ -n "$TEST_TMP" ]] && rm -rf "$TEST_TMP"
+  TEST_TMP=""
+  return 0
+}
 trap 'cleanup_test_tmp' EXIT
 
 test_lists_every_script_with_a_description() {

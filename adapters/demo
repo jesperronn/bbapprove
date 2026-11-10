@@ -96,7 +96,10 @@ parse_url() {
 # open_pr URL: sets ROW to the open PR's fixture row; exit 1 when it is not open.
 open_pr() {
   parse_url "$1"
-  ROW="$(find_row "$NUM" "$REPO")" || { echo "PR not found or no longer open: $1" >&2; exit 1; }
+  ROW="$(find_row "$NUM" "$REPO")" || {
+    echo "PR not found or no longer open: $1" >&2
+    exit 1
+  }
 }
 
 # non_empty TEXT: exit 2 with the adapter's message when TEXT is blank.
@@ -117,27 +120,37 @@ cmd_list() {
   while IFS= read -r line; do
     n="${line%%|*}"
     if state_has "merged $n" || state_has "closed $n"; then continue; fi
-    printf '%s' "$sep"; pr_json "$line"
+    printf '%s' "$sep"
+    pr_json "$line"
     sep=","
   done < <(fixtures)
   printf ']\n'
 }
 
 cmd_view() {
-  [[ $# -eq 1 ]] || { echo "demo: pr view takes one URL" >&2; exit 2; }
+  [[ $# -eq 1 ]] || {
+    echo "demo: pr view takes one URL" >&2
+    exit 2
+  }
   open_pr "$1"
   pr_json "$ROW"
   printf '\n'
 }
 
 cmd_review() {
-  [[ $# -eq 2 && "$2" == --approve ]] || { echo "demo: pr review takes URL --approve" >&2; exit 2; }
+  [[ $# -eq 2 && "$2" == --approve ]] || {
+    echo "demo: pr review takes URL --approve" >&2
+    exit 2
+  }
   open_pr "$1"
   record "approved $NUM"
 }
 
 cmd_merge() {
-  [[ $# -eq 1 ]] || { echo "demo: pr merge takes one URL" >&2; exit 2; }
+  [[ $# -eq 1 ]] || {
+    echo "demo: pr merge takes one URL" >&2
+    exit 2
+  }
   open_pr "$1"
   local n repo title head build qg others needs comments tasks me approvals=0
   IFS='|' read -r n repo title head build qg others needs comments tasks me <<<"$ROW"
@@ -145,27 +158,37 @@ cmd_merge() {
   approvals=$others
   if [[ "$me" == yes ]]; then approvals=$((others + 1)); fi
   if [[ "$build" == failed ]]; then
-    echo "merge HTTP 409: Not all required builds are successful yet" >&2; exit 1
+    echo "merge HTTP 409: Not all required builds are successful yet" >&2
+    exit 1
   fi
   if [[ "$build" == running ]]; then
-    echo "merge HTTP 409: A required build is still running" >&2; exit 1
+    echo "merge HTTP 409: A required build is still running" >&2
+    exit 1
   fi
   if [[ "$needs" -gt 0 ]]; then
-    echo "merge HTTP 409: Changes were requested by a reviewer" >&2; exit 1
+    echo "merge HTTP 409: Changes were requested by a reviewer" >&2
+    exit 1
   fi
   if [[ "$approvals" -lt 1 ]]; then
-    echo "merge HTTP 409: Needs 1 more approval" >&2; exit 1
+    echo "merge HTTP 409: Needs 1 more approval" >&2
+    exit 1
   fi
   record "merged $n"
 }
 
 cmd_comment() {
-  [[ $# -eq 3 ]] || { echo "demo: pr comment takes URL --body TEXT or URL --body-file FILE" >&2; exit 2; }
+  [[ $# -eq 3 ]] || {
+    echo "demo: pr comment takes URL --body TEXT or URL --body-file FILE" >&2
+    exit 2
+  }
   local text
   case "$2" in
     --body) text="$3" ;;
     --body-file) text="$(cat -- "$3")" ;;
-    *) echo "demo: pr comment takes --body or --body-file" >&2; exit 2 ;;
+    *)
+      echo "demo: pr comment takes --body or --body-file" >&2
+      exit 2
+      ;;
   esac
   non_empty "$text"
   open_pr "$1"
@@ -175,20 +198,35 @@ cmd_close() {
   local url="${1:-}" text=""
   case "$#" in
     1) ;;
-    3) [[ "$2" == --comment ]] || { echo "demo: pr close takes URL [--comment TEXT]" >&2; exit 2; }
-       text="$3"; non_empty "$text" ;;
-    *) echo "demo: pr close takes URL [--comment TEXT]" >&2; exit 2 ;;
+    3)
+      [[ "$2" == --comment ]] || {
+        echo "demo: pr close takes URL [--comment TEXT]" >&2
+        exit 2
+      }
+      text="$3"
+      non_empty "$text"
+      ;;
+    *)
+      echo "demo: pr close takes URL [--comment TEXT]" >&2
+      exit 2
+      ;;
   esac
   open_pr "$url"
   record "closed $NUM"
 }
 
-[[ $# -ge 1 ]] || { usage; exit 2; }
+[[ $# -ge 1 ]] || {
+  usage
+  exit 2
+}
 if [[ "$1 ${2:-}" == "auth token" ]]; then
   printf 'demo-token\n'
   exit 0
 fi
-[[ $# -ge 2 && "$1" == pr ]] || { usage; exit 2; }
+[[ $# -ge 2 && "$1" == pr ]] || {
+  usage
+  exit 2
+}
 sub="$2"
 shift 2
 case "$sub" in
@@ -198,5 +236,8 @@ case "$sub" in
   merge) cmd_merge "$@" ;;
   comment) cmd_comment "$@" ;;
   close) cmd_close "$@" ;;
-  *) usage; exit 2 ;;
+  *)
+    usage
+    exit 2
+    ;;
 esac

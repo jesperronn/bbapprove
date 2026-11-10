@@ -3,17 +3,34 @@
 # Failure switches: STUB_COMMENT_FAIL, STUB_DECLINE_FAIL, STUB_MERGE_FAIL, STUB_APPROVE_FAIL, STUB_DELETE_FAIL, STUB_STALE_FILE.
 url="${!#}"
 echo "$*" >>"$STUB_LOG"
-prev=""; for a in "$@"; do [[ "$prev" == -d ]] && printf '%s' "$a" >"$STUB_LOG.body"; prev="$a"; done
-if [[ "$url" == *whoami* ]]; then printf 'me\n200'
-elif [[ "$*" == *"-X POST"* && "$url" == */comments && -n "${STUB_COMMENT_FAIL:-}" ]]; then printf '{}\n500'
-elif [[ "$url" == *"/decline"* && -n "${STUB_DECLINE_FAIL:-}" ]]; then printf '{"errors":[{"message":"PR is out of date"}]}\n409'
-elif [[ "$url" == *build-status*/commits/stats ]]; then printf '{"abc":{"successful":2,"failed":0,"inProgress":0}}\n200'
-elif [[ "$url" == *"/activities"* ]]; then printf '{"values":[{"action":"COMMENTED"},{"action":"COMMENTED"},{"action":"COMMENTED"},{"action":"OPENED"}]}\n200'
-elif [[ "$url" == *"/blocker-comments"* ]]; then printf '{"values":[{"state":"OPEN"},{"state":"RESOLVED"}]}\n200'
-elif [[ "$url" == *dashboard/pull-requests* ]]; then printf '{"isLastPage":true,"values":[%s]}\n200' "$STUB_RAW"
-elif [[ "$url" == *"/merge"* && -n "${STUB_STALE_FILE:-}" && ! -e "$STUB_STALE_FILE" ]]; then touch "$STUB_STALE_FILE"; printf '{"errors":[{"message":"out-of-date"}]}\n409'
-elif [[ "$url" == *"/merge"* && -n "${STUB_MERGE_FAIL:-}" ]]; then printf '{"errors":[{"message":"checks failed"}]}\n409'
-elif [[ "$*" == *"-X DELETE"* && -n "${STUB_DELETE_FAIL:-}" ]]; then printf '{}\n500'
-elif [[ "$url" == *"/approve" && -n "${STUB_APPROVE_FAIL:-}" ]]; then printf '{}\n403'
-elif [[ "$url" =~ pull-requests/[0-9]+$ ]]; then printf '%s\n200' "$STUB_RAW"
+prev=""
+for a in "$@"; do
+  [[ "$prev" == -d ]] && printf '%s' "$a" >"$STUB_LOG.body"
+  prev="$a"
+done
+if [[ "$url" == *whoami* ]]; then
+  printf 'me\n200'
+elif [[ "$*" == *"-X POST"* && "$url" == */comments && -n "${STUB_COMMENT_FAIL:-}" ]]; then
+  printf '{}\n500'
+elif [[ "$url" == *"/decline"* && -n "${STUB_DECLINE_FAIL:-}" ]]; then
+  printf '{"errors":[{"message":"PR is out of date"}]}\n409'
+elif [[ "$url" == *build-status*/commits/stats ]]; then
+  printf '{"abc":{"successful":2,"failed":0,"inProgress":0}}\n200'
+elif [[ "$url" == *"/activities"* ]]; then
+  printf '{"values":[{"action":"COMMENTED"},{"action":"COMMENTED"},{"action":"COMMENTED"},{"action":"OPENED"}]}\n200'
+elif [[ "$url" == *"/blocker-comments"* ]]; then
+  printf '{"values":[{"state":"OPEN"},{"state":"RESOLVED"}]}\n200'
+elif [[ "$url" == *dashboard/pull-requests* ]]; then
+  printf '{"isLastPage":true,"values":[%s]}\n200' "$STUB_RAW"
+elif [[ "$url" == *"/merge"* && -n "${STUB_STALE_FILE:-}" && ! -e "$STUB_STALE_FILE" ]]; then
+  touch "$STUB_STALE_FILE"
+  printf '{"errors":[{"message":"out-of-date"}]}\n409'
+elif [[ "$url" == *"/merge"* && -n "${STUB_MERGE_FAIL:-}" ]]; then
+  printf '{"errors":[{"message":"checks failed"}]}\n409'
+elif [[ "$*" == *"-X DELETE"* && -n "${STUB_DELETE_FAIL:-}" ]]; then
+  printf '{}\n500'
+elif [[ "$url" == *"/approve" && -n "${STUB_APPROVE_FAIL:-}" ]]; then
+  printf '{}\n403'
+elif [[ "$url" =~ pull-requests/[0-9]+$ ]]; then
+  printf '%s\n200' "$STUB_RAW"
 else printf '{}\n200'; fi

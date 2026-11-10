@@ -11,5 +11,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 version="${DEMO_VERSION:-$(git -C "$ROOT" describe --tags --abbrev=0 2>/dev/null || echo dev)}"
-BBAPPROVE_VERSION="$version" "$ROOT/bin/build" >/dev/null || { echo "build: bin/build failed; run bin/build --test to see why" >&2; exit 1; }
+BBAPPROVE_VERSION="$version" "$ROOT/bin/build" >/dev/null || {
+  echo "build: bin/build failed; run bin/build --test to see why" >&2
+  exit 1
+}
 echo "$version"

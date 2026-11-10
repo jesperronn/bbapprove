@@ -35,13 +35,16 @@ SESSION=rec
 # left out: its wall of text does not fit the pane. Row 102 (http-kit) is the one eligible row below the cursor,
 # so the approval shows a merge.
 STEPS=(
-  ""  2000   # the list as it opens
-  "j" 1500   # cursor onto ACME/shop#102
-  "a" 3000   # approve + merge; the row shows MERGED
-  "q" 2500   # quit: the session summary stays on screen
+  "" 2000  # the list as it opens
+  "j" 1500 # cursor onto ACME/shop#102
+  "a" 3000 # approve + merge; the row shows MERGED
+  "q" 2500 # quit: the session summary stays on screen
 )
 
-fail() { echo "record: $*" >&2; exit 1; }
+fail() {
+  echo "record: $*" >&2
+  exit 1
+}
 
 # check_frame TEXT: fails when a frame shows a local path. The list covers the checkout's built binary, the home
 # directory and the temp directory (the launcher's build line and the state file are the usual sources).
@@ -127,8 +130,8 @@ STATE_FILE="$STATE_DIR/state"
 
 # The TUI runs with stderr discarded: the hint bin/demo prints there would otherwise be drawn into the pane.
 tmux -L "$SOCK" -f /dev/null new-session -d -s "$SESSION" -x "$COLS" -y "$ROWS" -c "$ROOT" \
-  "clear; env TERM=xterm-256color BBAPPROVE_DEMO_STATE='$STATE_FILE' '$ROOT/bin/demo' run 2>/dev/null" \
-  || fail "tmux could not start the demo session"
+  "clear; env TERM=xterm-256color BBAPPROVE_DEMO_STATE='$STATE_FILE' '$ROOT/bin/demo' run 2>/dev/null" ||
+  fail "tmux could not start the demo session"
 tmux -L "$SOCK" -f /dev/null set-option -t "$SESSION" status off >/dev/null
 tmux -L "$SOCK" -f /dev/null set-window-option -t "$SESSION" remain-on-exit on >/dev/null
 

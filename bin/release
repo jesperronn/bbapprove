@@ -35,7 +35,10 @@ Needs a clean main in sync with origin, a filled "## [Unreleased]" in CHANGELOG.
 USAGE
 }
 
-die() { echo "release: $*" >&2; exit 1; }
+die() {
+  echo "release: $*" >&2
+  exit 1
+}
 
 need_tool() {
   local tool="$1" brew_pkg="$2" apt_pkg="${3:-$2}" hint
@@ -48,17 +51,31 @@ need_tool() {
 dry=0 yes=0 version=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -h | --help) usage; exit 0 ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
     --dry-run) dry=1 ;;
     --yes | -y) yes=1 ;;
-    -*) echo "release: unknown option: $1" >&2; usage >&2; exit 2 ;;
+    -*)
+      echo "release: unknown option: $1" >&2
+      usage >&2
+      exit 2
+      ;;
     *)
-      [[ -z "$version" ]] || { echo "release: only one VERSION allowed" >&2; exit 2; }
-      version="$1" ;;
+      [[ -z "$version" ]] || {
+        echo "release: only one VERSION allowed" >&2
+        exit 2
+      }
+      version="$1"
+      ;;
   esac
   shift
 done
-[[ -n "$version" ]] || { usage >&2; exit 2; }
+[[ -n "$version" ]] || {
+  usage >&2
+  exit 2
+}
 
 semver='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
 if [[ ! "$version" =~ $semver ]]; then
@@ -87,11 +104,13 @@ branch="$(git rev-parse --abbrev-ref HEAD)"
 [[ -z "$(git status --porcelain)" ]] || die "working tree is not clean; commit or stash first"
 git fetch --quiet --no-tags origin || die "git fetch origin failed"
 counts="$(git rev-list --left-right --count main...origin/main)" || die "cannot compare main with origin/main"
-ahead="${counts%%[[:space:]]*}"; behind="${counts##*[[:space:]]}"
+ahead="${counts%%[[:space:]]*}"
+behind="${counts##*[[:space:]]}"
 [[ "$behind" == 0 ]] || die "main is $behind commit(s) behind origin/main; pull first"
 [[ "$ahead" == 0 ]] || echo "note: main is $ahead commit(s) ahead of origin/main; they will be pushed too"
 if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then die "tag $tag already exists locally"; fi
-rc=0; git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1 || rc=$?
+rc=0
+git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1 || rc=$?
 case "$rc" in
   0) die "tag $tag already exists on origin" ;;
   2) ;;
@@ -161,7 +180,8 @@ if [[ "$yes" == 0 ]]; then
       echo "Not pushed. The changelog commit and tag $tag exist locally only."
       echo "  push later:  git push --atomic origin main $tag"
       echo "  undo:        git tag -d $tag && git reset --hard HEAD~1"
-      exit 1 ;;
+      exit 1
+      ;;
   esac
 fi
 step "git push --atomic origin main $tag"

@@ -9,14 +9,19 @@ LAUNCHER="$PROJECT_ROOT/bin/bbapprove"
 source "$PROJECT_ROOT/test/lib/bash_test.sh"
 
 TEST_TMP=""
-cleanup_test_tmp() { [[ -n "$TEST_TMP" ]] && rm -rf "$TEST_TMP"; return 0; }
+cleanup_test_tmp() {
+  [[ -n "$TEST_TMP" ]] && rm -rf "$TEST_TMP"
+  return 0
+}
 trap 'cleanup_test_tmp' EXIT
 
 # Fake repo: launcher + go.mod + one Go package, and a stub `go` that records its argv
 # and writes a tiny shell script as the "binary" at the -o path.
 setup_repo() {
   TEST_TMP="$(mktemp -d)"
-  REPO="$TEST_TMP/repo"; GO_LOG="$TEST_TMP/go.log"; : >"$GO_LOG"
+  REPO="$TEST_TMP/repo"
+  GO_LOG="$TEST_TMP/go.log"
+  : >"$GO_LOG"
   mkdir -p "$REPO/bin" "$REPO/cmd/bbapprove" "$REPO/internal/x" "$TEST_TMP/stubs" "$TEST_TMP/empty"
   link_script "$LAUNCHER" "$REPO/bin/bbapprove"
   # Stub bin/build: the launcher delegates to it as `bin/build -o FILE`; it runs the (stubbed) go build.
@@ -30,9 +35,13 @@ setup_repo() {
 
 # run_launcher OUT_VAR RC_VAR [ENV=VAL...] -- LAUNCHER_PATH ARGS...
 run_launcher() {
-  local out_var="$1" rc_var="$2"; shift 2
+  local out_var="$1" rc_var="$2"
+  shift 2
   local -a envs=()
-  while [[ $# -gt 0 && "$1" != "--" ]]; do envs+=("$1"); shift; done
+  while [[ $# -gt 0 && "$1" != "--" ]]; do
+    envs+=("$1")
+    shift
+  done
   shift
   capture_command "$out_var" "$rc_var" env PATH="$TEST_TMP/stubs:/usr/bin:/bin" STUB_LOG="$GO_LOG" STUB_GO_LOG_PREFIX= STUB_GO_WRITE_BINARY=1 "${envs[@]}" "$@"
 }
@@ -45,7 +54,8 @@ test_missing_binary_builds_once_then_execs() {
   assert_eq "$(wc -l <"$GO_LOG" | tr -d ' ')" "1" "missing binary triggers exactly one go build"
   assert_eq "$(cat "$GO_LOG")" "build -o $REPO/bin/bbapprove-go ./cmd/bbapprove" "go build uses the right -o path and package"
   assert_contains "$out" "argv: [--apply] [x y] [--disallow] [a,b]" "args are passed through unchanged"
-  cleanup_test_tmp; TEST_TMP=""
+  cleanup_test_tmp
+  TEST_TMP=""
 }
 
 test_second_run_does_not_rebuild() {
@@ -55,7 +65,8 @@ test_second_run_does_not_rebuild() {
   run_launcher out rc -- "$REPO/bin/bbapprove" --help
   assert_eq "$(wc -l <"$GO_LOG" | tr -d ' ')" "1" "second run does not rebuild"
   assert_contains "$out" "argv: [--help]" "second run still execs the binary"
-  cleanup_test_tmp; TEST_TMP=""
+  cleanup_test_tmp
+  TEST_TMP=""
 }
 
 test_touched_go_source_triggers_rebuild() {
@@ -65,7 +76,8 @@ test_touched_go_source_triggers_rebuild() {
   touch -t 209901010000 "$REPO/internal/x/x.go"
   run_launcher out rc -- "$REPO/bin/bbapprove" >/dev/null
   assert_eq "$(wc -l <"$GO_LOG" | tr -d ' ')" "2" "newer .go file under internal/ triggers a rebuild"
-  cleanup_test_tmp; TEST_TMP=""
+  cleanup_test_tmp
+  TEST_TMP=""
 }
 
 test_touched_go_mod_triggers_rebuild() {
@@ -75,7 +87,8 @@ test_touched_go_mod_triggers_rebuild() {
   touch -t 209901010000 "$REPO/go.mod"
   run_launcher out rc -- "$REPO/bin/bbapprove" >/dev/null
   assert_eq "$(wc -l <"$GO_LOG" | tr -d ' ')" "2" "newer go.mod triggers a rebuild"
-  cleanup_test_tmp; TEST_TMP=""
+  cleanup_test_tmp
+  TEST_TMP=""
 }
 
 test_missing_go_exits_127() {
@@ -86,7 +99,8 @@ test_missing_go_exits_127() {
   assert_eq "$rc" "127" "no go on PATH with missing binary exits 127"
   assert_contains "$out" "bbapprove: needs Go to build (https://go.dev/dl/)" "no-go message names the install URL"
   assert_eq "$(wc -l <"$GO_LOG" | tr -d ' ')" "0" "no go build attempted without go"
-  cleanup_test_tmp; TEST_TMP=""
+  cleanup_test_tmp
+  TEST_TMP=""
 }
 
 test_failing_build_propagates_and_does_not_exec() {
@@ -96,7 +110,8 @@ test_failing_build_propagates_and_does_not_exec() {
   assert_eq "$rc" "3" "failing go build exits with go's status"
   assert_contains "$out" "go: boom" "go's stderr is visible"
   assert_not_contains "$out" "argv:" "binary is not exec'd after a failed build"
-  cleanup_test_tmp; TEST_TMP=""
+  cleanup_test_tmp
+  TEST_TMP=""
 }
 
 test_works_through_symlink() {
@@ -111,7 +126,8 @@ test_works_through_symlink() {
   run_launcher out rc -- "$TEST_TMP/rel/bbapprove" --help
   assert_eq "$(wc -l <"$GO_LOG" | tr -d ' ')" "1" "relative symlink finds the built binary without rebuilding"
   assert_contains "$out" "argv: [--help]" "relative symlink execs the binary"
-  cleanup_test_tmp; TEST_TMP=""
+  cleanup_test_tmp
+  TEST_TMP=""
 }
 
 run_tests "$@"

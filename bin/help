@@ -15,12 +15,22 @@ while [[ -L "$SELF" ]]; do
 done
 REPO="$(cd "$(dirname "$SELF")/.." && pwd -P)"
 
-usage() { echo "Usage: bin/help"; echo "Lists every command in bin/ with a one-line description."; }
+usage() {
+  echo "Usage: bin/help"
+  echo "Lists every command in bin/ with a one-line description."
+}
 
 case "${1:-}" in
   "") ;;
-  -h | --help) usage; exit 0 ;;
-  *) echo "help: unknown option: $1" >&2; usage >&2; exit 2 ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  *)
+    echo "help: unknown option: $1" >&2
+    usage >&2
+    exit 2
+    ;;
 esac
 
 echo "bbapprove maintainer commands (bin/):"

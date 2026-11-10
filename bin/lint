@@ -37,14 +37,21 @@ autofix=0
 path_args=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -h|--help) usage; exit 0 ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
     --autofix) autofix=1 ;;
     --)
       shift
       for arg in "$@"; do path_args+=("$arg"); done
       break
       ;;
-    -*) echo "lint: unknown option: $1" >&2; usage >&2; exit 2 ;;
+    -*)
+      echo "lint: unknown option: $1" >&2
+      usage >&2
+      exit 2
+      ;;
     *) path_args+=("$1") ;;
   esac
   shift
@@ -98,8 +105,11 @@ for arg in ${path_args[@]+"${path_args[@]}"}; do
     exit 2
   fi
   case "$abs" in
-    "$PROJECT_ROOT"|"$PROJECT_ROOT"/*) ;;
-    *) echo "lint: outside the project: $arg" >&2; exit 2 ;;
+    "$PROJECT_ROOT" | "$PROJECT_ROOT"/*) ;;
+    *)
+      echo "lint: outside the project: $arg" >&2
+      exit 2
+      ;;
   esac
   if [[ -d "$abs" ]]; then
     dir_abs+=("$abs")
@@ -228,7 +238,10 @@ if [[ $go_wanted -eq 1 ]]; then
 fi
 
 if [[ ${#failures[@]} -gt 0 ]]; then
-  echo "lint: FAILED: $(IFS=', '; echo "${failures[*]}")"
+  echo "lint: FAILED: $(
+    IFS=', '
+    echo "${failures[*]}"
+  )"
   exit 1
 fi
 exit 0

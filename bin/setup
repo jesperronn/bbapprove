@@ -31,8 +31,15 @@ check_only=0
 case "${1:-}" in
   "") ;;
   --check) check_only=1 ;;
-  -h | --help) usage; exit 0 ;;
-  *) echo "setup: unknown option: $1" >&2; usage >&2; exit 2 ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  *)
+    echo "setup: unknown option: $1" >&2
+    usage >&2
+    exit 2
+    ;;
 esac
 
 # install_hint TOOL: the package-manager command for this OS.

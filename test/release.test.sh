@@ -11,7 +11,12 @@ ORIG_PATH="$PATH"
 REAL_GIT="$(command -v git)"
 TEST_TMP=""
 TPL=""
-cleanup_test_tmp() { [[ -n "$TEST_TMP" ]] && rm -rf "$TEST_TMP"; [[ -n "$TPL" ]] && rm -rf "$TPL"; TEST_TMP=""; return 0; }
+cleanup_test_tmp() {
+  [[ -n "$TEST_TMP" ]] && rm -rf "$TEST_TMP"
+  [[ -n "$TPL" ]] && rm -rf "$TPL"
+  TEST_TMP=""
+  return 0
+}
 trap 'cleanup_test_tmp' EXIT
 
 CHANGELOG_BEFORE='# Changelog
@@ -49,7 +54,9 @@ CHANGELOG_AFTER='# Changelog
 STUBS=""
 setup_fixture() {
   TEST_TMP="$(mktemp -d)"
-  W="$TEST_TMP/work"; O="$TEST_TMP/origin.git"; CALLS="$TEST_TMP/calls.log"
+  W="$TEST_TMP/work"
+  O="$TEST_TMP/origin.git"
+  CALLS="$TEST_TMP/calls.log"
   export STUB_LOG="$CALLS" STUB_GIT_REAL="$REAL_GIT" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
   export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.test GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.test
   export RELEASE_DATE=2026-02-03 RELEASE_RUN_WAIT_SECONDS=0
@@ -79,7 +86,8 @@ setup_fixture() {
 
 # run_release ANSWER ARGS...: runs bin/release from the fixture, answer on stdin; sets OUT and RC.
 run_release() {
-  local answer="$1"; shift
+  local answer="$1"
+  shift
   RC=0
   OUT="$(cd "$W" && printf '%s\n' "$answer" | env PATH="$STUBS:$ORIG_PATH" "$W/bin/release" "$@" 2>&1)" || RC=$?
 }
@@ -181,7 +189,8 @@ test_empty_unreleased_fails() {
 
 test_gh_not_authenticated_fails() {
   setup_fixture
-  RC=0; OUT="$(cd "$W" && STUB_GH_AUTH_RC=1 PATH="$STUBS:$ORIG_PATH" "$W/bin/release" 1.0.0 2>&1 </dev/null)" || RC=$?
+  RC=0
+  OUT="$(cd "$W" && STUB_GH_AUTH_RC=1 PATH="$STUBS:$ORIG_PATH" "$W/bin/release" 1.0.0 2>&1 </dev/null)" || RC=$?
   assert_status 1 "$RC" "unauthenticated gh exits 1"
   assert_contains "$OUT" "gh is not authenticated" "message explains"
   assert_nothing_changed "no gh auth"
@@ -189,11 +198,13 @@ test_gh_not_authenticated_fails() {
 
 test_failing_lint_or_tests_abort_before_any_change() {
   setup_fixture
-  RC=0; OUT="$(cd "$W" && STUB_LINT_RC=1 PATH="$STUBS:$ORIG_PATH" "$W/bin/release" 1.0.0 2>&1 </dev/null)" || RC=$?
+  RC=0
+  OUT="$(cd "$W" && STUB_LINT_RC=1 PATH="$STUBS:$ORIG_PATH" "$W/bin/release" 1.0.0 2>&1 </dev/null)" || RC=$?
   assert_status 1 "$RC" "failing lint exits 1"
   assert_contains "$OUT" "bin/lint failed" "message names lint"
   assert_nothing_changed "lint failure"
-  RC=0; OUT="$(cd "$W" && STUB_TEST_RC=1 PATH="$STUBS:$ORIG_PATH" "$W/bin/release" 1.0.0 2>&1 </dev/null)" || RC=$?
+  RC=0
+  OUT="$(cd "$W" && STUB_TEST_RC=1 PATH="$STUBS:$ORIG_PATH" "$W/bin/release" 1.0.0 2>&1 </dev/null)" || RC=$?
   assert_status 1 "$RC" "failing tests exit 1"
   assert_contains "$OUT" "bin/test failed" "message names test"
   assert_nothing_changed "test failure"
@@ -290,7 +301,8 @@ test_empty_answer_defaults_to_no() {
 
 test_failing_workflow_exits_nonzero() {
   setup_fixture
-  RC=0; OUT="$(cd "$W" && STUB_GH_WATCH_RC=1 PATH="$STUBS:$ORIG_PATH" "$W/bin/release" --yes 1.0.0 2>&1 </dev/null)" || RC=$?
+  RC=0
+  OUT="$(cd "$W" && STUB_GH_WATCH_RC=1 PATH="$STUBS:$ORIG_PATH" "$W/bin/release" --yes 1.0.0 2>&1 </dev/null)" || RC=$?
   assert_status 1 "$RC" "failed workflow exits 1"
   assert_contains "$OUT" "the Release workflow failed (run 42)" "message names the run"
   assert_eq "" "$(grep '^gh release view' "$CALLS" || true)" "no URL is printed as success"

@@ -9,14 +9,19 @@ SETUP="$PROJECT_ROOT/bin/setup"
 source "$PROJECT_ROOT/test/lib/bash_test.sh"
 
 TEST_TMP=""
-cleanup_test_tmp() { [[ -n "$TEST_TMP" ]] && rm -rf "$TEST_TMP"; TEST_TMP=""; return 0; }
+cleanup_test_tmp() {
+  [[ -n "$TEST_TMP" ]] && rm -rf "$TEST_TMP"
+  TEST_TMP=""
+  return 0
+}
 trap 'cleanup_test_tmp' EXIT
 
 # Fake repo (go.mod needs 1.21) with bin/setup and a recording bin/build. PATH holds only basic tools
 # (make_tool_dir) plus stub tools; stubs for the five required tools exist unless removed by a test.
 setup_repo() {
   TEST_TMP="$(mktemp -d)"
-  REPO="$TEST_TMP/repo"; TOOLS="$TEST_TMP/tools"
+  REPO="$TEST_TMP/repo"
+  TOOLS="$TEST_TMP/tools"
   mkdir -p "$REPO/bin"
   cp "$SETUP" "$REPO/bin/setup"
   printf 'module bbapprove\n\ngo 1.21\n' >"$REPO/go.mod"

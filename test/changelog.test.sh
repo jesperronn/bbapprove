@@ -9,7 +9,11 @@ SCRIPT="$PROJECT_ROOT/bin/changelog"
 source "$PROJECT_ROOT/test/lib/bash_test.sh"
 
 TEST_TMP=""
-cleanup_test_tmp() { [[ -n "$TEST_TMP" ]] && rm -rf "$TEST_TMP"; TEST_TMP=""; return 0; }
+cleanup_test_tmp() {
+  [[ -n "$TEST_TMP" ]] && rm -rf "$TEST_TMP"
+  TEST_TMP=""
+  return 0
+}
 trap 'cleanup_test_tmp' EXIT
 
 # A tiny repository with fixed dates: tag v1.0.0, then a feat and a fix and a chore.

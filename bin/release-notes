@@ -24,19 +24,41 @@ changelog="$ROOT/CHANGELOG.md"
 tag=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -h | --help) usage; exit 0 ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
     --changelog)
-      [[ $# -ge 2 ]] || { echo "release-notes: --changelog needs a file" >&2; exit 2; }
-      changelog="$2"; shift ;;
-    -*) echo "release-notes: unknown option: $1" >&2; usage >&2; exit 2 ;;
+      [[ $# -ge 2 ]] || {
+        echo "release-notes: --changelog needs a file" >&2
+        exit 2
+      }
+      changelog="$2"
+      shift
+      ;;
+    -*)
+      echo "release-notes: unknown option: $1" >&2
+      usage >&2
+      exit 2
+      ;;
     *)
-      [[ -z "$tag" ]] || { echo "release-notes: only one TAG allowed" >&2; exit 2; }
-      tag="$1" ;;
+      [[ -z "$tag" ]] || {
+        echo "release-notes: only one TAG allowed" >&2
+        exit 2
+      }
+      tag="$1"
+      ;;
   esac
   shift
 done
-[[ -n "$tag" ]] || { usage >&2; exit 2; }
-[[ -f "$changelog" ]] || { echo "release-notes: no such file: $changelog" >&2; exit 1; }
+[[ -n "$tag" ]] || {
+  usage >&2
+  exit 2
+}
+[[ -f "$changelog" ]] || {
+  echo "release-notes: no such file: $changelog" >&2
+  exit 1
+}
 
 version="${tag#v}"
 

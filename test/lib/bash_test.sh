@@ -208,7 +208,7 @@ run_tests() {
 
   for arg in "$@"; do
     case "$arg" in
-      --verbose|-v)
+      --verbose | -v)
         BASH_TEST_VERBOSE=1
         ;;
       *)

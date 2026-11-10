@@ -9,7 +9,11 @@ DEMO="$PROJECT_ROOT/bin/demo"
 source "$PROJECT_ROOT/test/lib/bash_test.sh"
 
 TEST_TMP=""
-cleanup_test_tmp() { [[ -n "$TEST_TMP" ]] && rm -rf "$TEST_TMP"; TEST_TMP=""; return 0; }
+cleanup_test_tmp() {
+  [[ -n "$TEST_TMP" ]] && rm -rf "$TEST_TMP"
+  TEST_TMP=""
+  return 0
+}
 trap 'cleanup_test_tmp' EXIT
 
 # Fresh temp dir per test: the output goes there (DEMO_OUT_DIR), never into demo/. The stubs (tmux, go, freeze,

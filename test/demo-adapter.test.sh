@@ -10,7 +10,11 @@ REAL_VIEW_GOLDEN="$PROJECT_ROOT/internal/bbfake/testdata/adapter/view_basic.gold
 source "$PROJECT_ROOT/test/lib/bash_test.sh"
 
 TEST_TMP=""
-cleanup_test_tmp() { [[ -n "$TEST_TMP" ]] && rm -rf "$TEST_TMP"; TEST_TMP=""; return 0; }
+cleanup_test_tmp() {
+  [[ -n "$TEST_TMP" ]] && rm -rf "$TEST_TMP"
+  TEST_TMP=""
+  return 0
+}
 trap 'cleanup_test_tmp' EXIT
 
 URL_101="https://bitbucket.example.com/projects/ACME/repos/shop/pull-requests/101"

@@ -3,7 +3,13 @@
 case "${1:-} ${2:-}" in
   "auth status") exit "${STUB_GH_AUTH_RC:-0}" ;;
   "run list") echo 42 ;;
-  "run watch") echo "gh run watch $3" >>"$STUB_LOG"; exit "${STUB_GH_WATCH_RC:-0}" ;;
-  "release view") echo "gh release view $3" >>"$STUB_LOG"; echo "https://example.test/releases/$3" ;;
+  "run watch")
+    echo "gh run watch $3" >>"$STUB_LOG"
+    exit "${STUB_GH_WATCH_RC:-0}"
+    ;;
+  "release view")
+    echo "gh release view $3" >>"$STUB_LOG"
+    echo "https://example.test/releases/$3"
+    ;;
 esac
 exit 0

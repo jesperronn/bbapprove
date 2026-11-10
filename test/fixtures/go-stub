@@ -8,7 +8,10 @@
 #   STUB_GO_JSON=timings     when called with -json, print a canned `go test -json` stream (two packages,
 #                            x/slow 1.8s with TestA 0.25 / TestB 1.5, x/fast 0.02s) for the bin/test --timings tests
 #   STUB_GO_WRITE_BINARY=1   write a tiny script that echoes its argv at the -o path, like `go build -o`
-if [[ "${1:-} ${2:-}" == "env GOVERSION" ]]; then echo "${STUB_GOVERSION:-go1.22.3}"; exit 0; fi
+if [[ "${1:-} ${2:-}" == "env GOVERSION" ]]; then
+  echo "${STUB_GOVERSION:-go1.22.3}"
+  exit 0
+fi
 # shellcheck disable=SC2053
 [[ "$*" == ${STUB_GO_LOG_MATCH:-*} ]] && echo "${STUB_GO_LOG_PREFIX-go }$*" >>"$STUB_LOG"
 if [[ "${STUB_GO_JSON:-}" == timings && " $* " == *" -json "* ]]; then
@@ -21,10 +24,17 @@ if [[ "${STUB_GO_JSON:-}" == timings && " $* " == *" -json "* ]]; then
   echo '{"Action":"output","Package":"x/fast","Output":"PASS\n","OutputType":"frame"}'
   echo '{"Action":"pass","Package":"x/fast","Elapsed":0.02}'
 fi
-if [[ -n "${STUB_GO_FAIL:-}" ]]; then echo "go: boom" >&2; exit 3; fi
+if [[ -n "${STUB_GO_FAIL:-}" ]]; then
+  echo "go: boom" >&2
+  exit 3
+fi
 if [[ -n "${STUB_GO_WRITE_BINARY:-}" ]]; then
-  out=""; prev=""
-  for a in "$@"; do [[ "$prev" == -o ]] && out="$a"; prev="$a"; done
+  out=""
+  prev=""
+  for a in "$@"; do
+    [[ "$prev" == -o ]] && out="$a"
+    prev="$a"
+  done
   printf '#!/usr/bin/env bash\nprintf "argv:"; printf " [%%s]" "$@"; echo\n' >"$out"
   chmod +x "$out"
 fi

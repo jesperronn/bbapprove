@@ -130,3 +130,36 @@ func TestUsage(t *testing.T) {
 		t.Errorf("--help: %d", code)
 	}
 }
+
+func helpWith(t *testing.T, env map[string]string, args ...string) (string, string) {
+	t.Helper()
+	var out, errb strings.Builder
+	e := env2(&out, &errb, env)
+	e.main(args)
+	return out.String(), errb.String()
+}
+
+func env2(out, errb *strings.Builder, vars map[string]string) env {
+	return env{out: out, err: errb, now: time.Now, look: func(k string) string { return vars[k] }}
+}
+
+func TestHelpColour(t *testing.T) {
+	const sgr = "\x1b["
+	for _, args := range [][]string{{"--help"}, {"next", "-h"}} {
+		on, onErr := helpWith(t, map[string]string{"FORCE_COLOR": "1"}, args...)
+		if !strings.Contains(on+onErr, sgr) {
+			t.Errorf("%v with FORCE_COLOR: no SGR escape in %q %q", args, on, onErr)
+		}
+		off, offErr := helpWith(t, map[string]string{"FORCE_COLOR": "1", "NO_COLOR": "1"}, args...)
+		if strings.Contains(off+offErr, sgr) {
+			t.Errorf("%v with NO_COLOR: SGR escape in %q %q", args, off, offErr)
+		}
+		plain, plainErr := helpWith(t, nil, args...)
+		if plain != off || plainErr != offErr {
+			t.Errorf("%v: plain output differs from NO_COLOR output", args)
+		}
+	}
+	if plain, _ := helpWith(t, nil, "--help"); plain != topUsage+topUsageDetail {
+		t.Errorf("plain help changed: %q", plain)
+	}
+}

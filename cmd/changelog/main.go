@@ -11,7 +11,10 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/term"
+
 	"bbapprove/internal/release"
+	"bbapprove/internal/style"
 )
 
 // Exit codes.
@@ -35,23 +38,57 @@ Common flags: --repo DIR (git repository, default .). Exit: 1 error, 2 usage err
 
 type env struct {
 	out, err io.Writer
-	run      release.Runner // nil: real git in --repo
-	now      func() time.Time
+	// look reads an environment variable (nil: os.Getenv); outTTY and errTTY say whether each stream is a
+	// terminal. Together they decide colour per stream, as internal/style.Enabled does.
+	look           func(string) string
+	outTTY, errTTY bool
+	run            release.Runner // nil: real git in --repo
+	now            func() time.Time
 }
 
 func main() {
-	e := env{out: os.Stdout, err: os.Stderr, now: time.Now}
+	e := env{out: os.Stdout, err: os.Stderr, now: time.Now,
+		outTTY: term.IsTerminal(int(os.Stdout.Fd())), errTTY: term.IsTerminal(int(os.Stderr.Fd()))}
 	os.Exit(e.main(os.Args[1:]))
+}
+
+// theme is the colour theme for one stream.
+func (e env) theme(tty bool) style.Theme {
+	look := e.look
+	if look == nil {
+		look = os.Getenv
+	}
+	return style.New(style.Enabled(look, tty))
+}
+
+// usage is the top-level help, plain text painted with the theme: Usage: heading, subcommand names cmd,
+// flags flag. With colour off it is exactly topUsage+topUsageDetail.
+func usage(t style.Theme) string {
+	if !t.On {
+		return topUsage + topUsageDetail
+	}
+	r := strings.NewReplacer(
+		"Usage:", t.Paint(style.Heading, "Usage:"),
+		"<next|render|update|due>", t.Paint(style.Cmd, "next")+"|"+t.Paint(style.Cmd, "render")+"|"+t.Paint(style.Cmd, "update")+"|"+t.Paint(style.Cmd, "due"),
+		"  next ", "  "+t.Paint(style.Cmd, "next")+" ",
+		"  render ", "  "+t.Paint(style.Cmd, "render")+" ",
+		"  update ", "  "+t.Paint(style.Cmd, "update")+" ",
+		"  due ", "  "+t.Paint(style.Cmd, "due")+" ",
+		"--repo", t.Paint(style.Flag, "--repo"),
+		"Common flags:", t.Paint(style.Heading, "Common flags:"),
+		"Exit:", t.Paint(style.Heading, "Exit:"),
+	)
+	return r.Replace(topUsage + topUsageDetail)
 }
 
 func (e env) main(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprint(e.err, topUsage+topUsageDetail)
+		fmt.Fprint(e.err, usage(e.theme(e.errTTY)))
 		return exitUsage
 	}
 	switch args[0] {
 	case "-h", "--help", "help":
-		fmt.Fprint(e.out, topUsage+topUsageDetail)
+		fmt.Fprint(e.out, usage(e.theme(e.outTTY)))
 		return exitOK
 	case "next", "render", "update", "due":
 	default:
@@ -61,6 +98,7 @@ func (e env) main(args []string) int {
 	cmd := args[0]
 	fs := flag.NewFlagSet("changelog "+cmd, flag.ContinueOnError)
 	fs.SetOutput(e.err)
+	fs.Usage = func() { e.flagUsage(fs) }
 	repo := fs.String("repo", ".", "git repository")
 	var version, date, file, grace, lastActivity, nowFlag string
 	var replace bool
@@ -161,6 +199,31 @@ func (e env) main(args []string) int {
 	}
 	fmt.Fprintf(e.out, "%s: added %s\n", file, next)
 	return exitOK
+}
+
+// flagUsage prints what flag.FlagSet prints by default, painting Usage: and the flag names when colour is on.
+func (e env) flagUsage(fs *flag.FlagSet) {
+	t := e.theme(e.errTTY)
+	if !t.On {
+		fmt.Fprintf(e.err, "Usage of %s:\n", fs.Name())
+		fs.PrintDefaults()
+		return
+	}
+	fmt.Fprintf(e.err, "%s of %s:\n", t.Paint(style.Heading, "Usage"), t.Paint(style.Cmd, fs.Name()))
+	var b strings.Builder
+	fs.SetOutput(&b)
+	fs.PrintDefaults()
+	fs.SetOutput(e.err)
+	for _, line := range strings.Split(strings.TrimSuffix(b.String(), "\n"), "\n") {
+		if body := strings.TrimLeft(line, " "); strings.HasPrefix(body, "-") {
+			name, rest, more := strings.Cut(body, " ")
+			line = line[:len(line)-len(body)] + t.Paint(style.Flag, name)
+			if more {
+				line += " " + rest
+			}
+		}
+		fmt.Fprintln(e.err, line)
+	}
 }
 
 func (e env) due(run release.Runner, graceS, lastS, nowS string) int {

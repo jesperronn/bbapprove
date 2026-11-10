@@ -24,6 +24,20 @@ ln -s ~/.local/share/bbapprove-v1.0.0-darwin-arm64/bin/bbapprove ~/.local/bin/bb
 
 Keep the tree intact: the binary finds `adapters/` relative to its own directory.
 
+### Windows
+
+Download `bbapprove-<tag>-windows-amd64.zip` and `SHA256SUMS` from the GitHub Releases page (or fetch all assets with `gh release download <tag>`).
+It also runs on Windows on ARM through emulation. In PowerShell:
+
+```
+Get-FileHash .\bbapprove-v1.2.0-windows-amd64.zip -Algorithm SHA256   # compare with the line in SHA256SUMS
+Expand-Archive .\bbapprove-v1.2.0-windows-amd64.zip -DestinationPath $env:LOCALAPPDATA\Programs
+[Environment]::SetEnvironmentVariable('Path', "$env:Path;$env:LOCALAPPDATA\Programs\bbapprove-v1.2.0-windows-amd64", 'User')
+```
+
+Open a new terminal, then run `bbapprove --init` to create the config and `bbapprove doctor` to check the setup.
+The config is `%AppData%\bbapprove\config.toml`. `bbapprove --update` updates it in place, as on the other systems.
+
 From a clone (needs Go, see `go.mod`): `bin/build --install` builds and links `bin/bbapprove` into `~/.local/bin`.
 `bbapprove --version` prints the version. Maintainers: [docs/development.md](docs/development.md).
 

@@ -45,13 +45,15 @@ The largest bump wins. Only non-listed commits since the tag means nothing is re
 
 ## What the Release workflow builds
 
-On a pushed `v*` tag (`.github/workflows/release.yml`): it reruns CI, then cross-builds with `bin/build` for darwin and linux on arm64 and amd64 and uploads four `bbapprove-<tag>-<os>-<arch>.tar.gz` archives plus `SHA256SUMS`. Each archive holds `bin/bbapprove`, `bin/bbapprove-go`, `adapters/bitbucket`, `bbapprove.config.template`, `README.md`, `CHANGELOG.md`, `LICENSE`.
+On a pushed `v*` tag (`.github/workflows/release.yml`): it reruns CI, then runs `bin/package TAG --out dist` and uploads five archives plus `SHA256SUMS`. `bin/package` cross-builds with `bin/build`; run it locally to check an archive (`--only OS/ARCH`, repeatable, narrows the targets; nothing is published).
+Four are `bbapprove-<tag>-<os>-<arch>.tar.gz` for darwin and linux on arm64 and amd64; each holds `bin/bbapprove`, `bin/bbapprove-go`, `adapters/bitbucket`, `bbapprove.config.template`, `README.md`, `CHANGELOG.md`, `LICENSE`.
+The fifth is `bbapprove-<tag>-windows-amd64.zip` (amd64 only; Windows on ARM runs it through emulation). It holds one folder, `bbapprove-<tag>-windows-amd64/`, with `bbapprove.exe`, `bbapprove.config.template`, `README.md`, `CHANGELOG.md` and `LICENSE`: no launcher, no `bin/` and no `adapters/`, because the Bitbucket adapter is built into the exe. User config lives in `%AppData%\bbapprove`.
 The release notes are the matching CHANGELOG section, printed by `bin/release-notes vX.Y.Z` (exit 1 if the section is missing or empty). A tag containing `-` is marked pre-release.
 
 ## How users update
 
 Users update with `bbapprove --update` (`bbapprove help update`). It consumes the release assets
-named `bbapprove-<tag>-<os>-<arch>.tar.gz` plus `SHA256SUMS`, so renaming those assets in `release.yml` breaks it.
+named `bbapprove-<tag>-<os>-<arch>.tar.gz` (`.zip` on Windows) plus `SHA256SUMS`, so renaming those assets in `release.yml` breaks it.
 
 ## Versioning
 

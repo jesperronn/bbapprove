@@ -12,11 +12,12 @@ All notable changes to this project are documented here. The format follows
 ### Added
 - Windows: the config file and the ignore list live in `%AppData%\bbapprove` unless `XDG_CONFIG_HOME` is set, and a binary that sits directly in its folder (not in `bin`) finds `bbapprove.config.toml` and `disallow.txt` beside it. `bbapprove doctor` no longer checks file modes there, and the first-run hint shows `mkdir` and `copy`.
 - `bbapprove --update` works for the Windows release zip: it replaces the files in the folder holding `bbapprove.exe`, keeps the previous exe as `bbapprove.exe.old`, restores everything if a step fails and never touches your config.
+- The TUI opens a PR (`o`) with the system default browser on Windows (`rundll32 url.dll,FileProtocolHandler`), `open` on macOS and `xdg-open` elsewhere.
+- Releases include a Windows zip, `bbapprove-<tag>-windows-amd64.zip`, with `bbapprove.exe` and the docs, listed in `SHA256SUMS`. The README explains the PowerShell install.
+- Maintainers: `bin/package` builds the release archives and `SHA256SUMS` locally, and the Release workflow now uses it.
 
 ### Fixed
 - Maintainers: when `bin/release` cannot find the Release workflow run after a push, it reports the last `gh run list` error (or that the lookup succeeded with no run), the command to look by hand and the Actions page. The wait is set by `BBAPPROVE_RELEASE_RUN_WAIT_SECONDS` and `BBAPPROVE_RELEASE_RUN_POLL_SECONDS`, which replace `RELEASE_RUN_WAIT_SECONDS`.
-
-- The TUI opens a PR (`o`) with the system default browser on Windows (`rundll32 url.dll,FileProtocolHandler`), `open` on macOS and `xdg-open` elsewhere.
 
 ## [1.1.0] - 2026-11-10
 

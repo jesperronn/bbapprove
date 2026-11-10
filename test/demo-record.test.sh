@@ -15,12 +15,15 @@ cleanup_test_tmp() {
   return 0
 }
 trap 'cleanup_test_tmp' EXIT
+# Each test runs in its own subshell when run in parallel (see the end of the file), which does not inherit the trap.
+bash_test_case_cleanup() { cleanup_test_tmp; }
 
 # Fresh temp dir per test: the output goes there (DEMO_OUT_DIR), never into demo/. The stubs (tmux, go, freeze,
 # and an npx that must never run) live in TEST_TMP/stubs; BASIC holds only the shell tools, so no real tmux, go
 # or freeze is found.
 setup_tmp() {
   cleanup_test_tmp
+  trap 'cleanup_test_tmp' EXIT
   TEST_TMP="$(mktemp -d)"
   export STUB_LOG="$TEST_TMP/calls.log"
   : >"$STUB_LOG"
@@ -262,4 +265,6 @@ test_build_embeds_a_fixed_version() {
   assert_contains "$out" "bin/build failed" "build.sh names the failing step"
 }
 
+# Tests share no state (each has its own temp dir and stubs), so they run in parallel; BASH_TEST_JOBS=1 runs them serially.
+BASH_TEST_JOBS="${BASH_TEST_JOBS:-8}"
 run_tests "$@"

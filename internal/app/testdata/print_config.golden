@@ -1,6 +1,6 @@
 config file:     $DIR/config.toml
 type:                  bitbucket  [default]
-adapter:               $DIR/adapters/bitbucket  [default]
+adapter:               built-in (bitbucket)  [default]
 repository:            https://bitbucket.example.com  [file]
 user_token_name:       (not set)  [unset]
 author_email:          bot@example.com  [file]

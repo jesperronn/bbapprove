@@ -5,7 +5,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- For Bitbucket, bbapprove now talks to the server itself instead of running the `adapters/bitbucket` shell script, so it no longer needs bash, curl or jq, and the same code runs on Windows. The settings list and `bbapprove doctor` show `adapter: built-in (bitbucket)`; setting `BBAPPROVE_ADAPTER`, or a `type` other than `bitbucket`, still runs that adapter program as before.
+- The built-in adapter behaves slightly differently from the script. The token is sent only in an HTTP header, never on a command line. A wrong or missing argument is a usage error with exit code 2. A network failure prints one short line such as `GET /rest/api/1.0/dashboard/pull-requests: connection failed` instead of curl's text. Comment and task counts are right on PRs with more than one page of activity. A trailing slash on `repository` is ignored. `auth token` no longer needs `repository`.
+
 ### Added
+- Windows: the config file and the ignore list live in `%AppData%\bbapprove` unless `XDG_CONFIG_HOME` is set, and a binary that sits directly in its folder (not in `bin`) finds `bbapprove.config.toml` and `disallow.txt` beside it. `bbapprove doctor` no longer checks file modes there, and the first-run hint shows `mkdir` and `copy`.
 - `bbapprove --update` works for the Windows release zip: it replaces the files in the folder holding `bbapprove.exe`, keeps the previous exe as `bbapprove.exe.old`, restores everything if a step fails and never touches your config.
 
 ### Fixed

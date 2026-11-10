@@ -14,7 +14,8 @@ BBAPPROVE_REPOSITORY, BBAPPROVE_AUTHOR_EMAIL, BBAPPROVE_TOKEN_NAME, BBAPPROVE_UP
 type ("bitbucket"), update_repo and delete_source_branch have defaults; repository and author_email are required and bbapprove exits 1
 naming the missing one and the paths searched. disallow is the union of the file, --disallow /
 BBAPPROVE_DISALLOW (comma-separated) and the optional BBAPPROVE_DISALLOW_FILE (one dependency per line;
-default disallow.txt in the repo root, git-ignored). BBAPPROVE_ADAPTER (an executable path) overrides what type selects.
+default disallow.txt in the repo root, git-ignored). type "bitbucket" runs the adapter built into the binary (no bash, curl or jq needed), any other type runs
+adapters/<type>, and BBAPPROVE_ADAPTER (an executable path) overrides both.
 delete_source_branch (default true) deletes the PR's source branch after a successful merge; set it to false
 in the file or with BBAPPROVE_DELETE_SOURCE_BRANCH (true, false, 1, 0, yes, no; there is no command-line flag).
 Unknown keys only warn; malformed TOML stops the run and names the file and line.

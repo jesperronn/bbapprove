@@ -76,6 +76,7 @@ func TestColourUpToDateAndFailures(t *testing.T) {
 	r = newRig(t)
 	r.run.releaseEr = os.ErrDeadlineExceeded
 	os.Remove(filepath.Join(r.root, "adapters", "bitbucket"))
+	r.ext = true
 	r.env = []string{"XDG_CONFIG_HOME=" + r.xdg}
 	out := r.doctorTTY(true, nil)
 	for name, want := range map[string]string{
@@ -132,6 +133,7 @@ func TestStrippedColourEqualsPlain(t *testing.T) {
 			r := newRig(t)
 			r.run.releaseEr = os.ErrDeadlineExceeded
 			os.Remove(filepath.Join(r.root, "adapters", "bitbucket"))
+			r.ext = true
 			r.env = []string{"XDG_CONFIG_HOME=" + r.xdg}
 			return r
 		},

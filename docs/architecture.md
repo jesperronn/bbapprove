@@ -8,9 +8,12 @@ bin/bbapprove (launcher: rebuild if stale, exec)
 bin/bbapprove-go  =  cmd/bbapprove -> internal/app
       |   config (internal/config)  rules (internal/rules)  ignore list (internal/ignore)
       |   CLI table / TUI (internal/tui)
-      v   subprocess, token in BBAPPROVE_TOKEN, BBAPPROVE_BASE_URL / _TOKEN_NAME in env
-adapters/<type>   (gh-style CLI, internal/adapter is the client)
-      v
+      v   token in BBAPPROVE_TOKEN, BBAPPROVE_BASE_URL / _TOKEN_NAME in env
+internal/adapter  (client; one call = one adapter command line)
+      |  type "bitbucket", no BBAPPROVE_ADAPTER: in process      any other type or BBAPPROVE_ADAPTER: subprocess
+      v                                                         v
+internal/forge/bitbucket (built in)                         adapters/<type>   (gh-style CLI)
+      v                                                         v
 forge REST API
 ```
 
@@ -34,7 +37,7 @@ Normalized PR: `{url, number, project, repo, title, author:{email,login}, headBr
 
 ## The Go Bitbucket adapter (`internal/forge/bitbucket`)
 
-A native Go port of `adapters/bitbucket`, so a Windows build needs no bash, curl or jq. It is a library (`Client` with `ListPRs`, `ViewPR`, `Approve`, `Merge` (and `MergeWarn`), `Comment`, `Close`, plus `AuthToken`) and a `Run(ctx, args, env, stdout, stderr)` entry that speaks the same CLI protocol (exit 0/1/2, same commands, same normalized JSON with the same key order). It uses only the standard library (`net/http`, `encoding/json`, `os/exec` for `op`). The bearer token goes only into the `Authorization` header and is never printed. Every request has a 2.7 s connect and 3.5 s total timeout, one connection per request, and redirects are not followed. It is not wired into the core yet: the core still runs the bash adapter.
+A native Go port of `adapters/bitbucket`, so a Windows build needs no bash, curl or jq. It is a library (`Client` with `ListPRs`, `ViewPR`, `Approve`, `Merge` (and `MergeWarn`), `Comment`, `Close`, plus `AuthToken`) and a `Run(ctx, args, env, stdout, stderr)` entry that speaks the same CLI protocol (exit 0/1/2, same commands, same normalized JSON with the same key order). It uses only the standard library (`net/http`, `encoding/json`, `os/exec` for `op`). The bearer token goes only into the `Authorization` header and is never printed. Every request has a 2.7 s connect and 3.5 s total timeout, one connection per request, and redirects are not followed. The core calls it in process for `type = "bitbucket"` when `BBAPPROVE_ADAPTER` is not set: `adapter.BuiltIn` returns a function that calls `Run` with the same arguments and the same environment a child process would get (`Config.ChildEnv` plus `BBAPPROVE_TOKEN`), stdout and stderr captured, under the same per-call timeouts (10 s, `pr merge` 60 s) and with the same exit-code rule: a non-zero exit becomes an error carrying the adapter's stderr. `config.UsesBuiltIn` is the one place that decides; the settings list shows `adapter: built-in (bitbucket)` and doctor has no file to check. Any other type (the bash `demo` adapter, an external adapter) and an explicit `BBAPPROVE_ADAPTER` still run an executable, so a site can replace the built-in adapter without a rebuild. `adapters/bitbucket` stays in the tree as the reference the Go adapter is tested against and as the fallback through `BBAPPROVE_ADAPTER`.
 
 `cmd/bbapprove-bitbucket` is a thin `main` around `Run`. It exists only so the tests can run the Go adapter as a process; the release builds `./cmd/bbapprove` alone, so it is never shipped.
 
@@ -88,6 +91,8 @@ The `delete_source_branch` setting (default true) reaches the adapter as the env
 After the merge call has succeeded, `adapters/bitbucket` and the Go adapter delete the PR's source branch with `DELETE /rest/branch-utils/1.0/projects/KEY/repos/SLUG/branches` and the JSON body `{"name":"refs/heads/<branch>","dryRun":false}`. It does so once, after the successful attempt (the stale-version retry loop is unchanged), and only when the source branch lives in the same repository as the target, the source ref is a branch, and it is not the target branch itself. A fork's branch is never deleted. An HTTP 404 means the branch is already gone and is silent. Any other failure, including a dropped connection, leaves the merge successful (exit 0) and prints `merge ok, but could not delete branch <name> (HTTP <code>)` on stderr. A failed merge never deletes anything. The call needs repository write permission for the token. The Go adapter reads the variable into `Env.DeleteSourceBranch`; with a dropped connection it also prints its one-line transport error before the warning (decision 9).
 
 ## Adding a forge adapter
+
+An adapter written in Go can be built in like the Bitbucket one (a package with a `Run`, a case in `adapter.BuiltIn` and `config.UsesBuiltIn`); an executable is the simpler way:
 
 1. Create `adapters/<type>` (executable, `# shellcheck shell=bash` if bash) implementing the contract above; it is selected by `type = "<type>"` (or `BBAPPROVE_ADAPTER`).
 2. Read `BBAPPROVE_BASE_URL`, `BBAPPROVE_TOKEN_NAME`, `BBAPPROVE_TOKEN` and, if the forge can delete branches, `BBAPPROVE_DELETE_SOURCE_BRANCH`; exit 2 with a message when the base URL is unset, or (for `pr` commands) when `BBAPPROVE_TOKEN` is unset; `auth token` may run without it.

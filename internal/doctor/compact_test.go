@@ -27,6 +27,7 @@ func TestGoldenPlainCompactDoctorProblems(t *testing.T) {
 	os.MkdirAll(filepath.Join(r.xdg, "bbapprove"), 0o755)
 	os.WriteFile(r.ignorePath(), []byte("x\n"), 0o600)
 	os.Remove(filepath.Join(r.root, "adapters", "bitbucket"))
+	r.ext = true
 	_, out := r.doctor(nil)
 	checkGolden(t, "doctor_problems.golden", r.normalize(out))
 }
@@ -47,7 +48,7 @@ func TestCompactHeaderAndRoot(t *testing.T) {
 	_, out := r.doctor(func(o *Options) { o.Offline = true })
 	mustContain(t, out, "bbapprove v1.0.0 (linux/amd64, go1.test) · release archive\n",
 		"binary   "+r.root+"/bin/bbapprove-go (not on PATH")
-	mustNotContain(t, out, "built", "(root ")
+	mustNotContain(t, out, "built ", "(root ")
 	// a binary somewhere else than <root>/bin names the root
 	_, out = r.doctor(func(o *Options) {
 		o.Offline = true
@@ -122,6 +123,7 @@ func TestCompactShowsEveryProblem(t *testing.T) {
 		r := newRig(t)
 		r.writeXDG(validCfg)
 		os.Remove(filepath.Join(r.root, "adapters", "bitbucket"))
+		r.ext = true
 		code, out := r.doctor(nil)
 		if code != 1 {
 			t.Fatalf("code %d", code)
@@ -132,6 +134,7 @@ func TestCompactShowsEveryProblem(t *testing.T) {
 		r := newRig(t)
 		r.writeXDG(validCfg)
 		os.Chmod(filepath.Join(r.root, "adapters", "bitbucket"), 0o644)
+		r.ext = true
 		code, out := r.doctor(nil)
 		if code != 1 {
 			t.Fatalf("code %d", code)
@@ -258,6 +261,7 @@ func TestCompactColour(t *testing.T) {
 	}
 	r = newRig(t)
 	os.Remove(filepath.Join(r.root, "adapters", "bitbucket"))
+	r.ext = true
 	r.env = []string{"XDG_CONFIG_HOME=" + r.xdg}
 	out = r.doctorTTYMode(true, false, nil)
 	for name, want := range map[string]string{
@@ -321,6 +325,7 @@ func TestProblemsAreInlineWithTheirFixAndSummarisedByCount(t *testing.T) {
 		r := newRig(t)
 		r.env = []string{"NO_COLOR=1", "XDG_CONFIG_HOME=" + r.xdg}
 		os.Remove(filepath.Join(r.root, "adapters", "bitbucket"))
+		r.ext = true
 		run := r.doctor
 		if verbose {
 			run = r.doctorV

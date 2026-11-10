@@ -2,6 +2,7 @@ package adapter
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -235,5 +236,74 @@ func TestMergeWarnSilentAdapterAndFailure(t *testing.T) {
 	warns, err := fakeAdapter(t, `echo "a warning" >&2; echo "merge HTTP 409" >&2; exit 1`).MergeWarn(context.Background(), "u")
 	if err == nil || len(warns) != 0 || !strings.Contains(err.Error(), "merge HTTP 409") {
 		t.Fatalf("failure must be an error without warnings: %q %v", warns, err)
+	}
+}
+
+func TestBuiltInOnlyForBitbucket(t *testing.T) {
+	if BuiltIn("bitbucket") == nil {
+		t.Error("bitbucket is built in")
+	}
+	for _, typ := range []string{"demo", "gitlab", ""} {
+		if BuiltIn(typ) != nil {
+			t.Errorf("%q must run an executable, not a built-in adapter", typ)
+		}
+	}
+}
+
+// inProcess is a Client whose adapter runs in this process: no executable, so it needs no shell on any OS.
+func inProcess(run RunFunc) *Client {
+	return &Client{InProcess: run, Token: "tok", Environ: []string{"X=1"}}
+}
+
+func TestInProcessSemantics(t *testing.T) {
+	var gotArgs, gotEnv []string
+	c := inProcess(func(_ context.Context, args, environ []string, stdout, stderr io.Writer) int {
+		gotArgs, gotEnv = args, environ
+		io.WriteString(stdout, "[]\n")
+		io.WriteString(stderr, "  careful  \n")
+		return 0
+	})
+	prs, err := c.List(context.Background())
+	if err != nil || len(prs) != 0 {
+		t.Fatalf("List = %v, %v", prs, err)
+	}
+	if want := []string{"pr", "list", "--reviewer", "@me", "--state", "open"}; !reflect.DeepEqual(gotArgs, want) {
+		t.Errorf("args = %q, want %q", gotArgs, want)
+	}
+	if want := []string{"X=1", "BBAPPROVE_TOKEN=tok"}; !reflect.DeepEqual(gotEnv, want) {
+		t.Errorf("environment = %q, want %q", gotEnv, want)
+	}
+	warns, err := c.MergeWarn(context.Background(), "http://h/pr/1")
+	if err != nil || !reflect.DeepEqual(warns, []string{"careful"}) {
+		t.Errorf("MergeWarn = %q, %v; want the stderr line as a warning", warns, err)
+	}
+
+	// a non-zero exit is the adapter's stderr, else its stdout, else the status
+	for _, tc := range []struct{ out, errOut, want string }{
+		{"", "boom: it failed\n", "boom: it failed"},
+		{"only stdout\n", "", "only stdout"},
+		{"", "", "adapter exited with status 2"},
+	} {
+		c := inProcess(func(_ context.Context, _, _ []string, stdout, stderr io.Writer) int {
+			io.WriteString(stdout, tc.out)
+			io.WriteString(stderr, tc.errOut)
+			return 2
+		})
+		if err := c.Approve(context.Background(), "http://h/pr/1"); err == nil || err.Error() != tc.want {
+			t.Errorf("error = %v, want %q", err, tc.want)
+		}
+	}
+}
+
+func TestInProcessTimeout(t *testing.T) {
+	c := inProcess(func(ctx context.Context, _, _ []string, _, stderr io.Writer) int {
+		<-ctx.Done()
+		io.WriteString(stderr, "context deadline exceeded\n")
+		return 1
+	})
+	c.Timeout = 20 * time.Millisecond
+	_, err := c.List(context.Background())
+	if err == nil || err.Error() != "adapter pr list timed out after 20ms" {
+		t.Errorf("err = %v, want the timeout message", err)
 	}
 }

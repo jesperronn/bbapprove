@@ -245,7 +245,11 @@ func (r *report) checkSettings(cfg *config.Config) {
 }
 
 // compactAdapter reports only a problem: a working adapter is part of the tool, and its type and path are in the settings list.
+// The built-in adapter is inside the binary, so there is no path to check.
 func (r *report) compactAdapter(cfg *config.Config) {
+	if cfg.BuiltIn {
+		return
+	}
 	path := cfg.Adapter.Value
 	if !strings.ContainsAny(path, `/\`) {
 		if p, err := r.o.LookPath(path); err == nil {

@@ -9,7 +9,7 @@ ok   config   $XDG/bbapprove/config.toml (XDG config), valid TOML, mode 0600
         4. XDG config        used
      effective settings (source: flag, env, file or default):
         type:                  bitbucket  [default]
-        adapter:               $ROOT/adapters/bitbucket  [default]
+        adapter:               built-in (bitbucket)  [default]
         repository:            https://bb.corp.test  [file]
         user_token_name:       (not set)  [unset]
         author_email:          bot@corp.test  [file]

@@ -53,6 +53,9 @@ type rig struct {
 	opts  Options
 	run   *fakeRunner
 	tools map[string]string // name -> path
+	// ext makes the run use the external adapter in <root>/adapters/bitbucket (BBAPPROVE_ADAPTER) instead of
+	// the built-in one, for the tests that check the adapter file.
+	ext bool
 }
 
 func newRig(t *testing.T) *rig {
@@ -108,6 +111,9 @@ func (r *rig) doctor(mod func(*Options)) (int, string) {
 	}
 	if mod != nil {
 		mod(&o)
+	}
+	if r.ext {
+		o.Environ = append(append([]string{}, o.Environ...), "BBAPPROVE_ADAPTER="+filepath.Join(r.root, "adapters", "bitbucket"))
 	}
 	code := Run(context.Background(), o)
 	return code, out.String()
@@ -461,12 +467,14 @@ func TestAdapterChecks(t *testing.T) {
 	r := newRig(t)
 	r.writeXDG(validCfg)
 	os.Chmod(filepath.Join(r.root, "adapters", "bitbucket"), 0o644)
+	r.ext = true
 	code, out := r.doctorV(nil)
 	if code != 1 {
 		t.Fatalf("code %d", code)
 	}
 	mustContain(t, out, "is not executable", "FAIL bitbucket adapter ", "chmod +x")
 	os.Remove(filepath.Join(r.root, "adapters", "bitbucket"))
+	r.ext = true
 	_, out = r.doctorV(nil)
 	mustContain(t, out, "does not exist", "FAIL bitbucket adapter ")
 	os.WriteFile(filepath.Join(r.root, "adapters", "bitbucket"), []byte("#!/bin/sh\n"), 0o755)
@@ -531,4 +539,36 @@ func TestSettingsListDeleteSourceBranch(t *testing.T) {
 	r.env = append(r.env, "BBAPPROVE_DELETE_SOURCE_BRANCH=1")
 	_, out = r.doctorV(nil)
 	mustContain(t, out, "delete_source_branch:  true  [env]")
+}
+
+func TestBuiltInAdapterIsNotChecked(t *testing.T) {
+	r := newRig(t)
+	r.writeXDG(validCfg)
+	if err := os.RemoveAll(filepath.Join(r.root, "adapters")); err != nil { // the Windows archive has no adapters/ folder
+		t.Fatal(err)
+	}
+	for _, verbose := range []bool{false, true} {
+		run := r.doctor
+		if verbose {
+			run = r.doctorV
+		}
+		code, out := run(func(o *Options) { o.Offline = true })
+		if code != 0 {
+			t.Fatalf("verbose=%v: code %d:\n%s", verbose, code, out)
+		}
+		mustContain(t, out, "adapter:               built-in (bitbucket)  [default]")
+		mustNotContain(t, out, "FAIL", "not executable", "adapters"+string(filepath.Separator)+"bitbucket")
+	}
+}
+
+func TestExternalAdapterIsStillChecked(t *testing.T) {
+	r := newRig(t)
+	r.writeXDG("type = \"demo\"\n" + validCfg)
+	_, out := r.doctor(func(o *Options) { o.Offline = true })
+	mustContain(t, out, "FAIL demo     adapter "+filepath.Join(r.root, "adapters", "demo")+" does not exist")
+	r.writeXDG(validCfg)
+	r.ext = true // BBAPPROVE_ADAPTER names a file: that file is checked
+	os.Remove(filepath.Join(r.root, "adapters", "bitbucket"))
+	_, out = r.doctor(func(o *Options) { o.Offline = true })
+	mustContain(t, out, "FAIL bitbucket adapter "+filepath.Join(r.root, "adapters", "bitbucket")+" does not exist")
 }

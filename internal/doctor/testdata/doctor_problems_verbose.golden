@@ -9,7 +9,7 @@ FAIL config   no config file found — run: bbapprove --init   (or: cp bbapprove
         4. XDG config        not found  $XDG/bbapprove/config.toml
      effective settings (source: flag, env, file or default):
         type:                  bitbucket  [default]
-        adapter:               $ROOT/adapters/bitbucket  [default]
+        adapter:               $ROOT/adapters/bitbucket  [env]
         repository:            (not set)  [unset]
         user_token_name:       (not set)  [unset]
         author_email:          (not set)  [unset]

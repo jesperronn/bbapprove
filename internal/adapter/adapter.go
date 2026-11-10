@@ -7,9 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 	"time"
+
+	"bbapprove/internal/forge/bitbucket"
 )
 
 // DefaultTimeout bounds every adapter call.
@@ -39,12 +42,28 @@ type PR struct {
 	OpenTasks    int    `json:"openTasks"`
 }
 
-// Client runs the adapter executable as a subprocess.
+// RunFunc runs one adapter command line (args without the program name) in this process and returns the
+// adapter's exit code. environ is the KEY=VALUE environment the adapter would get as a child process.
+type RunFunc func(ctx context.Context, args, environ []string, stdout, stderr io.Writer) int
+
+// BuiltIn returns the in-process adapter for forge type typ, or nil when there is none (the type is
+// served by an executable, adapters/<type>). Only "bitbucket" is built in.
+func BuiltIn(typ string) RunFunc {
+	if typ != "bitbucket" {
+		return nil
+	}
+	return func(ctx context.Context, args, environ []string, stdout, stderr io.Writer) int {
+		return bitbucket.Run(ctx, args, bitbucket.EnvFromEnviron(environ), stdout, stderr)
+	}
+}
+
+// Client runs the adapter: in this process when InProcess is set, else the executable at Path as a subprocess.
 type Client struct {
-	Path    string
-	Token   string // passed to the child as BBAPPROVE_TOKEN when set
-	Environ []string
-	Timeout time.Duration
+	Path      string
+	InProcess RunFunc // the built-in adapter (see BuiltIn); nil means run Path
+	Token     string  // passed to the adapter as BBAPPROVE_TOKEN when set
+	Environ   []string
+	Timeout   time.Duration
 }
 
 // timeout returns c.Timeout when set, otherwise def.
@@ -67,12 +86,21 @@ func (c *Client) runFor(ctx context.Context, def time.Duration, args ...string) 
 	t := c.timeout(def)
 	ctx, cancel := context.WithTimeout(ctx, t)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, c.Path, args...)
-	cmd.Env = append(append([]string{}, c.Environ...), "BBAPPROVE_TOKEN="+c.Token)
-	cmd.WaitDelay = time.Second
+	environ := append(append([]string{}, c.Environ...), "BBAPPROVE_TOKEN="+c.Token)
 	var out, errb bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &errb
-	if err := cmd.Run(); err != nil {
+	var runErr error
+	if c.InProcess != nil {
+		if code := c.InProcess(ctx, args, environ, &out, &errb); code != 0 {
+			runErr = fmt.Errorf("adapter exited with status %d", code)
+		}
+	} else {
+		cmd := exec.CommandContext(ctx, c.Path, args...)
+		cmd.Env = environ
+		cmd.WaitDelay = time.Second
+		cmd.Stdout, cmd.Stderr = &out, &errb
+		runErr = cmd.Run()
+	}
+	if err := runErr; err != nil {
 		msg := strings.TrimSpace(errb.String())
 		if ctx.Err() != nil {
 			return "", "", fmt.Errorf("adapter %s timed out after %s", strings.Join(args[:min(2, len(args))], " "), t)

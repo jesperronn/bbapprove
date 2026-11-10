@@ -36,7 +36,8 @@ bbapprove doctor                 # checks the result
 ```
 
 Without a config file, a run on a terminal offers the same `--init` step. Details: `bbapprove help config`
-(lookup, precedence, `--print-config`) and `bbapprove help token`.
+(lookup, precedence, `--print-config`) and `bbapprove help token`. For Bitbucket the adapter is built into the
+binary, so nothing else has to be installed to talk to the server (bash, curl and jq are not needed).
 
 ## First run
 

@@ -156,7 +156,8 @@ bin/, as in the Windows archive; git-ignored), then {path:$XDG_CONFIG_HOME/bbapp
 type ("bitbucket"), update_repo and delete_source_branch have defaults; repository and author_email are required and bbapprove exits 1
 naming the missing one and the paths searched. disallow is the union of the file, {flag:--disallow} /
 {env:BBAPPROVE_DISALLOW} (comma-separated) and the optional {env:BBAPPROVE_DISALLOW_FILE} (one dependency per line;
-default {path:disallow.txt} in the repo root, git-ignored). {env:BBAPPROVE_ADAPTER} (an executable path) overrides what type selects.
+default {path:disallow.txt} in the repo root, git-ignored). type "bitbucket" runs the adapter built into the binary (no bash, curl or jq needed), any other type runs
+adapters/<type>, and {env:BBAPPROVE_ADAPTER} (an executable path) overrides both.
 {h:delete_source_branch} (default true) deletes the PR's source branch after a successful merge; set it to false
 in the file or with {env:BBAPPROVE_DELETE_SOURCE_BRANCH} (true, false, 1, 0, yes, no; there is no command-line flag).
 Unknown keys only warn; malformed TOML stops the run and names the file and line.
@@ -229,14 +230,14 @@ const envMarkup = `{title:bbapprove help env — environment variables and exit 
   {env:BBAPPROVE_DISALLOW}       comma-separated extra disallow items
   {env:BBAPPROVE_DISALLOW_FILE}  optional extra disallow file (default disallow.txt in the repo root)
   {env:BBAPPROVE_JOBS}           parallel PR fetches and merges (default: CPU count)
-  {env:BBAPPROVE_ADAPTER}        forge adapter executable (default adapters/bitbucket)
+  {env:BBAPPROVE_ADAPTER}        forge adapter executable (default: the built-in Bitbucket adapter)
   {env:BBAPPROVE_MOUSE}          0 turns TUI mouse capture off (same as {flag:--no-mouse})
   {env:BBAPPROVE_KITTY}          0 stops the TUI requesting the kitty keyboard protocol
   {env:NO_COLOR}, {env:FORCE_COLOR}  colour only on a terminal; NO_COLOR turns it off and wins, FORCE_COLOR=1 forces it on
   {env:XDG_CONFIG_HOME}          base of the config and ignore paths (default ~/.config)
   {env:VISUAL}, {env:EDITOR}         editor opened by the first-run setup
 
-{h:Adapter side} (read by adapters/bitbucket; the core sets BASE_URL, TOKEN_NAME and DELETE_SOURCE_BRANCH from the configuration)
+{h:Adapter side} (read by the built-in Bitbucket adapter and by adapters/bitbucket; the core sets BASE_URL, TOKEN_NAME and DELETE_SOURCE_BRANCH from the configuration)
   {env:BBAPPROVE_BASE_URL}       forge base URL (required)
   {env:BBAPPROVE_TOKEN_NAME}     1Password item for "auth token"
   {env:BBAPPROVE_DELETE_SOURCE_BRANCH}  true (default when unset) or false: delete the source branch after a merge
@@ -281,8 +282,8 @@ about it, and the last line only counts them; no fact is printed twice.
                template's example values; {flag:-v} adds its mode and the state of all four candidates
                (used, not set, not found, shadowed). Then every effective setting with its source:
                {src-flag:[flag]}, {src-env:[env]}, {src-file:[file]} or {src-default:[default]}; with {flag:-v} the disallow
-               row names where its entries come from. A forge adapter that is missing or not executable
-               is reported under the forge type
+               row names where its entries come from. A forge adapter file that is missing or not executable
+               is reported under the forge type (the built-in Bitbucket adapter has no file to check)
   token        where the token comes from: {env:BBAPPROVE_TOKEN} (wins), else the 1Password item named by
                {flag:--token-name} / {env:BBAPPROVE_TOKEN_NAME} / user_token_name; never a value, and doctor
                does not run op. FAIL when there is neither

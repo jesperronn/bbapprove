@@ -56,17 +56,34 @@ type Env struct {
 // EnvFromOS reads the adapter's variables from the process environment. StderrIsTTY is left false: the caller
 // knows how to ask its terminal.
 func EnvFromOS() Env {
-	return Env{
-		BaseURL:      os.Getenv("BBAPPROVE_BASE_URL"),
-		Token:        os.Getenv("BBAPPROVE_TOKEN"),
-		TokenName:    os.Getenv("BBAPPROVE_TOKEN_NAME"),
-		MergeRetries: os.Getenv("BBAPPROVE_MERGE_RETRIES"),
-		RetrySleep:   os.Getenv("BBAPPROVE_RETRY_SLEEP"),
+	e := EnvFromEnviron(os.Environ())
+	e.Stdin = os.Stdin
+	return e
+}
 
-		DeleteSourceBranch: os.Getenv("BBAPPROVE_DELETE_SOURCE_BRANCH"),
-		NoColor:            os.Getenv("NO_COLOR"),
-		ForceColor:         os.Getenv("FORCE_COLOR"),
-		Stdin:              os.Stdin,
+// EnvFromEnviron reads the adapter's variables from a KEY=VALUE list like os.Environ(); the last entry for
+// a key wins. It is how the core hands an in-process adapter the environment it would give a child process.
+// Stdin and StderrIsTTY are left at their zero values.
+func EnvFromEnviron(environ []string) Env {
+	get := func(key string) string {
+		v := ""
+		for _, kv := range environ {
+			if k, val, ok := strings.Cut(kv, "="); ok && k == key {
+				v = val
+			}
+		}
+		return v
+	}
+	return Env{
+		BaseURL:      get("BBAPPROVE_BASE_URL"),
+		Token:        get("BBAPPROVE_TOKEN"),
+		TokenName:    get("BBAPPROVE_TOKEN_NAME"),
+		MergeRetries: get("BBAPPROVE_MERGE_RETRIES"),
+		RetrySleep:   get("BBAPPROVE_RETRY_SLEEP"),
+
+		DeleteSourceBranch: get("BBAPPROVE_DELETE_SOURCE_BRANCH"),
+		NoColor:            get("NO_COLOR"),
+		ForceColor:         get("FORCE_COLOR"),
 	}
 }
 

@@ -448,3 +448,51 @@ func TestLoadFindsAppDataConfigOnWindows(t *testing.T) {
 		t.Errorf("File = %q, repository = %q; want the %%AppData%% config %q", c.File, c.Repository.Value, appdata)
 	}
 }
+
+func TestUsesBuiltIn(t *testing.T) {
+	for _, tc := range []struct {
+		name, typ, adapterEnv string
+		want                  bool
+	}{
+		{"bitbucket without BBAPPROVE_ADAPTER", "bitbucket", "", true},
+		{"bitbucket with BBAPPROVE_ADAPTER", "bitbucket", "/opt/my-adapter", false},
+		{"the bash demo type", "demo", "", false},
+		{"another forge type", "gitlab", "", false},
+		{"another type with BBAPPROVE_ADAPTER", "demo", "/opt/my-adapter", false},
+	} {
+		if got := UsesBuiltIn(tc.typ, tc.adapterEnv); got != tc.want {
+			t.Errorf("%s: UsesBuiltIn(%q, %q) = %v, want %v", tc.name, tc.typ, tc.adapterEnv, got, tc.want)
+		}
+	}
+}
+
+func TestLoadSelectsTheBuiltInAdapter(t *testing.T) {
+	s := newSandbox(t)
+	for _, tc := range []struct {
+		name   string
+		file   string
+		env    map[string]string
+		want   bool
+		wantIn string // part of the plain settings list
+	}{
+		{"default type", "", nil, true, "adapter:               built-in (bitbucket)  [default]"},
+		{"type bitbucket in the file", `type = "bitbucket"`, nil, true, "adapter:               built-in (bitbucket)  [file]"},
+		{"BBAPPROVE_ADAPTER", "", map[string]string{"BBAPPROVE_ADAPTER": "/opt/ad"}, false, "adapter:               /opt/ad  [env]"},
+		{"type demo", `type = "demo"`, nil, false, filepath.Join("adapters", "demo") + "  [file]"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in := s.input(tc.env)
+			in.ConfigFlag = s.writeXDG(t, tc.file+"\n")
+			c, err := Load(in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.BuiltIn != tc.want {
+				t.Errorf("BuiltIn = %v, want %v", c.BuiltIn, tc.want)
+			}
+			if got := c.Settings(); !strings.Contains(got, tc.wantIn) {
+				t.Errorf("settings lack %q:\n%s", tc.wantIn, got)
+			}
+		})
+	}
+}

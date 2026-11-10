@@ -31,7 +31,7 @@ Approve and merge Renovate PRs from the terminal (Go core, bash launcher and for
 - Never commit `bbapprove.config.toml` (git-ignored) or anything specific to an employer or person: hosts, emails, token item names, project or repo names. Use `example.com`, `PROJ/repo`, `renovate-bot@example.com`.
 - `internal/config/bbapprove.config.template` must stay byte-identical to `bbapprove.config.template`: after editing the root file run `cp bbapprove.config.template internal/config/`.
 - Tests are hermetic: no network, no real forge, no `op`, no real `~/.config`. Stub tools on `PATH`.
-- The adapter (`adapters/<type>`) is the only code that talks to the forge.
+- The adapter (the built-in Bitbucket one, or `adapters/<type>`) is the only code that talks to the forge.
 - Never push, tag or release unless asked; `bin/release` does it.
 
 ## Docs

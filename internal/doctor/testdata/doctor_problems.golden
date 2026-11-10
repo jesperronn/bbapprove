@@ -8,7 +8,7 @@ FAIL config   no config file found — run: bbapprove --init   (or: cp bbapprove
         4. XDG config        not found  $XDG/bbapprove/config.toml
      effective settings (source: flag, env, file or default):
         type:                  bitbucket  [default]
-        adapter:               $ROOT/adapters/bitbucket  [default]
+        adapter:               $ROOT/adapters/bitbucket  [env]
         repository:            (not set)  [unset]
         user_token_name:       (not set)  [unset]
         author_email:          (not set)  [unset]
@@ -19,7 +19,7 @@ FAIL config   no config file found — run: bbapprove --init   (or: cp bbapprove
 FAIL bitbucket adapter $ROOT/adapters/bitbucket does not exist — check type / BBAPPROVE_ADAPTER, or reinstall (bin/build --install)
 FAIL token    no token: BBAPPROVE_TOKEN is not set and no 1Password item name is configured — export BBAPPROVE_TOKEN=<token>, or set BBAPPROVE_TOKEN_NAME / --token-name / user_token_name to a 1Password item
 ok   ignore   $XDG/bbapprove/ignore, 1 entry, 0600
-     env      NO_COLOR set
+     env      BBAPPROVE_ADAPTER set, NO_COLOR set
      tools    git, gh (logged in), op
 
 3 problem(s) found

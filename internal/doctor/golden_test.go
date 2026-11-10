@@ -68,6 +68,7 @@ func TestGoldenPlainDoctorProblems(t *testing.T) {
 	os.MkdirAll(filepath.Join(r.xdg, "bbapprove"), 0o755)
 	os.WriteFile(r.ignorePath(), []byte("x\n"), 0o600)
 	os.Remove(filepath.Join(r.root, "adapters", "bitbucket"))
+	r.ext = true
 	_, out := r.doctorV(nil)
 	checkGolden(t, "doctor_problems_verbose.golden", r.normalize(out))
 }

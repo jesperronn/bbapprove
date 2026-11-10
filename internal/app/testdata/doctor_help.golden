@@ -27,8 +27,8 @@ about it, and the last line only counts them; no fact is printed twice.
                template's example values; -v adds its mode and the state of all four candidates
                (used, not set, not found, shadowed). Then every effective setting with its source:
                [flag], [env], [file] or [default]; with -v the disallow
-               row names where its entries come from. A forge adapter that is missing or not executable
-               is reported under the forge type
+               row names where its entries come from. A forge adapter file that is missing or not executable
+               is reported under the forge type (the built-in Bitbucket adapter has no file to check)
   token        where the token comes from: BBAPPROVE_TOKEN (wins), else the 1Password item named by
                --token-name / BBAPPROVE_TOKEN_NAME / user_token_name; never a value, and doctor
                does not run op. FAIL when there is neither

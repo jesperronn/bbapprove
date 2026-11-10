@@ -80,6 +80,7 @@ type Config struct {
 	Type, Repository, TokenName, AuthorEmail Value
 	UpdateRepo                               Value // GitHub owner/repo for --outdated/--update
 	Adapter                                  Value // adapter executable
+	BuiltIn                                  bool  // the type is served in-process (see UsesBuiltIn); Adapter is then not run
 	DeleteSourceBranch                       Value // "true" or "false": delete the PR's source branch after a merge
 	Disallow                                 []string
 	FileDisallow                             []string // the `disallow` entries from the config file alone
@@ -90,6 +91,11 @@ type Config struct {
 	Searched    []string // paths looked at (for the first-run message)
 	Warnings    []string // e.g. unknown keys; the caller prints them to stderr
 }
+
+// UsesBuiltIn reports whether forge type typ is served by the adapter built into the binary: only
+// "bitbucket", and only while BBAPPROVE_ADAPTER (adapterEnv) is not set. Any other type, and an
+// explicit adapter, run an executable.
+func UsesBuiltIn(typ, adapterEnv string) bool { return typ == "bitbucket" && adapterEnv == "" }
 
 // RootOfExecutable is the install root for the binary at exe: the parent of the directory holding it
 // when that directory is named bin (<root>/bin/bbapprove-go, the git checkout and Unix archive layout),
@@ -175,6 +181,7 @@ func Load(in Input) (*Config, error) {
 	if t := c.Type.Value; t == "." || t == ".." || strings.ContainsAny(t, `/\`) {
 		return nil, fmt.Errorf("invalid type %q: it must be a plain adapter name (adapters/<type>)", t)
 	}
+	c.BuiltIn = UsesBuiltIn(c.Type.Value, in.Env("BBAPPROVE_ADAPTER"))
 	if ad := in.Env("BBAPPROVE_ADAPTER"); ad != "" {
 		c.Adapter = Value{ad, FromEnv}
 	} else {
@@ -387,7 +394,11 @@ func (c *Config) settingsThemed(t style.Theme, compactDisallow bool, over map[st
 		fmt.Fprintf(&b, "%s%s  %s\n", label(name), val, t.Source(v.Source))
 	}
 	row("type", c.Type)
-	row("adapter", c.Adapter)
+	if c.BuiltIn {
+		row("adapter", Value{"built-in (" + c.Type.Value + ")", c.Adapter.Source})
+	} else {
+		row("adapter", c.Adapter)
+	}
 	row("repository", c.Repository)
 	row("user_token_name", c.TokenName)
 	row("author_email", c.AuthorEmail)

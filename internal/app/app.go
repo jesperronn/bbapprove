@@ -342,6 +342,9 @@ func Run(ctx context.Context, o Options) int {
 
 	rc := rules.Config{AuthorEmail: cfg.AuthorEmail.Value, Disallow: cfg.Disallow}
 	client := &adapter.Client{Path: adapterPath, Token: token, Environ: cfg.ChildEnv(o.Environ)}
+	if cfg.BuiltIn {
+		client.InProcess = adapter.BuiltIn(cfg.Type.Value)
+	}
 
 	if token == "" { // BBAPPROVE_TOKEN wins; otherwise look the named 1Password item up
 		t, err := client.AuthToken(ctx)

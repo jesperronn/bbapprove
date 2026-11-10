@@ -187,6 +187,12 @@ with {flag:--apply} and PR URLs.
   modified and nothing is switched automatically: the command prints how to switch and how to roll back
   (ln -sfn lines when your bbapprove is a symlink). Your config in {path:$XDG_CONFIG_HOME/bbapprove/config.toml} is shared
   by both trees.
+  Windows (release zip): the folder holding the running {path:bbapprove.exe} is updated in place, because
+  Windows has no usable symlink and cannot overwrite a running program. The zip bbapprove-<tag>-windows-amd64.zip
+  is verified the same way and unpacked next to the install folder, then {path:bbapprove.exe} is renamed to
+  {path:bbapprove.exe.old} and the new one takes its place, followed by the template, README, CHANGELOG and
+  LICENSE. If a step fails the old files are restored. The new version starts the next time you run bbapprove;
+  delete {path:bbapprove.exe.old} when you no longer need it. Your config in {path:%AppData%\bbapprove} is never touched.
 
 SHA256SUMS comes from the same release as the archive, so the check protects against corruption and partial
 downloads, not a compromised release. Provenance and attestation checks are future work (see TODO.md).

@@ -5,6 +5,9 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- `bbapprove --update` works for the Windows release zip: it replaces the files in the folder holding `bbapprove.exe`, keeps the previous exe as `bbapprove.exe.old`, restores everything if a step fails and never touches your config.
+
 ### Fixed
 - Maintainers: when `bin/release` cannot find the Release workflow run after a push, it reports the last `gh run list` error (or that the lookup succeeded with no run), the command to look by hand and the Actions page. The wait is set by `BBAPPROVE_RELEASE_RUN_WAIT_SECONDS` and `BBAPPROVE_RELEASE_RUN_POLL_SECONDS`, which replace `RELEASE_RUN_WAIT_SECONDS`.
 

@@ -209,6 +209,37 @@ run_test_function() {
   fi
 }
 
+# bash_test_run_parallel TEST...: opt-in (BASH_TEST_JOBS=N, N > 1) for suites whose tests share no state: each
+# test runs in its own subshell, at most N at a time. Output is printed per test in the given order, so it reads
+# like a serial run; the first failing test's output is printed and the suite exits 1. A suite that creates
+# per-test temp dirs defines bash_test_case_cleanup (called in the test's subshell on exit).
+bash_test_run_parallel() {
+  local dir i=0 name
+  local -a names=("$@")
+  dir="$(mktemp -d)"
+  for name in "${names[@]}"; do
+    (
+      if declare -F bash_test_case_cleanup >/dev/null; then trap 'bash_test_case_cleanup' EXIT; fi
+      bash_test_case_rc=0
+      (run_test_function "$name") >"$dir/$i.out" 2>&1 || bash_test_case_rc=$?
+      echo "$bash_test_case_rc" >"$dir/$i.rc"
+    ) &
+    i=$((i + 1))
+    while [[ "$(jobs -rp | wc -l)" -ge "$BASH_TEST_JOBS" ]]; do wait -n || true; done
+  done
+  wait
+  for ((i = 0; i < ${#names[@]}; i++)); do
+    cat "$dir/$i.out"
+    BASH_TEST_ASSERTIONS=$((BASH_TEST_ASSERTIONS + $(grep -c '\[PASS\]' "$dir/$i.out" || true)))
+    if [[ "$(cat "$dir/$i.rc")" != 0 ]]; then
+      rm -rf "$dir"
+      exit 1
+    fi
+    BASH_TEST_CASES=$((BASH_TEST_CASES + 1))
+  done
+  rm -rf "$dir"
+}
+
 run_tests() {
   local -a requested_tests=()
   local -a test_names=()
@@ -243,8 +274,14 @@ run_tests() {
     if ! declare -F "$test_name" >/dev/null 2>&1; then
       test_fail "missing test function" "Unknown test: [$test_name]"
     fi
-    run_test_function "$test_name"
   done
+  if [[ "${BASH_TEST_JOBS:-1}" -gt 1 ]]; then
+    bash_test_run_parallel "${test_names[@]}"
+  else
+    for test_name in "${test_names[@]}"; do
+      run_test_function "$test_name"
+    done
+  fi
   suite_end="$(bash_test_now)"
 
   suite_elapsed="$(LC_ALL=C awk -v s="$suite_start" -v e="$suite_end" 'BEGIN { printf "%.2f", e - s }')"

@@ -11,10 +11,15 @@ ORIG_PATH="$PATH"
 REAL_GIT="$(command -v git)"
 TEST_TMP=""
 TPL=""
-cleanup_test_tmp() {
+# bash_test_case_cleanup runs at the end of each test (they run in parallel subshells); only the suite removes TPL.
+bash_test_case_cleanup() {
   [[ -n "$TEST_TMP" ]] && rm -rf "$TEST_TMP"
-  [[ -n "$TPL" ]] && rm -rf "$TPL"
   TEST_TMP=""
+  return 0
+}
+cleanup_test_tmp() {
+  bash_test_case_cleanup
+  [[ -n "$TPL" ]] && rm -rf "$TPL"
   return 0
 }
 trap 'cleanup_test_tmp' EXIT
@@ -52,7 +57,25 @@ CHANGELOG_AFTER='# Changelog
 # once per suite (TPL) and copied per test; bin/release and bin/release-notes are hardlinked from the TPL copy
 # so they stay warm instead of being fresh executables each test. No test writes to them.
 STUBS=""
+# build_template: the shared git repos and stubs, built once before any test runs (the tests run in parallel).
+build_template() {
+  TPL="$(mktemp -d)"
+  STUBS="$TPL/stubs"
+  use_stubs "$STUBS" git gh noop=sleep
+  mkdir -p "$TPL/work/bin"
+  cp "$PROJECT_ROOT/bin/release" "$PROJECT_ROOT/bin/release-notes" "$TPL/work/bin/"
+  use_stubs "$TPL/work/bin" recorder=lint recorder=test
+  printf '%s\n' "$CHANGELOG_BEFORE" >"$TPL/work/CHANGELOG.md"
+  "$REAL_GIT" init -q --template= -b main "$TPL/work"
+  "$REAL_GIT" init -q --bare --template= -b main "$TPL/origin.git"
+  "$REAL_GIT" -C "$TPL/work" add -A
+  "$REAL_GIT" -C "$TPL/work" commit -q -m initial
+  "$REAL_GIT" -C "$TPL/work" remote add origin "$TPL/origin.git"
+  "$REAL_GIT" -C "$TPL/work" push -q -u origin main
+}
+
 setup_fixture() {
+  [[ -n "$TPL" ]] || build_template
   TEST_TMP="$(mktemp -d)"
   W="$TEST_TMP/work"
   O="$TEST_TMP/origin.git"
@@ -61,21 +84,6 @@ setup_fixture() {
   export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.test GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.test
   export RELEASE_DATE=2026-02-03 BBAPPROVE_RELEASE_RUN_WAIT_SECONDS=0 BBAPPROVE_RELEASE_RUN_POLL_SECONDS=1
   unset STUB_LINT_RC STUB_TEST_RC STUB_GH_AUTH_RC STUB_GH_WATCH_RC STUB_GH_RUN_APPEARS_ON STUB_GH_RUN_LIST_ERR
-  if [[ -z "$TPL" ]]; then
-    TPL="$(mktemp -d)"
-    STUBS="$TPL/stubs"
-    use_stubs "$STUBS" git gh noop=sleep
-    mkdir -p "$TPL/work/bin"
-    cp "$PROJECT_ROOT/bin/release" "$PROJECT_ROOT/bin/release-notes" "$TPL/work/bin/"
-    use_stubs "$TPL/work/bin" recorder=lint recorder=test
-    printf '%s\n' "$CHANGELOG_BEFORE" >"$TPL/work/CHANGELOG.md"
-    "$REAL_GIT" init -q --template= -b main "$TPL/work"
-    "$REAL_GIT" init -q --bare --template= -b main "$TPL/origin.git"
-    "$REAL_GIT" -C "$TPL/work" add -A
-    "$REAL_GIT" -C "$TPL/work" commit -q -m initial
-    "$REAL_GIT" -C "$TPL/work" remote add origin "$TPL/origin.git"
-    "$REAL_GIT" -C "$TPL/work" push -q -u origin main
-  fi
   cp -R "$TPL/work" "$W"
   cp -R "$TPL/origin.git" "$O"
   link_script "$TPL/work/bin/release" "$W/bin/release"
@@ -364,4 +372,7 @@ test_run_never_appearing_with_zero_wait_looks_once() {
   assert_eq "" "$(grep 'waiting for the Release workflow run' <<<"$OUT" || true)" "no progress note"
 }
 
+# Tests share no state (each has its own temp dir), so they run in parallel; BASH_TEST_JOBS=1 runs them serially.
+BASH_TEST_JOBS="${BASH_TEST_JOBS:-8}"
+build_template
 run_tests "$@"

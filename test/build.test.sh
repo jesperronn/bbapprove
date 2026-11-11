@@ -20,6 +20,8 @@ cleanup_suite_tmp() {
   [[ -z "$STUBS" ]] || rm -rf "$STUBS" "$GO_STUBS"
   return 0
 }
+# Tests run in parallel subshells; each removes its own temp dir on exit, only the suite removes the shared stubs.
+bash_test_case_cleanup() { cleanup_test_tmp; }
 trap 'cleanup_suite_tmp' EXIT
 
 REAL_GO="$(command -v go)"
@@ -34,12 +36,6 @@ setup_repo() {
   REPO="$TEST_TMP/repo"
   PREFIX="$TEST_TMP/prefix"
   mkdir -p "$REPO/bin" "$REPO/cmd/bbapprove" "$TEST_TMP/empty" "$TEST_TMP/other"
-  if [[ -z "$STUBS" ]]; then
-    STUBS="$(mktemp -d)"
-    use_stubs "$STUBS" git
-    GO_STUBS="$(mktemp -d)"
-    use_stubs "$GO_STUBS" go
-  fi
   link_script "$BUILD" "$REPO/bin/build"
   add_style_lib "$REPO/bin"
   printf '#!/usr/bin/env bash\necho launcher\n' >"$REPO/bin/bbapprove"
@@ -219,4 +215,11 @@ test_missing_go_exits_127() {
   TEST_TMP=""
 }
 
+# Tests share no state (each has its own temp dir), so they run in parallel; BASH_TEST_JOBS=1 runs them serially.
+# The shared stub dirs are made here, once, so the test subshells do not each make (and leak) their own.
+BASH_TEST_JOBS="${BASH_TEST_JOBS:-4}"
+STUBS="$(mktemp -d)"
+use_stubs "$STUBS" git
+GO_STUBS="$(mktemp -d)"
+use_stubs "$GO_STUBS" go
 run_tests "$@"

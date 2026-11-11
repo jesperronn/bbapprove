@@ -15,6 +15,8 @@ cleanup_test_tmp() {
   TEST_TMP=""
   return 0
 }
+# Tests run in parallel subshells; each removes its own temp dir on exit.
+bash_test_case_cleanup() { cleanup_test_tmp; }
 trap 'cleanup_test_tmp' EXIT
 
 OUT=""
@@ -253,4 +255,6 @@ test_usage_errors_exit_2() {
   cleanup_test_tmp
 }
 
+# Tests share no state (each has its own temp dir), so they run in parallel; BASH_TEST_JOBS=1 runs them serially.
+BASH_TEST_JOBS="${BASH_TEST_JOBS:-4}"
 run_tests "$@"

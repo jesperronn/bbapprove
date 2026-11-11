@@ -21,6 +21,8 @@ cleanup_suite_tmp() {
   [[ -z "$STUB_BIN" ]] || rm -rf "$STUB_BIN" "$OP_BIN"
   return 0
 }
+# Tests run in parallel subshells; each removes its own temp dir on exit, only the suite removes the shared stubs.
+bash_test_case_cleanup() { cleanup_test_tmp; }
 trap 'cleanup_suite_tmp' EXIT
 
 URL="https://bitbucket.example.com/projects/PROJ/repos/repo/pull-requests/5"
@@ -28,15 +30,8 @@ RAW='{"id":5,"version":3,"title":"chore(deps): update x to v1.0.1","author":{"us
 
 # The curl (and op) stubs are the fixed ones in test/fixtures, linked once per suite and driven by env:
 # STUB_LOG (per-test call log), STUB_RAW (canned PR) and the STUB_*_FAIL switches. Nothing is written per test.
-STUB_BIN=""
 setup_stub() {
   TEST_TMP="$(mktemp -d)"
-  if [[ -z "$STUB_BIN" ]]; then
-    STUB_BIN="$(mktemp -d)"
-    use_stubs "$STUB_BIN" curl
-    OP_BIN="$(mktemp -d)"
-    use_stubs "$OP_BIN" curl op
-  fi
   export BBAPPROVE_BASE_URL="https://bitbucket.example.com" STUB_LOG="$TEST_TMP/curl.log" STUB_RAW="$RAW" BBAPPROVE_TOKEN=t BBAPPROVE_RETRY_SLEEP=0
   : >"$STUB_LOG"
   STUB_PATH="$STUB_BIN"
@@ -311,4 +306,11 @@ test_pr_commands_still_require_token() {
   TEST_TMP=""
 }
 
+# Tests share no state (each has its own temp dir), so they run in parallel; BASH_TEST_JOBS=1 runs them serially.
+# The shared stub dirs are made here, once, so the test subshells do not each make (and leak) their own.
+BASH_TEST_JOBS="${BASH_TEST_JOBS:-4}"
+STUB_BIN="$(mktemp -d)"
+use_stubs "$STUB_BIN" curl
+OP_BIN="$(mktemp -d)"
+use_stubs "$OP_BIN" curl op
 run_tests "$@"

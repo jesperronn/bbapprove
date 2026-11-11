@@ -3,6 +3,7 @@
 #   STUB_LOG                 append "go ARGS" per call (STUB_GO_LOG_PREFIX replaces "go "; STUB_GO_LOG_MATCH is a
 #                            glob on the ARGS, only matching calls are logged, default all)
 #   STUB_GO_RC               exit code (default 0)
+#   STUB_GO_OUT              file whose contents the stub prints on stdout (canned `go list` output)
 #   STUB_GOVERSION           what `go env GOVERSION` prints (default go1.22.3)
 #   STUB_GO_FAIL=1           print "go: boom" on stderr and exit 3
 #   STUB_GO_JSON=timings     when called with -json, print a canned `go test -json` stream (two packages,
@@ -24,6 +25,7 @@ if [[ "${STUB_GO_JSON:-}" == timings && " $* " == *" -json "* ]]; then
   echo '{"Action":"output","Package":"x/fast","Output":"PASS\n","OutputType":"frame"}'
   echo '{"Action":"pass","Package":"x/fast","Elapsed":0.02}'
 fi
+[[ -n "${STUB_GO_OUT:-}" ]] && cat "$STUB_GO_OUT"
 if [[ -n "${STUB_GO_FAIL:-}" ]]; then
   echo "go: boom" >&2
   exit 3

@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# deps — list outdated Go modules, or update them up to a level; never commits
+#
+# Usage: bin/deps [--patch|--minor|--major]
+#   (no option)  read-only list of outdated direct modules: "path current -> latest"
+#   --patch      go get -u=patch ./..., then go mod tidy
+#   --minor      go get -u ./..., then go mod tidy (minor and patch, same major)
+#   --major      only lists: a new major changes the import path (/vN), so edit imports and go.mod by hand
+#   -h, --help   show this help
+#
+# Changes go.mod and go.sum only. Afterwards run bin/lint and bin/test, then commit by hand.
+# Exit: 0 ok, 1 go failed, 2 usage error, 127 go missing.
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+# shellcheck source=lib/style.sh
+source "$ROOT/bin/lib/style.sh"
+
+usage_text() {
+  cat <<'EOF_USAGE'
+Usage: bin/deps [--patch|--minor|--major]
+
+No option lists outdated direct Go modules and changes nothing.
+--patch / --minor update go.mod and go.sum (go get, go mod tidy); --major only lists.
+Never commits: run bin/lint and bin/test, then commit by hand.
+EOF_USAGE
+}
+
+usage() { usage_text | style_help; }
+
+level=""
+case "${1:-}" in
+  "") ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  --patch | --minor | --major)
+    level="${1#--}"
+    [[ $# -eq 1 ]] || {
+      echo "deps: one option at most" >&2
+      usage >&2
+      exit 2
+    }
+    ;;
+  *)
+    echo "deps: unknown option: $1" >&2
+    usage >&2
+    exit 2
+    ;;
+esac
+
+command -v go >/dev/null 2>&1 || {
+  echo "deps: go not found on PATH" >&2
+  exit 127
+}
+cd "$ROOT"
+
+list_outdated() {
+  go list -m -u -f '{{if and (not .Indirect) .Update}}{{.Path}} {{.Version}} -> {{.Update.Version}}{{end}}' all
+}
+
+case "$level" in
+  "")
+    list_outdated
+    ;;
+  major)
+    list_outdated
+    echo "deps: a major update changes the import path (/vN); edit imports and go.mod by hand" >&2
+    ;;
+  patch)
+    go get -u=patch ./... && go mod tidy
+    ;;
+  minor)
+    go get -u ./... && go mod tidy
+    ;;
+esac
+
+if [[ -n "$level" && "$level" != major ]]; then
+  echo
+  echo "Next: bin/lint && bin/test, then commit by hand (suggested: chore(deps): update $level Go modules)."
+fi

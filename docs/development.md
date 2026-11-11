@@ -1,6 +1,6 @@
 # Development
 
-Run `bin/help` for the commands; every one takes `--help`. Start with `bin/setup`, then `bin/lint` and `bin/test` must be green. Rules for contributors: [../AGENTS.md](../AGENTS.md).
+Run `bin/workflows` for the commands; every one takes `--help`. Start with `bin/setup`. What "done" means and the contributor rules: [../AGENTS.md](../AGENTS.md).
 
 The `bin/` commands colour their help like bbapprove (`bin/lib/style.sh`, `internal/style`): on for a terminal or `FORCE_COLOR`, off with `NO_COLOR`.
 
@@ -13,7 +13,7 @@ bin/test --timings                # after the run: slowest suites, Go packages a
 
 `bin/lint [--autofix] [PATH...]` runs shellcheck and shfmt on shell scripts and gofmt and go vet on Go. shfmt takes two-space indentation and indented `case` branches from `.editorconfig`; it is optional (skipped with a note when not installed, `brew install shfmt`), and `--autofix` rewrites formatting with `gofmt -w` and `shfmt -w`.
 
-`bin/lint-commits [--title TEXT] [--body-file FILE] [RANGE]` checks commit messages (default `origin/main..HEAD`) and PR text against the message policy in AGENTS.md; run it before pushing.
+`bin/lint-commits` checks commit messages and PR text before you push (`--help`; policy in [../AGENTS.md](../AGENTS.md)).
 
 The launcher `bin/bbapprove` rebuilds `bin/bbapprove-go` whenever `go.mod`, `go.sum` or any `cmd/`/`internal/` `.go` file is newer than it, so edit, run `bin/bbapprove`, repeat. Without Go and without a binary it exits 127.
 `bin/install` (or `bin/build --install`) links the launcher, not the Go binary, into the prefix (default `~/.local/bin`) because the launcher resolves `adapters/` and `bbapprove.config.toml` relative to the repo and rebuilds on change. An existing link to this launcher is left alone, any other file at the target is refused unless `--force`, and the build warns when another `bbapprove` earlier on `PATH` shadows the link.
@@ -32,7 +32,7 @@ internal/bbfake/     fake Bitbucket Server and adapter characterization tests (t
 internal/forge/      native Go forge adapters (bitbucket); cmd/bbapprove-bitbucket is its test-only executable
 internal/tui/        Bubble Tea interface (-i)
 adapters/bitbucket   bash adapter: the only code that knows curl and Bitbucket
-bin/                 launcher, build/test/lint/setup/install/release scripts, bin/help
+bin/                 launcher, build/test/lint/setup/install/release scripts, bin/workflows
 test/                *.test.sh suites; test/lib/bash_test.sh is the shared harness
 .github/             workflows (ci, release) and dependabot.yml
 ```
@@ -57,7 +57,7 @@ A nightly agent should run `bin/test --timings`, read the `Over budget` list (ev
 
 ## Adding a `bin/` script
 
-1. `#!/usr/bin/env bash`, `# shellcheck shell=bash`, then line 3 exactly `# <name> — <description>`. `bin/help` scrapes that line.
+1. `#!/usr/bin/env bash`, `# shellcheck shell=bash`, then line 3 exactly `# <name> — <description>`. `bin/workflows` scrapes that line.
 2. `usage()` for `-h`/`--help` (exit 0); unknown option exits 2. Exit codes: 0 ok, 1 failure, 2 usage error, 127 missing tool.
 3. `chmod +x`, and add `test/<name>.test.sh` (copy the shape of `test/release-notes.test.sh`).
-4. Run `bin/lint bin/<name> test/<name>.test.sh`, `bin/test test/<name>.test.sh` and `bin/test test/help.test.sh`, then add a CHANGELOG line.
+4. Run `bin/lint bin/<name> test/<name>.test.sh`, `bin/test test/<name>.test.sh` and `bin/test test/workflows.test.sh`, then add a CHANGELOG line.

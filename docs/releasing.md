@@ -4,7 +4,7 @@ How to cut a release with `bin/release`, what the Release workflow publishes, an
 
 ## Flow
 
-1. While working, add entries under `## [Unreleased]` in `CHANGELOG.md` (Keep a Changelog headings `### Added`, `### Changed`, `### Fixed`).
+1. While working, add entries under `## [Unreleased]` in `CHANGELOG.md` (rule in [../AGENTS.md](../AGENTS.md); Keep a Changelog headings `### Added`, `### Changed`, `### Fixed`).
 2. Preview: `bin/release --dry-run` (read-only checks; prints every step it would take).
 3. Release: `bin/release` takes the version from the conventional commits since the last tag (`bin/changelog next`). Or name it: `bin/release 1.0.0` (or `1.0.0-rc.3`; no leading `v`; a `-` makes it a pre-release). A named version that differs from the suggestion prints `note: conventional commits suggest vX.Y.Z` and the release goes on.
 

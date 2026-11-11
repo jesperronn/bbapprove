@@ -74,7 +74,7 @@ test_full_run_downloads_builds_and_prints_next_steps() {
   assert_eq "go mod download|build " "$(paste -sd'|' "$TEST_TMP/calls.log")" "modules first, then bin/build"
   assert_contains "$OUT" "bin/test" "next steps: bin/test"
   assert_contains "$OUT" "bin/install" "next steps: bin/install"
-  assert_contains "$OUT" "bin/help" "next steps: bin/help"
+  assert_contains "$OUT" "bin/workflows" "next steps: bin/workflows"
   assert_eq "no" "$([[ -e "$REPO/bbapprove.config.toml" ]] && echo yes || echo no)" "no config file is created"
 }
 

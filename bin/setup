@@ -114,5 +114,5 @@ cat <<'NEXT'
 Setup done. Next steps:
   bin/test      run the Go and shell test suites (bin/lint checks style)
   bin/install   link bbapprove into ~/.local/bin
-  bin/help      list every command
+  bin/workflows list every command
 NEXT

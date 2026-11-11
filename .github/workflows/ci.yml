@@ -15,14 +15,50 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Decides which of the slower jobs a pull request needs. Every other event (push to main, a tag through
+  # release.yml, a manual run) runs everything. Any error falls back to running everything.
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      macos: ${{ steps.paths.outputs.macos }}
+      windows: ${{ steps.paths.outputs.windows }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # macos: any file that is not documentation. windows: Go code, modules, packaging and the workflows.
+      - name: Work out what changed
+        id: paths
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          macos=true windows=true
+          if [[ "$EVENT" == pull_request ]] && files="$(git diff --name-only "$BASE...$HEAD")" && [[ -n "$files" ]]; then
+            macos=false windows=false
+            while IFS= read -r f; do
+              case "$f" in
+                *.md | docs/* | LICENSE | demo/*.svg | demo/shots/*) ;;
+                *.go | go.mod | go.sum | bin/package | bin/build | test/package.test.sh | .gitattributes | .github/*)
+                  macos=true windows=true ;;
+                *) macos=true ;;
+              esac
+            done <<<"$files"
+          fi
+          echo "macos=$macos" >>"$GITHUB_OUTPUT"
+          echo "windows=$windows" >>"$GITHUB_OUTPUT"
+          echo "macos=$macos windows=$windows"
+
   check:
-    name: lint and test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    name: lint and test (ubuntu-latest)
+    runs-on: ubuntu-latest
     timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -37,14 +73,50 @@ jobs:
           cache: true
 
       # The shell suites need bash >= 4 (mapfile) and ripgrep (test/lib/bash_test.sh); bin/lint needs shellcheck and, to enforce shell formatting, shfmt.
-      - name: Install tools (Linux)
-        if: runner.os == 'Linux'
+      - name: Install tools
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ripgrep shellcheck shfmt jq
 
+      - name: Show tool versions
+        run: |
+          for tool in bash go gofmt shellcheck shfmt rg jq git; do
+            command -v "$tool" || { echo "missing: $tool" >&2; exit 1; }
+          done
+          bash --version | head -n 1
+          go version
+          shellcheck --version | sed -n 2p
+          shfmt --version
+          rg --version | head -n 1
+          jq --version
+
+      - name: Lint
+        run: bin/lint
+
+      - name: Test
+        run: bin/test
+
+  check-macos:
+    name: lint and test (macos-latest)
+    needs: [check, changes]
+    if: needs.changes.outputs.macos == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # The shell suites need bash >= 4 (mapfile) and ripgrep (test/lib/bash_test.sh); bin/lint needs shellcheck and, to enforce shell formatting, shfmt.
       - name: Install tools (macOS)
-        if: runner.os == 'macOS'
         run: |
           brew install bash ripgrep shellcheck shfmt jq
           # Homebrew's bin first on PATH, so `#!/usr/bin/env bash` finds bash 5 instead of macOS's 3.2.
@@ -69,8 +141,11 @@ jobs:
         run: bin/test
 
   # Blocking: the Go packages build, vet and pass their tests on Windows, so a failure here blocks merging.
+  # Runs after the Ubuntu job passes, and on a pull request only when Go code, packaging or the workflows changed.
   go-windows:
     name: go tests (windows-latest)
+    needs: [check, changes]
+    if: needs.changes.outputs.windows == 'true'
     runs-on: windows-latest
     timeout-minutes: 20
     steps:

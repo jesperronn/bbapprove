@@ -4,8 +4,9 @@ What the GitHub Actions workflows and Dependabot do, and how to reproduce a runn
 
 ## Workflows (`.github/`)
 
-- `workflows/ci.yml` (CI): on push to `main`, pull requests, manual runs and as a reusable workflow. Matrix `ubuntu-latest` and `macos-latest`, `fail-fast: false`, 20 minute timeout. Steps: checkout (full history, for `git describe`), Go from `go.mod`, install tools, print tool versions, `bin/lint`, `bin/test`. Same-ref runs are cancelled on pull requests.
-- Job `go-windows` in the same file: `windows-latest`, 20 minute timeout, runs `go build`, `go vet` and `go test` on all packages. It blocks merging like the `check` job.
+- `workflows/ci.yml` (CI): on push to `main`, pull requests, manual runs and as a reusable workflow. Jobs: `changes` (decides what a pull request needs), `check` (Ubuntu: checkout with full history for `git describe`, Go from `go.mod`, install tools, print tool versions, `bin/lint`, `bin/test`), then `check-macos` and `go-windows`, which start only after `check` passes. Each has a 20 minute timeout. Same-ref runs are cancelled on pull requests.
+- Job `go-windows`: `windows-latest`, runs `go build`, `go vet` and `go test` on all packages. It blocks merging like the other jobs.
+- Which jobs a pull request runs: Ubuntu always. macOS unless only documentation changed (`*.md`, `docs/`, `LICENSE`, the demo images). Windows only when Go code, `go.mod`, `go.sum`, `bin/package`, `bin/build`, `.gitattributes` or `.github/` changed. A push to `main`, a release tag (through `release.yml`) and a manual run always run all three, and so does any error in the path check, so the full matrix still guards `main` and every release.
 - `workflows/release.yml` (Release): on a pushed `v*` tag. Job `checks` calls `ci.yml`; job `release` (needs `checks`, `contents: write`) builds five archives (four `tar.gz` and a Windows zip), `SHA256SUMS`, notes via `bin/release-notes`, and `gh release create --verify-tag` (adds `--prerelease` when the tag has a `-`).
 - `dependabot.yml`: weekly on Monday for `gomod` and `github-actions`, minor and patch updates grouped, commit prefix `chore(deps)` and label `dependencies` (so bbapprove's own eligibility rule recognises them), at most 5 open PRs. Majors arrive as separate PRs for a human.
 

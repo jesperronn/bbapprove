@@ -6,6 +6,7 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Maintainers: CI runs the Ubuntu job first and starts the macOS and Windows jobs only when it passes; on a pull request they are skipped when only documentation (macOS) or no Go, packaging or workflow file (Windows) changed. Pushes to `main` and releases still run everything.
 - Maintainers: `bin/test --timings` also lists the slowest shell tests and what is over the budgets `TEST_SLOW_SUITE_SECONDS` and `TEST_SLOW_TEST_SECONDS` (see `docs/development.md`).
 
 ### Changed

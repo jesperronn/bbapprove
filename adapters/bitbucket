@@ -220,7 +220,7 @@ cmd_pr_merge() { # URL
       fi
       return 0
     fi
-    if [[ "$LAST_CODE" == 409 && "$API_BODY" == *"out-of-date"* ]] && ((attempt < MERGE_RETRIES)); then
+    if [[ "$LAST_CODE" == 409 && ("$API_BODY" == *"out-of-date"* || "$API_BODY" == *"New changes were pushed"*) ]] && ((attempt < MERGE_RETRIES)); then
       sleep "$RETRY_SLEEP"
       continue
     fi

@@ -25,6 +25,10 @@ import (
 // OutOfDateMessage is what Bitbucket answers (HTTP 409) when the PR version sent is stale.
 const OutOfDateMessage = "You are attempting to modify a pull request based on out-of-date information."
 
+// PushedMessage is what Bitbucket answers (HTTP 409) when the target branch moved while the merge was being
+// prepared; the merge succeeds once the PR is re-read.
+const PushedMessage = "New changes were pushed to master in PROJ/repo while the merge was being prepared. Please try again."
+
 // Person is a reviewer or participant of a PR.
 type Person struct {
 	Slug   string
@@ -67,6 +71,8 @@ type PR struct {
 	// StaleMerges makes the next N merge calls answer 409 out-of-date and bump Version (a concurrent merge
 	// moved the target branch). StaleDeclines is the same for decline.
 	StaleMerges, StaleDeclines int
+	// PushedMerges makes the next N merge calls answer 409 "New changes were pushed" without bumping Version.
+	PushedMerges int
 	// MergeVetoes, when set, makes merge answer 409 with these messages (checks failed, needs approval, ...).
 	MergeVetoes []string
 }
@@ -402,6 +408,11 @@ func (s *Server) transition(w http.ResponseWriter, r *http.Request, pr *PR, verb
 		*stale--
 		pr.Version++
 		writeErrors(w, 409, OutOfDateMessage)
+		return
+	}
+	if verb == "merge" && pr.PushedMerges > 0 {
+		pr.PushedMerges--
+		writeErrors(w, 409, PushedMessage)
 		return
 	}
 	if v, err := strconv.Atoi(r.URL.Query().Get("version")); err != nil || v != pr.Version {

@@ -241,7 +241,7 @@ const envMarkup = `{title:bbapprove help env — environment variables and exit 
   {env:BBAPPROVE_BASE_URL}       forge base URL (required)
   {env:BBAPPROVE_TOKEN_NAME}     1Password item for "auth token"
   {env:BBAPPROVE_DELETE_SOURCE_BRANCH}  true (default when unset) or false: delete the source branch after a merge
-  {env:BBAPPROVE_MERGE_RETRIES}  merge retries when the PR version went stale (default 4)
+  {env:BBAPPROVE_MERGE_RETRIES}  merge retries when the PR went stale or its target moved (default 4)
   {env:BBAPPROVE_RETRY_SLEEP}    seconds between retries (default 2)
   {env:BBAPPROVE_TOKEN} is required by the "pr" commands (exit 2 when unset).
 

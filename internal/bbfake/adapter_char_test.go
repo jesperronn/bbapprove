@@ -263,6 +263,8 @@ var charCases = []charCase{
 	// ---- pr merge ----
 	{name: "merge_ok", args: []string{"pr", "merge", url5}, check: func(t *testing.T, r result) { eq(t, "stdout", r.raw, "") }},
 	{name: "merge_retries_stale_version_then_succeeds", args: []string{"pr", "merge", url5}, sc: func(sc *bbfake.Scenario) { pr5(sc).StaleMerges = 2 }},
+	{name: "merge_retries_new_changes_pushed_then_succeeds", args: []string{"pr", "merge", url5}, sc: func(sc *bbfake.Scenario) { pr5(sc).PushedMerges = 2 }},
+	{name: "merge_new_changes_pushed_every_time_gives_up", args: []string{"pr", "merge", url5}, sc: func(sc *bbfake.Scenario) { pr5(sc).PushedMerges = 99 }},
 	{name: "merge_stale_every_time_gives_up_after_4_attempts", args: []string{"pr", "merge", url5}, sc: func(sc *bbfake.Scenario) { pr5(sc).StaleMerges = 99 }},
 	{name: "merge_retries_env_2", args: []string{"pr", "merge", url5}, env: map[string]string{"BBAPPROVE_MERGE_RETRIES": "2"}, sc: func(sc *bbfake.Scenario) { pr5(sc).StaleMerges = 99 }},
 	{name: "merge_retries_env_1_means_no_retry", args: []string{"pr", "merge", url5}, env: map[string]string{"BBAPPROVE_MERGE_RETRIES": "1"}, sc: func(sc *bbfake.Scenario) { pr5(sc).StaleMerges = 1 }},

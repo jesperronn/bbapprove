@@ -22,7 +22,7 @@ Adapter side (read by the built-in Bitbucket adapter and by adapters/bitbucket; 
   BBAPPROVE_BASE_URL       forge base URL (required)
   BBAPPROVE_TOKEN_NAME     1Password item for "auth token"
   BBAPPROVE_DELETE_SOURCE_BRANCH  true (default when unset) or false: delete the source branch after a merge
-  BBAPPROVE_MERGE_RETRIES  merge retries when the PR version went stale (default 4)
+  BBAPPROVE_MERGE_RETRIES  merge retries when the PR went stale or its target moved (default 4)
   BBAPPROVE_RETRY_SLEEP    seconds between retries (default 2)
   BBAPPROVE_TOKEN is required by the "pr" commands (exit 2 when unset).
 

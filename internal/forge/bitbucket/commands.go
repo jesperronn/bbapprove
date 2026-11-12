@@ -177,7 +177,7 @@ func (c *Client) Approve(ctx context.Context, prURL string) error {
 }
 
 // Merge merges the pull request. It re-reads the PR version before every attempt and retries only when the
-// server says the version is out of date (HTTP 409 mentioning out-of-date); see BBAPPROVE_MERGE_RETRIES and
+// server says the PR went stale (HTTP 409, see staleConflict); see BBAPPROVE_MERGE_RETRIES and
 // BBAPPROVE_RETRY_SLEEP.
 //
 // After a successful merge the source branch is deleted unless BBAPPROVE_DELETE_SOURCE_BRANCH is false. A
@@ -318,12 +318,19 @@ func (c *Client) transition(ctx context.Context, ref prRef, name, action string)
 		if resp.ok() {
 			return refs, nil
 		}
-		if resp.code == 409 && bytes.Contains(resp.body, []byte("out-of-date")) && attempt < attempts {
+		if staleConflict(resp.code, resp.body) && attempt < attempts {
 			c.env.sleep(ctx, sleep)
 			continue
 		}
 		return prRefs{}, resp.fail(fmt.Sprintf("%s HTTP %d: %s", action, resp.code, errorMessages(resp.body)))
 	}
+}
+
+// staleConflict reports whether a merge or decline answer means the PR must be re-read and the call retried: an
+// out-of-date version, or the target branch moving while the merge was being prepared ("New changes were pushed
+// to <branch> in <repo>"), which Bitbucket raises until the PR is reloaded.
+func staleConflict(code int, body []byte) bool {
+	return code == 409 && (bytes.Contains(body, []byte("out-of-date")) || bytes.Contains(body, []byte("New changes were pushed")))
 }
 
 // readVersion fetches the PR's current version; a version read earlier goes stale when the target branch moves.

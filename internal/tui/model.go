@@ -148,6 +148,7 @@ type commentDoneMsg struct {
 type Model struct {
 	cfg         Config
 	sem         chan struct{}
+	repoLocks   adapter.RepoLocks // merges into one repository run one at a time
 	rows        []row
 	ignored     []string
 	loading     bool
@@ -960,6 +961,7 @@ func (m *Model) runPending() tea.Cmd {
 		m.logStart(pr, "approve")
 		m.unmark(i)
 		cmds = append(cmds, func() tea.Msg {
+			defer m.repoLocks.Lock(pr)() // before the slot, so a PR waiting on its repository holds none
 			m.sem <- struct{}{}
 			defer func() { <-m.sem }()
 			warn, err := m.cfg.Backend.ApproveAndMerge(m.cfg.Ctx, pr)

@@ -14,6 +14,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 - `pr merge` now re-reads the PR and retries when Bitbucket answers HTTP 409 "New changes were pushed to <branch>", which happens when several PRs of one repository are merged in a row.
+- Batch merges (`--apply` and the TUI) merge PRs of one repository one after another, so each merge no longer invalidates the next; different repositories still run in parallel.
 
 ## [1.2.0] - 2026-11-10
 

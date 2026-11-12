@@ -411,8 +411,22 @@ func Run(ctx context.Context, o Options) int {
 		return 0
 	}
 
-	forEach(len(eligible), jobs, func(i int) {
-		out.line(act(ctx, client, st, eligible[i]))
+	// PRs of one repository go one after another (see adapter.PR.RepoKey); repositories run in parallel.
+	var groups [][]adapter.PR
+	seen := map[string]int{}
+	for _, pr := range eligible {
+		g, ok := seen[pr.RepoKey()]
+		if !ok {
+			g = len(groups)
+			seen[pr.RepoKey()] = g
+			groups = append(groups, nil)
+		}
+		groups[g] = append(groups[g], pr)
+	}
+	forEach(len(groups), jobs, func(g int) {
+		for _, pr := range groups[g] {
+			out.line(act(ctx, client, st, pr))
+		}
 	})
 	return 0
 }

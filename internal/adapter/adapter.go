@@ -10,6 +10,7 @@ import (
 	"io"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"bbapprove/internal/forge/bitbucket"
@@ -198,4 +199,30 @@ func (c *Client) Close(ctx context.Context, url, comment string) error {
 	}
 	_, err := c.run(ctx, args...)
 	return err
+}
+
+// RepoKey identifies the repository a PR targets; merges into one repository run one at a time, because a merge
+// moves the target branch and makes Bitbucket refuse the next merge already in flight with HTTP 409.
+func (p PR) RepoKey() string { return p.Project + "/" + p.Repo }
+
+// RepoLocks hands out one mutex per repository (RepoKey). The zero value is ready to use.
+type RepoLocks struct {
+	mu sync.Mutex
+	m  map[string]*sync.Mutex
+}
+
+// Lock blocks until no other holder has pr's repository and returns the unlock function.
+func (l *RepoLocks) Lock(pr PR) func() {
+	l.mu.Lock()
+	if l.m == nil {
+		l.m = map[string]*sync.Mutex{}
+	}
+	m := l.m[pr.RepoKey()]
+	if m == nil {
+		m = &sync.Mutex{}
+		l.m[pr.RepoKey()] = m
+	}
+	l.mu.Unlock()
+	m.Lock()
+	return m.Unlock
 }

@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	instantHints = "a approve  d decline  c comment  i ignore  x mark  o open  ? help  q quit"
-	batchHints   = "A approve marked  D decline marked  C comment marked  ctrl+a mark all  x mark  o open  ? help  q quit"
+	instantHints = "a approve  m merge  d decline  c comment  i ignore  x mark  o open  ? help  q quit"
+	batchHints   = "M force merge (skips the rules)  ctrl+a mark all eligible  x mark  o open  ? help  q quit"
 )
 
 // Events as a terminal with the kitty keyboard protocol (all enhancements on) reports them.
@@ -168,7 +168,7 @@ func TestBareModifiersAreInert(t *testing.T) {
 		t.Fatalf("a bare modifier changed state: msg %q cursor %d marks %v", m.msg, m.cursor, m.marks)
 	}
 	// In a confirm prompt a Shift press must not cancel it; Shift+Y then confirms.
-	m.kittySend("A")
+	m.kittySend("M")
 	if m.mode != modeConfirm {
 		t.Fatalf("mode %v", m.mode)
 	}
@@ -185,13 +185,10 @@ func TestBareModifiersAreInert(t *testing.T) {
 
 func TestPromptTypingUnderEnhancements(t *testing.T) {
 	text := "Hello! a:(x)_?  #Z@"
-	for _, kind := range []string{"c", "D"} {
+	for _, kind := range []string{"c", "d"} {
 		m, fb, _, ign := fixture(t)
 		supported(m)
 		m.Update(kittyKey(kind))
-		if kind == "D" { // D with no marks refuses; mark first
-			m.kittySend("x", "D", "y")
-		}
 		if m.mode != modeInput {
 			t.Fatalf("%s: mode %v", kind, m.mode)
 		}
@@ -237,7 +234,7 @@ func TestPromptTypingUnderEnhancements(t *testing.T) {
 		if kind == "c" && (len(fb.comments) != 1 || fb.comments[0].text != "Hi!") {
 			t.Fatalf("comment not sent: %v", fb.comments)
 		}
-		if kind == "D" && (len(fb.declined) != 1 || fb.declined[0].text != "Hi!") {
+		if kind == "d" && (len(fb.declined) != 1 || fb.declined[0].text != "Hi!") {
 			t.Fatalf("decline not sent: %v", fb.declined)
 		}
 	}
@@ -250,7 +247,7 @@ func TestBatchKeysUnderEnhancements(t *testing.T) {
 	if len(m.marks) != 3 {
 		t.Fatalf("ctrl+a: marks %v", m.marks)
 	}
-	for key, want := range map[string]mode{"A": modeConfirm, "D": modeConfirmDecline, "C": modeInput} {
+	for key, want := range map[string]mode{"M": modeConfirm, "m": modeConfirm, "d": modeInput, "c": modeInput} {
 		m.Update(shiftDown(tea.KeyLeftShift))
 		m.Update(kittyKey(key))
 		if m.mode != want {
@@ -261,10 +258,10 @@ func TestBatchKeysUnderEnhancements(t *testing.T) {
 		m.Update(kittyKey("esc"))
 		m.mode = modeList
 	}
-	// A terminal that reports Shift+a without text: still the A action.
-	m.Update(tea.KeyPressMsg{Code: 'a', Mod: tea.ModShift})
+	// A terminal that reports Shift+m without text: still the M action.
+	m.Update(tea.KeyPressMsg{Code: 'm', Mod: tea.ModShift})
 	if m.mode != modeConfirm {
-		t.Fatalf("shift+a without text: mode %v", m.mode)
+		t.Fatalf("shift+m without text: mode %v", m.mode)
 	}
 	m.mode = modeList
 	m.Update(tea.KeyPressMsg{Code: '/', ShiftedCode: '?', Text: "?", Mod: tea.ModShift})
@@ -297,7 +294,7 @@ func TestShiftHintsNeverWrap(t *testing.T) {
 	}
 	m.Update(tea.WindowSizeMsg{Width: 60, Height: 12})
 	h := hintOf(m)
-	if !strings.HasPrefix(h, "A approve marked") && !strings.Contains(h, "A approve marked") || strings.Contains(h, "q quit") {
+	if !strings.Contains(h, "M force merge") || strings.Contains(h, "q quit") {
 		t.Fatalf("w=60 must drop trailing items: %q", h)
 	}
 }
@@ -307,7 +304,7 @@ func TestHelpListsBothSets(t *testing.T) {
 	m.Update(tea.WindowSizeMsg{Width: 130, Height: 24})
 	send(m, "?")
 	out := plain(m.View().Content)
-	for _, w := range []string{instantHints, "A approve marked  D decline marked  C comment marked  ctrl+a mark all  x mark", "Shift"} {
+	for _, w := range []string{"Hints:        a approve  m merge  d decline  c comment  i ignore  x mark  o open  ? help  q quit", "Hints: Shift  M force merge  ctrl+a mark all eligible  x mark", "Shift"} {
 		if !strings.Contains(out, w) {
 			t.Fatalf("help lacks %q:\n%s", w, out)
 		}
@@ -351,11 +348,11 @@ func TestShiftThroughRealProgram(t *testing.T) {
 	wait("list rendered", has("chore(deps)"))
 	feed("\x1b[?31u")     // reply to the keyboard query: protocol supported
 	feed("\x1b[57441;2u") // Left Shift press
-	wait("batch hints", has("decline marked"))
+	wait("shift hints", has("force merge"))
 	feed("\x1b[57441;1:3u") // Left Shift release
 	wait("instant hints again", func() bool {
 		s := plain(out.String())
-		return strings.LastIndex(s, "i ignore") > strings.LastIndex(s, "decline marked")
+		return strings.LastIndex(s, "d decline") > strings.LastIndex(s, "force merge")
 	})
 	feed("c") // comment prompt (kitty: plain key = CSI 99u)
 	wait("comment prompt", has("comment on 1 PR(s)"))

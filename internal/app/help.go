@@ -89,13 +89,21 @@ a file that exists but cannot be read stops the run (exit 1) rather than risk ac
 "N ignored via FILE (see: bbapprove doctor)", or "N ignored (hidden) via FILE" with {flag:--hide-ignored}.
 
 {h:STATUS column:} blank = eligible and untouched; SKIP (reason after the title); IGNORED; in flight
-APPROVING… DECLINING… COMMENTING…; done MERGED DECLINED COMMENTED; failures NOT MERGED (approved, merge
+APPROVING… DECLINING… COMMENTING…; done APPROVED (a, not merged) MERGED DECLINED COMMENTED; failures NOT MERGED (approved, merge
 failed) and FAIL. A later action on a row replaces its word. A comment never makes a row ineligible.
 `
 
 const tuiMarkup = `{title:bbapprove help tui — the interactive TUI (-i).}
 
-Keys: ? in the TUI, or the README. Lowercase keys act on the cursor row, uppercase keys on the marked rows.
+{h:Keys:} work in rounds: mark rows (x, ctrl+a for all eligible), then act. a m M d c act on the marked rows, or
+on the cursor row when nothing is marked; acted rows are un-marked.
+  a  approve only (any row but IGNORED, SKIP included)
+  m  approve and merge, eligible rows only
+  M  approve and merge anyway (overrides SKIP); always asks y/N and names what it overrides
+  d  decline; asks for the comment, which is required
+  c  comment
+On the cursor row a and m run at once; on marked rows they ask y/N first. A failed approval never stops the
+merge: the merge is tried anyway and the approval error shows as a warning on the row. ? lists every key.
 The TUI stays open after every action; only q / ctrl+c quits. {flag:--no-mouse} or {env:BBAPPROVE_MOUSE}=0 turns mouse capture off.
 
 {h:Columns:} STATUS (see {cmd:help} rules), then
@@ -114,21 +122,21 @@ row's PR URL (where o goes) with the version dim at the right; on narrow termina
 middle (https://host/…/pull-requests/4961) so the PR number and the "o open" hint stay visible. Line 2 is
 "N PRs, M marked" and as many key hints as fit.
 
-{h:Hints follow the Shift key:} by default line 2 shows the instant keys:
-  a approve  d decline  c comment  i ignore  x mark  o open  ? help  q quit
-While you HOLD Shift it switches to the batch keys, and releasing Shift restores the instant set:
-  A approve marked  D decline marked  C comment marked  ctrl+a mark all  x mark  o open  ? help  q quit
+{h:Hints follow the Shift key:} by default line 2 shows:
+  a approve  m merge  d decline  c comment  i ignore  x mark  o open  ? help  q quit
+While you HOLD Shift it switches to the Shift set, and releasing Shift restores the default:
+  M force merge (skips the rules)  ctrl+a mark all eligible  x mark  o open  ? help  q quit
 Neither set wraps: trailing items are dropped to fit, and "o open" is the last one dropped before "? help" and
 "q quit". The ? screen always lists both sets. This needs a terminal that speaks the kitty keyboard protocol
 (Ghostty, kitty, recent iTerm2, WezTerm, foot, Alacritty): bbapprove requests the enhancements (key release
 events, all keys as escape codes with associated text and alternate keys) and detects support from the
 terminal's reply. In any other terminal (Terminal.app, tmux without passthrough, ...) the hints stay on the
-instant set and every key works the same. The Shift state is also cleared when the window loses focus or a key
+default set and every key works the same. The Shift state is also cleared when the window loses focus or a key
 arrives without Shift, in case a release is lost. {env:BBAPPROVE_KITTY}=0 stops bbapprove requesting the
 enhancements (the hints never change; Bubble Tea still asks for basic key disambiguation).
 
 {h:Exit summary:} on q / ctrl+c the TUI prints what was done this session to the scrollback: a table in the CLI
-format with only the actions taken (MERGED, NOT MERGED, DECLINED, COMMENTED, FAIL, IGNORED / UN-IGNORED), then a
+format with only the actions taken (MERGED, APPROVED, NOT MERGED, DECLINED, COMMENTED, FAIL, IGNORED / UN-IGNORED), then a
 tally such as "3 merged, 1 declined, 1 failed" (zero counts omitted), or "No changes made." Actions still
 running are listed as WORKING… and the tally ends "(still running)": quitting does not wait for them. One line
 per PR and kind of action. Cut to the terminal width on a TTY, never truncated when piped.

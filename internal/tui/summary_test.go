@@ -31,9 +31,9 @@ func TestStatusColumnBlankForEligibleAndInFlightWords(t *testing.T) {
 	if strings.Contains(strings.Join(ls, "\n"), "ELIGIBLE") {
 		t.Fatal("no ELIGIBLE word any more")
 	}
-	cA := send(m, "a")
+	cA := send(m, "m")
 	send(m, "j")
-	send(m, "d", "y")
+	send(m, "d")
 	typeText(m, "bye")
 	cD := send(m, "enter")
 	send(m, "j")
@@ -97,15 +97,18 @@ func TestHAliasesDotToggle(t *testing.T) {
 func TestIgnoredRowCannotBeApproved(t *testing.T) {
 	m, fb, _, _ := fixture(t)
 	send(m, "i", "h") // npm ignored; show them; cursor on row 1
-	if c := send(m, "a"); c != nil || !strings.Contains(m.msg, "refused") {
+	if c := send(m, "m"); c != nil || !strings.Contains(m.msg, "refused") {
 		t.Fatalf("msg %q", m.msg)
 	}
-	send(m, "ctrl+a", "A")
+	if c := send(m, "m"); c != nil || !strings.Contains(m.msg, "refused") {
+		t.Fatalf("msg %q", m.msg)
+	}
+	send(m, "ctrl+a", "m", "M")
 	if m.mode == modeConfirm && len(m.pending) != 1 {
 		t.Fatalf("pending %v", m.pending)
 	}
-	if len(fb.called) != 0 {
-		t.Fatalf("called %v", fb.called)
+	if len(fb.called) != 0 || len(fb.approved) != 0 {
+		t.Fatalf("called %v approved %v", fb.called, fb.approved)
 	}
 }
 
@@ -120,7 +123,7 @@ func TestSummaryNoChanges(t *testing.T) {
 func TestSummaryScriptedSession(t *testing.T) {
 	m, fb, _, _ := fixture(t)
 	fb.errs["https://bb/pr/4"] = &PartialError{Err: errors.New("merge conflict")}
-	drain(m, send(m, "a")) // row 1 -> MERGED
+	drain(m, send(m, "m")) // row 1 -> MERGED
 	send(m, "j", "d", "y")
 	typeText(m, "bye")
 	drain(m, send(m, "enter")) // row 2 -> DECLINED
@@ -128,7 +131,7 @@ func TestSummaryScriptedSession(t *testing.T) {
 	typeText(m, "hello")
 	drain(m, send(m, "enter")) // row 3 -> COMMENTED
 	send(m, "j")
-	drain(m, send(m, "a")) // row 4 -> NOT MERGED
+	drain(m, send(m, "m")) // row 4 -> NOT MERGED
 	send(m, "i")           // ignore npm (row 4 stays: it is part of an action)
 	send(m, "i")           // un-ignore it again
 	drain(m, m.reload())   // a reload resets rows, not the log
@@ -151,10 +154,23 @@ func TestSummaryScriptedSession(t *testing.T) {
 	}
 }
 
+func TestSummaryApproveOnly(t *testing.T) {
+	m, fb, _, _ := fixture(t)
+	fb.errs["https://bb/pr/2"] = errors.New("denied")
+	drain(m, send(m, "a"))
+	send(m, "j")
+	drain(m, send(m, "a"))
+	got := m.Summary()
+	if !strings.Contains(got, "APPROVED") || !strings.Contains(got, "FAIL") || !strings.Contains(got, "denied") ||
+		!strings.HasSuffix(got, "1 approved, 1 failed\n") || len(fb.called) != 0 {
+		t.Fatalf("summary:\n%s", got)
+	}
+}
+
 func TestSummaryFailAndRepeatReplaces(t *testing.T) {
 	m, fb, _, _ := fixture(t)
 	fb.errs["https://bb/pr/1"] = errors.New("boom")
-	drain(m, send(m, "a"))
+	drain(m, send(m, "m"))
 	delete(fb.errs, "https://bb/pr/1")
 	send(m, "c")
 	typeText(m, "x")
@@ -170,7 +186,7 @@ func TestSummaryFailAndRepeatReplaces(t *testing.T) {
 
 func TestSummaryInFlightAtQuit(t *testing.T) {
 	m, _, _, _ := fixture(t)
-	c := send(m, "a")
+	c := send(m, "m")
 	got := m.Summary()
 	if !strings.Contains(got, "WORKING…") || !strings.HasSuffix(got, "1 working (still running)\n") {
 		t.Fatalf("summary:\n%s", got)
@@ -181,7 +197,7 @@ func TestSummaryInFlightAtQuit(t *testing.T) {
 	}
 	// an action finishing for a PR that a reload dropped still lands in the log
 	m2, _, _, _ := fixture(t)
-	c = send(m2, "a")
+	c = send(m2, "m")
 	m2.Update(reloadedMsg{prs: m2.rowsPRs()[1:]})
 	drain(m2, c)
 	if got = m2.Summary(); !strings.Contains(got, "MERGED") || !strings.HasSuffix(got, "1 merged\n") {
@@ -195,7 +211,7 @@ func TestSummaryStyle(t *testing.T) {
 		cfg := rules.Config{AuthorEmail: bot}
 		m := New(Config{Backend: fb, IgnorePath: filepath.Join(t.TempDir(), "ignore"), Check: cfg.Check, Summary: st})
 		m.Update(m.Init()())
-		drain(m, send(m, "a"))
+		drain(m, send(m, "m"))
 		return m
 	}
 	tests := []struct {
@@ -299,7 +315,7 @@ func TestRunPrintsSummaryAfterQuit(t *testing.T) {
 		mkPR(1, "chore(deps): update dependency npm to v1.2.3"),
 		mkPR(2, "chore(deps): update dependency lodash to v4.17.21"),
 	}, errs: map[string]error{}}
-	out := runWithKeys(t, fb, "a", "j", "c", "hi", "\r")
+	out := runWithKeys(t, fb, "m", "j", "c", "hi", "\r")
 	i := strings.LastIndex(out, "\x1b[?1049l") // alt screen left; the summary comes after it
 	if i < 0 {
 		t.Fatal("no alt screen exit in output")
@@ -328,7 +344,7 @@ func TestMergeWarningShowsOnRowAndInSummary(t *testing.T) {
 	const w = "merge ok, but could not delete branch renovate/x (HTTP 403)"
 	fb.warns = map[string]string{"https://bb/pr/1": w}
 	m.Update(tea.WindowSizeMsg{Width: 140, Height: 20}) // wide enough for the title and the note
-	drain(m, send(m, "a"))
+	drain(m, send(m, "m"))
 	row := strings.Join(lines(m), "\n")
 	if !strings.Contains(row, "MERGED") || !strings.Contains(row, "could not delete branch renovate/x (HTTP 403)") {
 		t.Fatalf("row lacks the merged status or the warning:\n%s", row)
@@ -341,7 +357,7 @@ func TestMergeWarningShowsOnRowAndInSummary(t *testing.T) {
 
 func TestMergeWithoutWarningIsUnchanged(t *testing.T) {
 	m, _, _, _ := fixture(t)
-	drain(m, send(m, "a"))
+	drain(m, send(m, "m"))
 	if got := m.Summary(); !strings.Contains(got, "PRJ/repo#1 chore(deps): update dependency npm to v1.2.3\n") {
 		t.Fatalf("summary:\n%s", got)
 	}

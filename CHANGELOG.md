@@ -5,6 +5,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### BREAKING
+- TUI keys: `a` now approves only (no merge), `m` approves and merges, and the new `M` approves and merges a PR the rules skip (asks first, naming the reason). `a`, `m`, `d` and `c` act on the marked rows, or on the cursor row when nothing is marked; `A`, `D` and `C` are gone.
+- TUI decline needs a comment: `d` asks for it straight away, without the y/N step, and refuses an empty one.
+
 ### Added
 - Maintainers: CI runs the Ubuntu job first and starts the macOS and Windows jobs only when it passes; on a pull request they are skipped when only documentation (macOS) or no Go, packaging or workflow file (Windows) changed. Pushes to `main` and releases still run everything.
 - Maintainers: `bin/test --timings` also lists the slowest shell tests and what is over the budgets `TEST_SLOW_SUITE_SECONDS` and `TEST_SLOW_TEST_SECONDS` (see `docs/development.md`).
@@ -13,6 +17,7 @@ All notable changes to this project are documented here. The format follows
 - Maintainers: the `bin/` commands and `bin/changelog` now colour their help the way bbapprove does, honouring `NO_COLOR` and `FORCE_COLOR`.
 
 ### Fixed
+- TUI: a failed approval no longer stops the merge; the merge is tried and the approval error shows as a warning on the row.
 - `pr merge` now re-reads the PR and retries when Bitbucket answers HTTP 409 "New changes were pushed to <branch>", which happens when several PRs of one repository are merged in a row.
 - Batch merges (`--apply` and the TUI) merge PRs of one repository one after another, so each merge no longer invalidates the next; different repositories still run in parallel.
 

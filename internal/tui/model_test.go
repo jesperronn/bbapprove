@@ -30,6 +30,14 @@ type fakeBackend struct {
 	warns    map[string]string // ApproveAndMerge warnings by url
 	declined []call            // Decline calls: url + comment
 	comments []call            // Comment calls: url + body
+	approved []string          // Approve (approve-only) calls
+}
+
+func (f *fakeBackend) Approve(_ context.Context, pr adapter.PR) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.approved = append(f.approved, pr.URL)
+	return f.errs[pr.URL]
 }
 
 type call struct{ url, text string }
@@ -266,12 +274,105 @@ func TestIgnoreToggleAndHidden(t *testing.T) {
 
 func TestApproveRefusedWhenNotEligible(t *testing.T) {
 	m, fb, _, _ := fixture(t)
-	send(m, "j", "j", "a") // row 3: major
-	if m.mode != modeList || !strings.Contains(m.msg, "refused") {
+	send(m, "j", "j", "m") // row 3: major
+	if m.mode != modeList || m.msg != "refused: not eligible (major update); M merges anyway" {
 		t.Fatalf("msg=%q mode=%v", m.msg, m.mode)
 	}
-	if len(fb.called) != 0 {
+	if len(fb.called) != 0 || len(fb.approved) != 0 {
 		t.Fatal("backend must not be called")
+	}
+}
+
+func TestApproveOnlyOnSkipRow(t *testing.T) {
+	m, fb, _, _ := fixture(t)
+	c := send(m, "j", "j", "a") // row 3: major (SKIP)
+	if m.mode != modeList {
+		t.Fatal("a on the cursor row must not ask")
+	}
+	drain(m, c)
+	if len(fb.approved) != 1 || fb.approved[0] != "https://bb/pr/3" || len(fb.called) != 0 {
+		t.Fatalf("approved %v called %v", fb.approved, fb.called)
+	}
+	if m.rows[2].result != "APPROVED" || m.rows[2].locked {
+		t.Fatalf("result %q locked=%v", m.rows[2].result, m.rows[2].locked)
+	}
+}
+
+func TestMergeFollowsApprove(t *testing.T) {
+	m, fb, _, _ := fixture(t)
+	drain(m, send(m, "a"))
+	if m.rows[0].result != "APPROVED" {
+		t.Fatalf("result %q", m.rows[0].result)
+	}
+	drain(m, send(m, "m"))
+	if len(fb.called) != 1 || m.rows[0].result != "MERGED" {
+		t.Fatalf("called %v result %q", fb.called, m.rows[0].result)
+	}
+	// a locked row refuses every approve key
+	send(m, "a")
+	if !strings.HasPrefix(m.msg, "refused") || len(fb.approved) != 1 {
+		t.Fatalf("msg %q approved %v", m.msg, fb.approved)
+	}
+}
+
+func TestApproveRefusedOnIgnoredRow(t *testing.T) {
+	m, fb, _, _ := fixture(t)
+	send(m, "i", ".") // ignore npm, show ignored rows; cursor on #1
+	send(m, "a")
+	if m.msg != "refused: ignored (i un-ignores)" || len(fb.approved) != 0 {
+		t.Fatalf("msg %q approved %v", m.msg, fb.approved)
+	}
+	send(m, "M")
+	if m.mode != modeList || len(fb.called) != 0 {
+		t.Fatalf("M must refuse an ignored row: mode=%v msg=%q", m.mode, m.msg)
+	}
+}
+
+func TestForceMergeOnSkipRow(t *testing.T) {
+	m, fb, _, _ := fixture(t)
+	c := send(m, "j", "j", "M")
+	if c != nil || m.mode != modeConfirm {
+		t.Fatalf("M must always ask: mode=%v", m.mode)
+	}
+	want := "FORCE approve+merge 1 PR(s) overriding PRJ/repo#3: major update? y/N"
+	if !strings.Contains(plain(m.View().Content), want) {
+		t.Fatalf("want %q in:\n%s", want, plain(m.View().Content))
+	}
+	if len(fb.called) != 0 {
+		t.Fatal("called before confirmation")
+	}
+	drain(m, send(m, "y"))
+	if len(fb.called) != 1 || fb.called[0] != "https://bb/pr/3" || m.rows[2].result != "MERGED" {
+		t.Fatalf("called %v result %q", fb.called, m.rows[2].result)
+	}
+	// n cancels
+	m, fb, _, _ = fixture(t)
+	send(m, "M", "n")
+	if len(fb.called) != 0 || m.mode != modeList {
+		t.Fatal("n must cancel a forced merge")
+	}
+}
+
+func TestApproveMarkedOnlyAsksAndSkips(t *testing.T) {
+	m, fb, _, _ := fixture(t)
+	send(m, "x", "j", "j", "x") // rows 1 and 3 (SKIP)
+	if c := send(m, "a"); c != nil || !strings.Contains(plain(m.View().Content), "approve 2 PR(s) (no merge)? y/N") {
+		t.Fatalf("prompt:\n%s", plain(m.View().Content))
+	}
+	drain(m, send(m, "y"))
+	sort.Strings(fb.approved)
+	if !reflect.DeepEqual(fb.approved, []string{"https://bb/pr/1", "https://bb/pr/3"}) || len(fb.called) != 0 || len(m.marks) != 0 {
+		t.Fatalf("approved %v called %v marks %v", fb.approved, fb.called, m.marks)
+	}
+	// m on marks incl. a SKIP row skips it and says so
+	m, fb, _, _ = fixture(t)
+	send(m, "x", "j", "j", "x", "m")
+	if !strings.Contains(plain(m.View().Content), "approve+merge 1 PR(s)? y/N") {
+		t.Fatalf("prompt:\n%s", plain(m.View().Content))
+	}
+	drain(m, send(m, "y"))
+	if len(fb.called) != 1 || fb.called[0] != "https://bb/pr/1" {
+		t.Fatalf("called %v", fb.called)
 	}
 }
 
@@ -280,7 +381,7 @@ func TestApproveMarkedConfirmAndParallel(t *testing.T) {
 	fb.errs["https://bb/pr/2"] = errors.New("boom\nstderr")
 	fb.errs["https://bb/pr/4"] = &PartialError{Err: errors.New("merge conflict")}
 	send(m, "ctrl+a")
-	c := send(m, "A")
+	c := send(m, "m")
 	if c != nil || !strings.Contains(plain(m.View().Content), "approve+merge 3 PR(s)? y/N") {
 		t.Fatalf("expected confirm prompt:\n%s", m.View().Content)
 	}
@@ -309,9 +410,9 @@ func TestApproveMarkedConfirmAndParallel(t *testing.T) {
 
 func TestApproveCurrentRowInstantly(t *testing.T) {
 	m, fb, _, _ := fixture(t)
-	c := send(m, "j", "a")
+	c := send(m, "j", "m")
 	if m.mode != modeList {
-		t.Fatal("a must not ask for confirmation")
+		t.Fatal("m must not ask for confirmation")
 	}
 	drain(m, c)
 	if len(fb.called) != 1 || fb.called[0] != "https://bb/pr/2" {
@@ -322,7 +423,7 @@ func TestApproveCurrentRowInstantly(t *testing.T) {
 func TestConfirmCancel(t *testing.T) {
 	for _, k := range []string{"n", "esc", "N"} {
 		m, fb, _, _ := fixture(t)
-		send(m, "x", "A")
+		send(m, "x", "m")
 		c := send(m, k)
 		drain(m, c)
 		if len(fb.called) != 0 || m.mode != modeList || len(m.marks) != 1 {
@@ -420,15 +521,15 @@ func TestDeclineFlow(t *testing.T) {
 		want    []call
 		wantMsg string
 	}{
-		{"marked rows incl SKIP with comment", []string{"x", "j", "j", "x", "D", "y"}, "no longer needed", []string{"enter"},
+		{"marked rows incl SKIP with comment", []string{"x", "j", "j", "x", "d"}, "no longer needed", []string{"enter"},
 			[]call{{"https://bb/pr/1", "no longer needed"}, {"https://bb/pr/3", "no longer needed"}}, ""},
-		{"empty comment passes empty string", []string{"x", "D", "y"}, "", []string{"enter"},
-			[]call{{"https://bb/pr/1", ""}}, ""},
-		{"cursor row with d", []string{"j", "j", "d", "y"}, "x", []string{"enter"},
+		{"empty comment is refused", []string{"x", "d"}, "", []string{"enter"},
+			nil, "refused: a decline needs a comment"},
+		{"blank comment is refused", []string{"d"}, "  ", []string{"enter"},
+			nil, "refused: a decline needs a comment"},
+		{"cursor row with d", []string{"j", "j", "d"}, "x", []string{"enter"},
 			[]call{{"https://bb/pr/3", "x"}}, ""},
-		{"esc at comment prompt", []string{"x", "D", "y"}, "abc", []string{"esc"}, nil, "cancelled"},
-		{"esc at confirm", []string{"x", "D", "esc"}, "", nil, nil, "cancelled"},
-		{"n at confirm", []string{"x", "D", "n"}, "", nil, nil, "cancelled"},
+		{"esc at comment prompt", []string{"x", "d"}, "abc", []string{"esc"}, nil, "cancelled"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -457,12 +558,12 @@ func TestDeclineFlow(t *testing.T) {
 func TestDeclinePromptsAndStatuses(t *testing.T) {
 	m, fb, _, _ := fixture(t)
 	fb.errs["https://bb/pr/2"] = errors.New("403\nforbidden")
-	send(m, "x", "j", "x", "D")
-	if !strings.Contains(plain(m.View().Content), "decline 2 PR(s)? y/N") {
-		t.Fatalf("confirm prompt:\n%s", m.View().Content)
+	send(m, "x", "j", "x", "d")
+	if m.mode != modeInput {
+		t.Fatalf("d must go straight to the text prompt, mode %v", m.mode)
 	}
-	send(m, "y")
-	if !strings.Contains(plain(m.View().Content), "comment (enter = none, esc = cancel): █") {
+	typeText(m, "gone")
+	if !strings.Contains(plain(m.View().Content), "decline 2 PR(s), reason (enter = decline, esc = cancel): gone█") {
 		t.Fatalf("comment prompt:\n%s", m.View().Content)
 	}
 	c := send(m, "enter")
@@ -483,7 +584,7 @@ func TestDeclinePromptsAndStatuses(t *testing.T) {
 func TestCommentFlow(t *testing.T) {
 	m, fb, _, _ := fixture(t)
 	fb.errs["https://bb/pr/3"] = errors.New("nope")
-	send(m, "x", "j", "j", "x", "C")
+	send(m, "x", "j", "j", "x", "c")
 	if !strings.Contains(plain(m.View().Content), "comment on 2 PR(s) (enter = send, esc = cancel): █") {
 		t.Fatalf("prompt:\n%s", m.View().Content)
 	}
@@ -512,7 +613,7 @@ func TestCommentFlow(t *testing.T) {
 	if !m.eligible(0) {
 		t.Fatal("a COMMENTED row must stay eligible")
 	}
-	drain(m, send(m, "k", "k", "a")) // a later action replaces COMMENTED
+	drain(m, send(m, "k", "k", "m")) // a later action replaces COMMENTED
 	if m.rows[0].result != "MERGED" {
 		t.Fatalf("result %q", m.rows[0].result)
 	}
@@ -536,9 +637,6 @@ func TestPromptSwallowsActionKeys(t *testing.T) {
 	for _, kind := range []string{"c", "d"} {
 		m, fb, _, ign := fixture(t)
 		send(m, kind)
-		if kind == "d" {
-			send(m, "y")
-		}
 		typeText(m, "aiq x.o?jX")
 		if m.mode != modeInput || string(m.input) != "aiq x.o?jX" {
 			t.Fatalf("%s: mode=%v input=%q", kind, m.mode, string(m.input))
@@ -567,7 +665,7 @@ func TestHeaderAndWidthBound(t *testing.T) {
 		t.Fatalf("header missing: %q", first)
 	}
 	m.rows[0].pr.Title += strings.Repeat(" long", 40)
-	send(m, "d", "y")
+	send(m, "d")
 	typeText(m, strings.Repeat("comment ", 30))
 	for _, w := range []int{20, 40, 100} {
 		m.Update(tea.WindowSizeMsg{Width: w, Height: 12})

@@ -42,6 +42,7 @@ const (
 	wDeclining  = "DECLINING…"
 	wCommenting = "COMMENTING…"
 	wMerged     = "MERGED"
+	wApproved   = "APPROVED"
 	wNotMerged  = "NOT MERGED"
 	wDeclined   = "DECLINED"
 	wCommented  = "COMMENTED"
@@ -103,10 +104,18 @@ type logEntry struct {
 type mode int
 
 const (
-	modeList           mode = iota
-	modeConfirm             // approve+merge confirm (y/N)
-	modeConfirmDecline      // decline confirm (y/N)
-	modeInput               // single-line text prompt (decline comment or comment-only)
+	modeList    mode = iota
+	modeConfirm      // approve / approve+merge confirm (y/N)
+	modeInput        // single-line text prompt (decline comment or comment-only)
+)
+
+// action is what a confirmed approve key runs.
+type action int
+
+const (
+	actApprove action = iota // a: approve only, any row
+	actMerge                 // m: approve+merge, eligible rows only
+	actForce                 // M: approve+merge, whatever the rules say
 )
 
 // inputKind says what the active text prompt will do on Enter.
@@ -132,6 +141,11 @@ type doneMsg struct {
 	url     string
 	err     error
 	warning string // adapter warning after a successful merge
+}
+
+type approveDoneMsg struct {
+	url string
+	err error
 }
 
 type declineDoneMsg struct {
@@ -165,8 +179,9 @@ type Model struct {
 	shiftR  bool
 	mode    mode
 	pending []int
-	// pendingBatch is true when pending came from the marked set (uppercase keys): only then are the
-	// acted rows un-marked. pendingSkipped counts marked rows an A skipped as not eligible.
+	act     action // what pending runs on y
+	// pendingBatch is true when pending came from the marked set: only then are the acted rows
+	// un-marked. pendingSkipped counts marked rows an action skipped (not eligible, or done already).
 	pendingBatch   bool
 	pendingSkipped int
 	reloading      bool
@@ -303,11 +318,11 @@ type helpParagraph struct {
 
 var helpParagraphs = []helpParagraph{
 	{"↑/↓ j/k move   x/space mark   ctrl+a mark all eligible   u clear marks   r reload   . or h ignored", 2},
-	{"a approve+merge  d decline  c comment  i ignore  o open: instant, on the cursor row only", 2},
-	{"A D C: approve (eligible only) / decline / comment ALL MARKED rows; no marks = nothing; marks are cleared afterwards. Mouse: click row = cursor, left edge = mark, click the URL at the bottom = open, wheel = scroll, hover.", 0},
-	{"Hints: instant  a approve  d decline  c comment  i ignore  x mark  o open  ? help  q quit", 2},
-	{"Hints: batch    A approve marked  D decline marked  C comment marked  ctrl+a mark all  x mark  o open", 2},
-	{"The hint line shows the batch set while Shift is held (terminals with the kitty keyboard protocol).", 0},
+	{"a approve only  m approve+merge (eligible only)  M force approve+merge  d decline (needs a comment)  c comment  i ignore  o open", 2},
+	{"a m M d c act on the MARKED rows, or on the cursor row when nothing is marked; marks are cleared afterwards. On the cursor row a and m run at once; marked rows and M ask y/N first. A failed approval never stops the merge. Mouse: click row = cursor, left edge = mark, click the URL at the bottom = open, wheel = scroll, hover.", 0},
+	{"Hints:        a approve  m merge  d decline  c comment  i ignore  x mark  o open  ? help  q quit", 2},
+	{"Hints: Shift  M force merge  ctrl+a mark all eligible  x mark  o open", 2},
+	{"The hint line shows the Shift set while Shift is held (terminals with the kitty keyboard protocol).", 0},
 	{"Mouse capture disables native text selection and cmd-click on links; hold Shift to bypass it (Ghostty, iTerm2, kitty). Off with --no-mouse or BBAPPROVE_MOUSE=0.", 0},
 }
 
@@ -391,6 +406,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			word, code, text = wFail, cRed, oneLine(msg.err.Error())
 		}
 		m.finish(msg.url, "approve", word, code, text, true)
+	case approveDoneMsg:
+		word, code, text := wApproved, cGreen, ""
+		if msg.err != nil {
+			word, code, text = wFail, cRed, oneLine(msg.err.Error())
+		}
+		m.finish(msg.url, "approve", word, code, text, false)
 	case declineDoneMsg:
 		word, code, text := wDeclined, cRed, ""
 		if msg.err != nil {
@@ -526,14 +547,9 @@ func (m *Model) key(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch m.mode {
 	case modeInput:
 		return m.inputKey(k)
-	case modeConfirm, modeConfirmDecline:
-		decline := m.mode == modeConfirmDecline
+	case modeConfirm:
 		m.mode = modeList
 		if s == "y" || s == "Y" {
-			if decline {
-				m.startInput(inputDecline)
-				return m, nil
-			}
 			return m, m.runPending()
 		}
 		m.pending = nil
@@ -569,17 +585,15 @@ func (m *Model) key(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+d", "u":
 		m.marks = map[int]bool{}
 	case "a":
-		cmd = m.approveCursor()
-	case "A":
-		m.askApproveMarked()
+		cmd = m.approve(actApprove)
+	case "m":
+		cmd = m.approve(actMerge)
+	case "M":
+		cmd = m.approve(actForce)
 	case "d":
-		m.askDecline(false)
-	case "D":
-		m.askDecline(true)
+		m.askDecline()
 	case "c":
-		m.askComment(false)
-	case "C":
-		m.askComment(true)
+		m.askComment()
 	case "r":
 		cmd = m.reload()
 	case "i":
@@ -760,63 +774,41 @@ func (m *Model) markedTargets() []int {
 	return t
 }
 
-// cursorTarget is the cursor row for an instant action; ok is false (with a message) when it is busy.
-func (m *Model) cursorTarget() (int, bool) {
+// targets returns the rows an action works on: the marked rows when any are marked (batch), else the
+// cursor row. ok is false (with a message) when there is nothing to act on.
+func (m *Model) targets() (t []int, batch, ok bool) {
+	if m.markedVisible() > 0 {
+		if t = m.markedTargets(); len(t) == 0 {
+			m.msg = "row busy"
+			return nil, true, false
+		}
+		return t, true, true
+	}
 	i, ok := m.current()
 	if !ok {
-		return 0, false
+		return nil, false, false
 	}
 	if m.rows[i].busy() {
 		m.msg = "row busy"
-		return 0, false
+		return nil, false, false
 	}
-	return i, true
+	return []int{i}, false, true
 }
 
-// batchTargets returns the marked rows for an uppercase action, or sets the reason message.
-func (m *Model) batchTargets() ([]int, bool) {
-	if m.markedVisible() == 0 {
-		m.msg = "no marked rows"
-		return nil, false
+// askDecline prompts for the comment a decline needs; the PRs are declined on Enter.
+func (m *Model) askDecline() {
+	t, batch, ok := m.targets()
+	if !ok {
+		return
 	}
-	t := m.markedTargets()
-	if len(t) == 0 {
-		m.msg = "row busy"
-		return nil, false
-	}
-	return t, true
+	m.pending, m.pendingBatch, m.pendingSkipped = t, batch, 0
+	m.startInput(inputDecline)
 }
 
-func (m *Model) askDecline(batch bool) {
-	var t []int
-	if batch {
-		var ok bool
-		if t, ok = m.batchTargets(); !ok {
-			return
-		}
-	} else {
-		i, ok := m.cursorTarget()
-		if !ok {
-			return
-		}
-		t = []int{i}
-	}
-	m.pending, m.pendingBatch, m.pendingSkipped, m.mode = t, batch, 0, modeConfirmDecline
-}
-
-func (m *Model) askComment(batch bool) {
-	var t []int
-	if batch {
-		var ok bool
-		if t, ok = m.batchTargets(); !ok {
-			return
-		}
-	} else {
-		i, ok := m.cursorTarget()
-		if !ok {
-			return
-		}
-		t = []int{i}
+func (m *Model) askComment() {
+	t, batch, ok := m.targets()
+	if !ok {
+		return
 	}
 	m.pending, m.pendingBatch, m.pendingSkipped = t, batch, 0
 	m.startInput(inputComment)
@@ -828,7 +820,7 @@ func (m *Model) startInput(k inputKind) {
 
 func (m *Model) inputPrompt() string {
 	if m.inputKind == inputDecline {
-		return "comment (enter = none, esc = cancel): "
+		return fmt.Sprintf("decline %d PR(s), reason (enter = decline, esc = cancel): ", len(m.pending))
 	}
 	return fmt.Sprintf("comment on %d PR(s) (enter = send, esc = cancel): ", len(m.pending))
 }
@@ -843,12 +835,15 @@ func (m *Model) inputKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case k.Code == tea.KeyEnter:
 		text := strings.TrimSpace(string(m.input))
 		m.mode, m.input = modeList, nil
-		if m.inputKind == inputComment {
-			if text == "" {
-				m.pending = nil
-				m.msg = "refused: empty comment"
-				return m, nil
+		if text == "" {
+			m.pending = nil
+			m.msg = "refused: empty comment"
+			if m.inputKind == inputDecline {
+				m.msg = "refused: a decline needs a comment"
 			}
+			return m, nil
+		}
+		if m.inputKind == inputComment {
 			return m, m.runComment(text)
 		}
 		return m, m.runDecline(text)
@@ -915,42 +910,78 @@ func (m *Model) unmark(i int) {
 	}
 }
 
-// approveCursor approves+merges the cursor row immediately (lowercase a): no prompt, marks untouched.
-func (m *Model) approveCursor() tea.Cmd {
-	i, ok := m.cursorTarget()
+// approve starts a (approve only), m (approve+merge, eligible rows) or M (approve+merge, forced) on the
+// marked rows or the cursor row. a and m on the cursor row run at once; a batch and every M ask first.
+func (m *Model) approve(act action) tea.Cmd {
+	t, batch, ok := m.targets()
 	if !ok {
 		return nil
 	}
-	if !m.eligible(i) {
-		w, _, why := m.status(m.rows[i])
-		if why == "" {
-			why = strings.ToLower(w)
+	var run []int
+	for _, i := range t {
+		if m.allowed(act, i) {
+			run = append(run, i)
 		}
-		m.msg = "refused: not eligible (" + why + ")"
+	}
+	if len(run) == 0 {
+		switch {
+		case batch:
+			m.msg = "no marked PR can be " + map[action]string{actApprove: "approved", actMerge: "merged (M forces)", actForce: "merged"}[act]
+		case m.rows[t[0]].locked:
+			m.msg = "refused: already " + strings.ToLower(m.rows[t[0]].result)
+		case act == actMerge:
+			w, _, why := m.status(m.rows[t[0]])
+			if why == "" {
+				why = strings.ToLower(w)
+			}
+			m.msg = "refused: not eligible (" + why + "); M merges anyway"
+		default:
+			m.msg = "refused: ignored (i un-ignores)"
+		}
 		return nil
 	}
-	m.pending, m.pendingBatch, m.pendingSkipped = []int{i}, false, 0
+	m.pending, m.pendingBatch, m.pendingSkipped, m.act = run, batch, len(t)-len(run), act
+	if batch || act == actForce {
+		m.mode = modeConfirm
+		return nil
+	}
 	return m.runPending()
 }
 
-// askApproveMarked starts the A confirm for the eligible marked rows.
-func (m *Model) askApproveMarked() {
-	t, ok := m.batchTargets()
-	if !ok {
-		return
+// allowed reports whether act may run on row i: never on a row already merged or declined or on an
+// IGNORED row (un-ignore it first); m only on eligible rows.
+func (m *Model) allowed(act action, i int) bool {
+	r := m.rows[i]
+	if k, _ := m.kind(r); r.locked || r.busy() || k == rules.Ignored {
+		return false
 	}
-	var targets []int
-	for _, i := range t {
-		if m.eligible(i) {
-			targets = append(targets, i)
+	return act != actMerge || m.eligible(i)
+}
+
+// confirmPrompt is the y/N question for the pending approve action; a forced merge names what it overrides.
+func (m *Model) confirmPrompt() string {
+	n := len(m.pending)
+	switch m.act {
+	case actApprove:
+		return fmt.Sprintf("approve %d PR(s) (no merge)? y/N", n)
+	case actForce:
+		var why []string
+		for _, i := range m.pending {
+			if !m.eligible(i) {
+				w, _, r := m.status(m.rows[i])
+				if r == "" {
+					r = strings.ToLower(w)
+				}
+				why = append(why, m.ref(i)+": "+r)
+			}
 		}
+		q := fmt.Sprintf("FORCE approve+merge %d PR(s)", n)
+		if len(why) > 0 {
+			q += " overriding " + strings.Join(why, ", ")
+		}
+		return q + "? y/N"
 	}
-	if len(targets) == 0 {
-		m.msg = "no marked PR is eligible"
-		return
-	}
-	m.pending, m.pendingBatch, m.pendingSkipped = targets, true, m.markedVisible()-len(targets)
-	m.mode = modeConfirm
+	return fmt.Sprintf("approve+merge %d PR(s)? y/N", n)
 }
 
 func (m *Model) runPending() tea.Cmd {
@@ -960,6 +991,14 @@ func (m *Model) runPending() tea.Cmd {
 		m.rows[i].result, m.rows[i].resCode, m.rows[i].resMsg = wApproving, cYellow, ""
 		m.logStart(pr, "approve")
 		m.unmark(i)
+		if m.act == actApprove {
+			cmds = append(cmds, func() tea.Msg {
+				m.sem <- struct{}{}
+				defer func() { <-m.sem }()
+				return approveDoneMsg{pr.URL, m.cfg.Backend.Approve(m.cfg.Ctx, pr)}
+			})
+			continue
+		}
 		cmds = append(cmds, func() tea.Msg {
 			defer m.repoLocks.Lock(pr)() // before the slot, so a PR waiting on its repository holds none
 			m.sem <- struct{}{}
@@ -970,7 +1009,7 @@ func (m *Model) runPending() tea.Cmd {
 	}
 	m.msg = fmt.Sprintf("working on %d PR(s)…", len(m.pending))
 	if m.pendingSkipped > 0 {
-		m.msg += fmt.Sprintf(" (skipped %d not eligible)", m.pendingSkipped)
+		m.msg += fmt.Sprintf(" (skipped %d)", m.pendingSkipped)
 	}
 	m.pending, m.pendingSkipped = nil, 0
 	return tea.Batch(cmds...)
@@ -1154,9 +1193,7 @@ func (m *Model) statusLine() string {
 	var left string
 	switch {
 	case m.mode == modeConfirm:
-		left = cBold + fmt.Sprintf("approve+merge %d PR(s)? y/N", len(m.pending)) + cReset
-	case m.mode == modeConfirmDecline:
-		left = cBold + fmt.Sprintf("decline %d PR(s)? y/N", len(m.pending)) + cReset
+		left = cBold + m.confirmPrompt() + cReset
 	case m.mode == modeInput:
 		p := m.inputPrompt()
 		room := 1 << 20
@@ -1193,13 +1230,12 @@ func joinStatus(left string, avail int, right string) string {
 // hintItems is the default hint set (instant actions on the cursor row); shiftHintItems replaces it
 // while Shift is held (batch actions on the marked rows).
 var hintItems = [][2]string{
-	{"a", "approve"}, {"d", "decline"}, {"c", "comment"}, {"i", "ignore"},
+	{"a", "approve"}, {"m", "merge"}, {"d", "decline"}, {"c", "comment"}, {"i", "ignore"},
 	{"x", "mark"}, {"o", "open"}, {"?", "help"}, {"q", "quit"},
 }
 
 var shiftHintItems = [][2]string{
-	{"A", "approve marked"}, {"D", "decline marked"}, {"C", "comment marked"},
-	{"ctrl+a", "mark all"}, {"x", "mark"}, {"o", "open"}, {"?", "help"}, {"q", "quit"},
+	{"M", "force merge (skips the rules)"}, {"ctrl+a", "mark all eligible"}, {"x", "mark"}, {"o", "open"}, {"?", "help"}, {"q", "quit"},
 }
 
 // hintLine is footer line 2: counts first when they fit, then as many key hints as fit; hints are
@@ -1346,7 +1382,7 @@ func (m *Model) Summary() string {
 	}
 	var parts []string
 	for _, t := range []struct{ word, label string }{
-		{wMerged, "merged"}, {wNotMerged, "not merged"}, {wDeclined, "declined"}, {wCommented, "commented"},
+		{wMerged, "merged"}, {wApproved, "approved"}, {wNotMerged, "not merged"}, {wDeclined, "declined"}, {wCommented, "commented"},
 		{wFail, "failed"}, {wIgnored, "ignored"}, {wUnignored, "un-ignored"}, {wWorking, "working"},
 	} {
 		if n := counts[t.word]; n > 0 {

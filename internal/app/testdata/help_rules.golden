@@ -23,5 +23,5 @@ doctor -v repeats this.
 "N ignored via FILE (see: bbapprove doctor)", or "N ignored (hidden) via FILE" with --hide-ignored.
 
 STATUS column: blank = eligible and untouched; SKIP (reason after the title); IGNORED; in flight
-APPROVING… DECLINING… COMMENTING…; done MERGED DECLINED COMMENTED; failures NOT MERGED (approved, merge
+APPROVING… DECLINING… COMMENTING…; done APPROVED (a, not merged) MERGED DECLINED COMMENTED; failures NOT MERGED (approved, merge
 failed) and FAIL. A later action on a row replaces its word. A comment never makes a row ineligible.

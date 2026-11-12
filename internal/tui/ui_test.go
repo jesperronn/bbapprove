@@ -54,22 +54,18 @@ func drainQuit(m *Model, c tea.Cmd) (quit bool) {
 
 func lines(m *Model) []string { return strings.Split(plain(m.View().Content), "\n") }
 
-func TestLowercaseActsOnCursorRowAndIgnoresMarks(t *testing.T) {
+func TestNoMarksActsOnCursorRow(t *testing.T) {
 	m, fb, _, _ := fixture(t)
-	send(m, "x", "j", "j", "j") // mark row 1, cursor on row 4 (npm#4)
-	drain(m, send(m, "a"))
+	send(m, "j", "j", "j") // cursor on row 4 (npm#4), nothing marked
+	drain(m, send(m, "m"))
 	if len(fb.called) != 1 || fb.called[0] != "https://bb/pr/4" {
-		t.Fatalf("a must hit only the cursor row, called %v", fb.called)
-	}
-	if !m.marks[0] {
-		t.Fatalf("marks must stay untouched: %v", m.marks)
+		t.Fatalf("m must hit only the cursor row, called %v", fb.called)
 	}
 	send(m, "k", "k") // row 2 (lodash)
 	send(m, "d")
-	if m.mode != modeConfirmDecline || !strings.Contains(plain(m.View().Content), "decline 1 PR(s)? y/N") {
-		t.Fatalf("d keeps the confirm:\n%s", m.View().Content)
+	if m.mode != modeInput || !strings.Contains(plain(m.View().Content), "decline 1 PR(s), reason (enter = decline, esc = cancel): █") {
+		t.Fatalf("d goes straight to the reason prompt:\n%s", m.View().Content)
 	}
-	send(m, "y")
 	typeText(m, "nope")
 	drain(m, send(m, "enter"))
 	if len(fb.declined) != 1 || fb.declined[0] != (call{"https://bb/pr/2", "nope"}) {
@@ -81,16 +77,26 @@ func TestLowercaseActsOnCursorRowAndIgnoresMarks(t *testing.T) {
 	if len(fb.comments) != 1 || fb.comments[0] != (call{"https://bb/pr/1", "hello"}) {
 		t.Fatalf("comments %v", fb.comments)
 	}
-	if !m.marks[0] || len(m.marks) != 1 {
-		t.Fatalf("marks changed: %v", m.marks)
+}
+
+func TestUppercaseKeysADCDoNothing(t *testing.T) {
+	m, fb, _, _ := fixture(t)
+	send(m, "x")
+	for _, k := range []string{"A", "D", "C"} {
+		if c := send(m, k); c != nil || m.mode != modeList {
+			t.Fatalf("%s: mode=%v", k, m.mode)
+		}
+	}
+	if len(fb.called)+len(fb.approved)+len(fb.declined)+len(fb.comments) != 0 || len(m.marks) != 1 {
+		t.Fatal("A, D and C must do nothing")
 	}
 }
 
-func TestUppercaseActsOnMarksAndUnmarks(t *testing.T) {
+func TestMarksAreTheTargetsAndGetUnmarked(t *testing.T) {
 	m, fb, _, _ := fixture(t)
 	send(m, "x", "j", "j", "x", "j", "x") // marks 0 (ok), 2 (SKIP), 3 (ok); cursor 3
-	send(m, "k", "k", "k")                // cursor on an unmarked row: A must still use the marks
-	if send(m, "A") != nil || !strings.Contains(plain(m.View().Content), "approve+merge 2 PR(s)? y/N") {
+	send(m, "k", "k", "k")                // cursor on an unmarked row: m must still use the marks
+	if send(m, "m") != nil || !strings.Contains(plain(m.View().Content), "approve+merge 2 PR(s)? y/N") {
 		t.Fatalf("confirm count:\n%s", m.View().Content)
 	}
 	c := send(m, "y")
@@ -106,17 +112,16 @@ func TestUppercaseActsOnMarksAndUnmarks(t *testing.T) {
 	}
 	// shared decline comment for the remaining marked row plus another mark
 	send(m, "x") // mark row 0 again (cursor 0)
-	send(m, "D")
-	if !strings.Contains(plain(m.View().Content), "decline 2 PR(s)? y/N") {
+	send(m, "d")
+	if !strings.Contains(plain(m.View().Content), "decline 2 PR(s), reason (enter = decline, esc = cancel): ") {
 		t.Fatalf("decline count:\n%s", m.View().Content)
 	}
-	send(m, "y")
 	typeText(m, "same")
 	drain(m, send(m, "enter"))
 	if len(fb.declined) != 2 || fb.declined[0].text != "same" || fb.declined[1].text != "same" || len(m.marks) != 0 {
 		t.Fatalf("declined %v marks %v", fb.declined, m.marks)
 	}
-	send(m, "j", "x", "j", "j", "x", "C")
+	send(m, "j", "x", "j", "j", "x", "c")
 	if !strings.Contains(plain(m.View().Content), "comment on 2 PR(s)") {
 		t.Fatalf("comment prompt:\n%s", m.View().Content)
 	}
@@ -124,24 +129,11 @@ func TestUppercaseActsOnMarksAndUnmarks(t *testing.T) {
 	if !strings.Contains(m.msg, "empty comment") || len(fb.comments) != 0 || len(m.marks) != 2 {
 		t.Fatalf("msg %q marks %v", m.msg, m.marks)
 	}
-	send(m, "C")
+	send(m, "c")
 	typeText(m, "shared")
 	drain(m, send(m, "enter"))
 	if len(fb.comments) != 2 || len(m.marks) != 0 {
 		t.Fatalf("comments %v marks %v", fb.comments, m.marks)
-	}
-}
-
-func TestUppercaseWithoutMarks(t *testing.T) {
-	for _, k := range []string{"A", "D", "C"} {
-		m, fb, _, _ := fixture(t)
-		c := send(m, k)
-		if c != nil || m.mode != modeList || m.msg != "no marked rows" {
-			t.Fatalf("%s: mode=%v msg=%q", k, m.mode, m.msg)
-		}
-		if len(fb.called)+len(fb.declined)+len(fb.comments) != 0 {
-			t.Fatalf("%s called the backend", k)
-		}
 	}
 }
 
@@ -184,10 +176,10 @@ func TestReloadKeepsCursorAndMarksByURL(t *testing.T) {
 
 func TestStaysOpenAfterActions(t *testing.T) {
 	m, fb, _, _ := fixture(t)
-	if drainQuit(m, send(m, "a")) {
+	if drainQuit(m, send(m, "m")) {
 		t.Fatal("approve quit")
 	}
-	send(m, "j", "d", "y")
+	send(m, "j", "d")
 	typeText(m, "x")
 	if drainQuit(m, send(m, "enter")) {
 		t.Fatal("decline quit")
@@ -204,26 +196,26 @@ func TestStaysOpenAfterActions(t *testing.T) {
 
 func TestBusyRowRefused(t *testing.T) {
 	m, fb, _, _ := fixture(t)
-	c := send(m, "a") // row is WORKING until the cmd runs
-	for _, k := range []string{"a", "d", "c"} {
+	c := send(m, "m") // row is WORKING until the cmd runs
+	for _, k := range []string{"a", "m", "M", "d", "c"} {
 		if c2 := send(m, k); c2 != nil || m.msg != "row busy" || m.mode != modeList {
 			t.Fatalf("%s: msg %q mode %v", k, m.msg, m.mode)
 		}
 	}
 	drain(m, c)
-	if len(fb.called) != 1 {
-		t.Fatalf("called %v", fb.called)
+	if len(fb.called) != 1 || len(fb.approved) != 0 {
+		t.Fatalf("called %v approved %v", fb.called, fb.approved)
 	}
 }
 
 func TestBackgroundMix(t *testing.T) {
 	m, fb, _, _ := fixture(t)
-	send(m, "x", "j", "x", "D", "y") // decline prompt for rows 0,1 is open...
+	send(m, "x", "j", "x", "d") // decline prompt for rows 0,1 is open...
 	typeText(m, "bye")
 	cd := send(m, "enter") // ...and runs in the background
 	send(m, "j", "j")      // cursor row 4 (row 3 is SKIP)
 	send(m, "j")
-	ca := send(m, "a")
+	ca := send(m, "m")
 	drain(m, cd)
 	drain(m, ca)
 	if len(fb.declined) != 2 || len(fb.called) != 1 || fb.called[0] != "https://bb/pr/4" {

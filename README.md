@@ -67,30 +67,30 @@ Eligibility, the ignore list and the STATUS words: `bbapprove help rules`.
 
 ## Using the TUI
 
-`bbapprove -i` lists the same PRs with live status and stays open after every action. **Lowercase keys act on the
-row under the cursor and never touch marks; uppercase keys act on the marked rows.** Actions run in the background; a
-busy row answers "row busy". `?` shows the keys in the TUI.
+`bbapprove -i` lists the same PRs with live status and stays open after every action. **Work in rounds: mark rows,
+then act. Action keys act on the marked rows, or on the cursor row when nothing is marked.** Actions run in the
+background; a busy row answers "row busy". `?` shows the keys in the TUI.
 
 | Key | Action |
 | --- | --- |
 | `↑`/`↓`, `j`/`k` | move |
-| `a` | approve + merge the cursor row at once (refused when not eligible) |
-| `d` | decline the cursor row (y/N confirm, then optional comment) |
-| `c` | comment on the cursor row (empty comment refused) |
-| `i` | ignore the row's dependency; on an ignored row, un-ignore it |
-| `o` | open the PR in the browser |
-| `x` / space | mark / unmark the cursor row |
+| `x` / space | mark / unmark the cursor row (any row) |
 | `ctrl+a` | mark all eligible rows |
 | `u` / ctrl+d | clear marks |
-| `A` | approve + merge the marked eligible rows (confirm; others skipped, with a count) |
-| `D` | decline the marked rows (confirm, then one shared optional comment) |
-| `C` | comment on the marked rows (one shared comment, empty refused) |
+| `a` | approve only, no merge (SKIP rows too, not IGNORED ones) |
+| `m` | approve + merge (eligible rows only; others skipped, with a count) |
+| `M` | approve + merge anyway, overriding SKIP (always asks y/N, naming what it overrides) |
+| `d` | decline (asks for the comment, which is required) |
+| `c` | comment (empty comment refused) |
+| `i` | ignore the row's dependency; on an ignored row, un-ignore it |
+| `o` | open the PR in the browser |
 | `r` | reload (cursor and marks are kept by PR URL; row statuses reset) |
 | `.` / `h` | show/hide ignored rows |
 | `?` | toggle the extended help |
 | `q` | quit and print a summary of the session |
 
-With no marked rows `A`/`D`/`C` only show "no marked rows"; after a batch action the acted rows are un-marked.
+On the cursor row `a` and `m` run at once; on marked rows they ask y/N. Acted rows are un-marked. A failed approval
+never stops a merge: the merge is tried anyway and the approval error shows as a warning on the row.
 Columns, status bar, exit summary and mouse: `bbapprove help tui`.
 
 ## Update

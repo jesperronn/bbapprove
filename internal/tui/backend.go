@@ -3,6 +3,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -13,9 +14,12 @@ import (
 // Backend holds every forge side effect of the TUI so the model can be tested with a fake.
 type Backend interface {
 	List(ctx context.Context) ([]adapter.PR, error)
-	// ApproveAndMerge approves then merges. The error text is the adapter stderr; when the approval
-	// succeeded but the merge failed the error is a *PartialError. On success warning is what the adapter
-	// reported on stderr (one line, lines joined with "; "), "" when there was none.
+	// Approve approves the PR without merging it.
+	Approve(ctx context.Context, pr adapter.PR) error
+	// ApproveAndMerge approves then merges; a failed approval does not stop the merge, it becomes a warning
+	// ("approve failed: ..."). The error text is the adapter stderr; when the approval succeeded but the
+	// merge failed the error is a *PartialError. On success warning is what the adapter reported on stderr
+	// (one line, lines joined with "; "), "" when there was none.
 	ApproveAndMerge(ctx context.Context, pr adapter.PR) (warning string, err error)
 	// Comment posts a comment on the PR.
 	Comment(ctx context.Context, pr adapter.PR, body string) error
@@ -34,13 +38,28 @@ type ClientBackend struct{ Client *adapter.Client }
 
 func (b ClientBackend) List(ctx context.Context) ([]adapter.PR, error) { return b.Client.List(ctx) }
 
+func (b ClientBackend) Approve(ctx context.Context, pr adapter.PR) error {
+	return b.Client.Approve(ctx, pr.URL)
+}
+
 func (b ClientBackend) ApproveAndMerge(ctx context.Context, pr adapter.PR) (string, error) {
-	if err := b.Client.Approve(ctx, pr.URL); err != nil {
-		return "", err
-	}
-	warns, err := b.Client.MergeWarn(ctx, pr.URL)
+	return approveThenMerge(ctx, pr, b.Client.Approve, b.Client.MergeWarn)
+}
+
+// approveThenMerge runs the merge whatever the approval did: Bitbucket refuses the merge itself when the
+// approval was really needed, with a clearer message than the approval failure.
+func approveThenMerge(ctx context.Context, pr adapter.PR, approve func(context.Context, string) error,
+	merge func(context.Context, string) ([]string, error)) (string, error) {
+	aerr := approve(ctx, pr.URL)
+	warns, err := merge(ctx, pr.URL)
 	if err != nil {
+		if aerr != nil {
+			return "", fmt.Errorf("%s (approve failed: %s)", strings.TrimSpace(err.Error()), oneLine(aerr.Error()))
+		}
 		return "", &PartialError{Err: err}
+	}
+	if aerr != nil {
+		warns = append([]string{"approve failed: " + oneLine(aerr.Error())}, warns...)
 	}
 	return strings.Join(warns, "; "), nil
 }

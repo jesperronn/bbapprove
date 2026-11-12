@@ -17,6 +17,7 @@ All notable changes to this project are documented here. The format follows
 - Maintainers: the `bin/` commands and `bin/changelog` now colour their help the way bbapprove does, honouring `NO_COLOR` and `FORCE_COLOR`.
 
 ### Fixed
+- TUI: a row whose approve, merge or decline failed can be acted on again without a reload; only a merge or decline that went through closes it.
 - TUI: a failed approval no longer stops the merge; the merge is tried and the approval error shows as a warning on the row.
 - `pr merge` now re-reads the PR and retries when Bitbucket answers HTTP 409 "New changes were pushed to <branch>", which happens when several PRs of one repository are merged in a row.
 - Batch merges (`--apply` and the TUI) merge PRs of one repository one after another, so each merge no longer invalidates the next; different repositories still run in parallel.

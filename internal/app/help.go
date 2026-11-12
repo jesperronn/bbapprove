@@ -90,7 +90,7 @@ a file that exists but cannot be read stops the run (exit 1) rather than risk ac
 
 {h:STATUS column:} blank = eligible and untouched; SKIP (reason after the title); IGNORED; in flight
 APPROVING… DECLINING… COMMENTING…; done APPROVED (a, not merged) MERGED DECLINED COMMENTED; failures NOT MERGED (approved, merge
-failed) and FAIL. A later action on a row replaces its word. A comment never makes a row ineligible.
+failed) and FAIL. A failed row stays open in the TUI, so m (or a, d) retries it. A later action on a row replaces its word. A comment never makes a row ineligible.
 `
 
 const tuiMarkup = `{title:bbapprove help tui — the interactive TUI (-i).}

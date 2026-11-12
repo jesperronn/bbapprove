@@ -82,9 +82,14 @@ type row struct {
 	result  string // non-empty after an action: APPROVING…, MERGED, NOT MERGED, DECLINED, COMMENTED, FAIL ...
 	resCode string
 	resMsg  string
-	// locked is set by an approve or decline attempt (any outcome): the row is no longer eligible
-	// until a reload. A comment never locks.
+	// locked is set by a merge or decline that went through: the row is no longer eligible until a
+	// reload. A failed attempt leaves the row open so it can be retried; a comment never locks.
 	locked bool
+}
+
+// failed reports a failed approve, merge or decline: the row is open for a retry and stays listed.
+func (r row) failed() bool {
+	return r.result == wFail || r.result == wNotMerged
 }
 
 func (r row) busy() bool {
@@ -264,7 +269,7 @@ func (m *Model) eligible(i int) bool {
 // hiddenIgnored is true for a row the `.`/`h` toggle hides: classified Ignored and not part of an action.
 func (m *Model) hiddenIgnored(r row) bool {
 	k, _ := m.kind(r)
-	return k == rules.Ignored && !r.locked && !r.busy()
+	return k == rules.Ignored && !r.locked && !r.busy() && !r.failed()
 }
 
 // visible returns indexes into m.rows currently shown.
@@ -451,7 +456,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // finish records the outcome of an approve/decline/comment: always in the session log (the row may be
-// gone after a reload), and on the row when it is still listed. lock marks approve/decline attempts.
+// gone after a reload), and on the row when it is still listed. lock marks a merge or decline that went
+// through; a failure (FAIL, NOT MERGED) reopens the row for another try.
 func (m *Model) finish(url, verb, word, code, text string, lock bool) {
 	m.logSet(url, verb, word, code, text)
 	r := m.rowByURL(url)
@@ -460,7 +466,7 @@ func (m *Model) finish(url, verb, word, code, text string, lock bool) {
 	}
 	r.result, r.resCode, r.resMsg = word, code, text
 	if lock {
-		r.locked = true
+		r.locked = word == wMerged || word == wDeclined
 		m.msg = r.pr.Project + "/" + r.pr.Repo + "#" + fmt.Sprint(r.pr.Number) + " " + word
 	}
 	m.clamp()

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -445,5 +446,23 @@ func TestMouseEnabled(t *testing.T) {
 		if got := MouseEnabled(tc.env, tc.args); got != tc.want {
 			t.Errorf("%q %v: %v", tc.env, tc.args, got)
 		}
+	}
+}
+
+func TestFailedRowReopensForRetry(t *testing.T) {
+	m, fb, _, _ := fixture(t)
+	fb.errs["https://bb/pr/1"] = &PartialError{Err: errors.New("merge HTTP 409: conflict")}
+	drain(m, send(m, "m"))
+	if w, _, _ := m.status(m.rows[0]); w != wNotMerged || !m.eligible(0) {
+		t.Fatalf("after a failed merge: status %q eligible %v", w, m.eligible(0))
+	}
+	delete(fb.errs, "https://bb/pr/1")
+	drain(m, send(m, "m"))
+	if w, _, _ := m.status(m.rows[0]); w != wMerged || m.eligible(0) || len(fb.called) != 2 {
+		t.Fatalf("retry: status %q eligible %v called %v", w, m.eligible(0), fb.called)
+	}
+	send(m, "ctrl+a")
+	if m.marks[0] {
+		t.Fatal("a merged row must not be marked again")
 	}
 }

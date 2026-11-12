@@ -27,10 +27,30 @@ type fakeBackend struct {
 	inflight int32
 	maxSeen  int32
 	errs     map[string]error
-	warns    map[string]string // ApproveAndMerge warnings by url
-	declined []call            // Decline calls: url + comment
-	comments []call            // Comment calls: url + body
-	approved []string          // Approve (approve-only) calls
+	warns    map[string]string     // ApproveAndMerge warnings by url
+	declined []call                // Decline calls: url + comment
+	comments []call                // Comment calls: url + body
+	approved []string              // Approve (approve-only) calls
+	views    map[string]adapter.PR // View answers by url; a url not here answers with its prs entry
+	viewed   []string              // View calls
+}
+
+func (f *fakeBackend) View(_ context.Context, pr adapter.PR) (adapter.PR, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.viewed = append(f.viewed, pr.URL)
+	if err := f.errs["view "+pr.URL]; err != nil {
+		return adapter.PR{}, err
+	}
+	if v, ok := f.views[pr.URL]; ok {
+		return v, nil
+	}
+	for _, p := range f.prs {
+		if p.URL == pr.URL {
+			return p, nil
+		}
+	}
+	return adapter.PR{}, errors.New("not found")
 }
 
 func (f *fakeBackend) Approve(_ context.Context, pr adapter.PR) error {

@@ -56,8 +56,8 @@ func TestStatusColumnBlankForEligibleAndInFlightWords(t *testing.T) {
 		}
 	}
 	m.Update(reloadedMsg{prs: m.rowsPRs()})
-	if ls = lines(m); strings.Contains(strings.Join(ls, "\n"), "MERGED") || strings.Contains(strings.Join(ls, "\n"), "COMMENTED") {
-		t.Fatalf("a reload resets row states:\n%s", strings.Join(ls, "\n"))
+	if ls = lines(m); !strings.Contains(strings.Join(ls, "\n"), "MERGED") || !strings.Contains(strings.Join(ls, "\n"), "COMMENTED") {
+		t.Fatalf("a reload of unchanged PRs keeps the row states:\n%s", strings.Join(ls, "\n"))
 	}
 }
 
@@ -134,10 +134,7 @@ func TestSummaryScriptedSession(t *testing.T) {
 	drain(m, send(m, "m")) // row 4 -> NOT MERGED
 	send(m, "i")           // ignore npm (row 4 stays: it is part of an action)
 	send(m, "i")           // un-ignore it again
-	drain(m, m.reload())   // a reload resets rows, not the log
-	if strings.Contains(strings.Join(lines(m), "\n"), "MERGED") {
-		t.Fatal("reload should reset the rows")
-	}
+	drain(m, m.reload())   // a reload keeps the rows' outcomes and the log
 	want := []string{
 		"STATUS       🔨 🔎 👍 💬  ✅  PR   TITLE",
 		"MERGED       ✓  ?  –    0   0 PRJ/repo#1 chore(deps): update dependency npm to v1.2.3",

@@ -102,6 +102,11 @@ on the cursor row when nothing is marked; acted rows are un-marked.
   M  approve and merge anyway (overrides SKIP); always asks y/N and names what it overrides
   d  decline; asks for the comment, which is required
   c  comment
+  r  refresh: re-read those same rows (one pr view each); cursor and marks stay
+  R  reload the list: rows are updated in place, new PRs are added at the bottom, and a PR that left the list is
+     re-read and, when merged or declined elsewhere, stays as a dim MERGED or DECLINED row that cannot be marked
+A refresh or reload keeps a row's FAIL, NOT MERGED or APPROVED until the PR itself changed (build, gate, reviews,
+comments, tasks, title).
 On the cursor row a and m run at once; on marked rows they ask y/N first. A failed approval never stops the
 merge: the merge is tried anyway and the approval error shows as a warning on the row. ? lists every key.
 The TUI stays open after every action; only q / ctrl+c quits. {flag:--no-mouse} or {env:BBAPPROVE_MOUSE}=0 turns mouse capture off.

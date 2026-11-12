@@ -14,6 +14,8 @@ import (
 // Backend holds every forge side effect of the TUI so the model can be tested with a fake.
 type Backend interface {
 	List(ctx context.Context) ([]adapter.PR, error)
+	// View re-reads one PR, whatever its state (adapter.PR.State says OPEN, MERGED or DECLINED).
+	View(ctx context.Context, pr adapter.PR) (adapter.PR, error)
 	// Approve approves the PR without merging it.
 	Approve(ctx context.Context, pr adapter.PR) error
 	// ApproveAndMerge approves then merges; a failed approval does not stop the merge, it becomes a warning
@@ -37,6 +39,10 @@ func (e *PartialError) Unwrap() error { return e.Err }
 type ClientBackend struct{ Client *adapter.Client }
 
 func (b ClientBackend) List(ctx context.Context) ([]adapter.PR, error) { return b.Client.List(ctx) }
+
+func (b ClientBackend) View(ctx context.Context, pr adapter.PR) (adapter.PR, error) {
+	return b.Client.View(ctx, pr.URL)
+}
 
 func (b ClientBackend) Approve(ctx context.Context, pr adapter.PR) error {
 	return b.Client.Approve(ctx, pr.URL)

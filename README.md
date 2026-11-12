@@ -84,7 +84,8 @@ background; a busy row answers "row busy". `?` shows the keys in the TUI.
 | `c` | comment (empty comment refused) |
 | `i` | ignore the row's dependency; on an ignored row, un-ignore it |
 | `o` | open the PR in the browser |
-| `r` | reload (cursor and marks are kept by PR URL; row statuses reset) |
+| `r` | refresh the marked rows, or the cursor row, from the forge (cursor and marks stay) |
+| `R` | reload the list: rows update in place, new PRs are added, a PR merged or declined elsewhere stays as a dim row that cannot be marked |
 | `.` / `h` | show/hide ignored rows |
 | `?` | toggle the extended help |
 | `q` | quit and print a summary of the session |

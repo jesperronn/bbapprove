@@ -10,6 +10,8 @@ All notable changes to this project are documented here. The format follows
 - TUI decline needs a comment: `d` asks for it straight away, without the y/N step, and refuses an empty one.
 
 ### Added
+- TUI: `r` refreshes the marked rows (or the cursor row) and `R` reloads the list, adding new PRs and keeping a PR merged or declined elsewhere as a dim MERGED or DECLINED row. A row's FAIL, NOT MERGED or APPROVED stays until the PR changed.
+- Adapter contract: the normalized PR has a `state` (`OPEN`, `MERGED` or `DECLINED`).
 - Maintainers: CI runs the Ubuntu job first and starts the macOS and Windows jobs only when it passes; on a pull request they are skipped when only documentation (macOS) or no Go, packaging or workflow file (Windows) changed. Pushes to `main` and releases still run everything.
 - Maintainers: `bin/test --timings` also lists the slowest shell tests and what is over the budgets `TEST_SLOW_SUITE_SECONDS` and `TEST_SLOW_TEST_SECONDS` (see `docs/development.md`).
 

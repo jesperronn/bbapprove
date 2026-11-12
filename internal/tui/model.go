@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -85,6 +86,9 @@ type row struct {
 	// locked is set by a merge or decline that went through: the row is no longer eligible until a
 	// reload. A failed attempt leaves the row open so it can be retried; a comment never locks.
 	locked bool
+	// gone is set when a refresh found the PR merged or declined elsewhere: the row stays, dimmed, locked
+	// and unmarkable, so the list does not shift under the cursor and the change is visible.
+	gone bool
 }
 
 // failed reports a failed approve, merge or decline: the row is open for a retry and stays listed.
@@ -97,7 +101,7 @@ func (r row) busy() bool {
 }
 
 // logEntry is one completed (or still running) action of this session, kept for the exit summary.
-// Entries survive reloads, which reset the rows. One entry per PR and verb; a repeat replaces it.
+// Entries survive reloads. One entry per PR and verb; a repeat replaces it.
 type logEntry struct {
 	key  string
 	pr   adapter.PR
@@ -136,8 +140,19 @@ type loadedMsg struct {
 	err error
 }
 
+// reloadedMsg is the answer to R: the open PRs, plus a View of each listed row the list no longer has
+// (gone holds the answers, goneErr the failures).
 type reloadedMsg struct {
-	prs []adapter.PR
+	prs     []adapter.PR
+	err     error
+	gone    map[string]adapter.PR
+	goneErr map[string]error
+}
+
+// refreshedMsg is one PR re-read by r.
+type refreshedMsg struct {
+	url string
+	pr  adapter.PR
 	err error
 }
 
@@ -190,9 +205,13 @@ type Model struct {
 	pendingBatch   bool
 	pendingSkipped int
 	reloading      bool
-	hover          int // visible index under the mouse, -1 for none
-	input          []rune
-	inputKind      inputKind
+	// refreshing counts the r re-reads still out; refreshFails collects their errors for the status bar.
+	refreshing   int
+	refreshOK    int
+	refreshFails []string
+	hover        int // visible index under the mouse, -1 for none
+	input        []rune
+	inputKind    inputKind
 	// Comment results also show on the row (COMMENTED / FAIL) and are summarised in the status bar
 	// once every outstanding comment finished.
 	cmtOutstanding, cmtOK int
@@ -322,8 +341,9 @@ type helpParagraph struct {
 }
 
 var helpParagraphs = []helpParagraph{
-	{"↑/↓ j/k move   x/space mark   ctrl+a mark all eligible   u clear marks   r reload   . or h ignored", 2},
+	{"↑/↓ j/k move   x/space mark   ctrl+a mark all eligible   u clear marks   r refresh   R reload list   . or h ignored", 2},
 	{"a approve only  m approve+merge (eligible only)  M force approve+merge  d decline (needs a comment)  c comment  i ignore  o open", 2},
+	{"r re-reads the MARKED rows (or the cursor row); R reloads the list, adds new PRs and keeps a PR merged or declined elsewhere as a dim row that cannot be marked. Both keep FAIL, NOT MERGED and APPROVED until the PR changed.", 0},
 	{"a m M d c act on the MARKED rows, or on the cursor row when nothing is marked; marks are cleared afterwards. On the cursor row a and m run at once; marked rows and M ask y/N first. A failed approval never stops the merge. Mouse: click row = cursor, left edge = mark, click the URL at the bottom = open, wheel = scroll, hover.", 0},
 	{"Hints:        a approve  m merge  d decline  c comment  i ignore  x mark  o open  ? help  q quit", 2},
 	{"Hints: Shift  M force merge  ctrl+a mark all eligible  x mark  o open", 2},
@@ -395,6 +415,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.clamp()
 	case reloadedMsg:
 		m.applyReload(msg)
+	case refreshedMsg:
+		m.applyRefresh(msg)
 	case tea.MouseMsg:
 		m.mouse(msg)
 	case doneMsg:
@@ -601,6 +623,8 @@ func (m *Model) key(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "c":
 		m.askComment()
 	case "r":
+		cmd = m.refresh()
+	case "R":
 		cmd = m.reload()
 	case "i":
 		m.toggleIgnore()
@@ -628,6 +652,10 @@ func (m *Model) openCurrent() {
 }
 
 func (m *Model) toggleMark(i int) {
+	if !m.markable(i) {
+		m.msg = "refused: " + m.rows[i].resMsg
+		return
+	}
 	if m.marks[i] {
 		delete(m.marks, i)
 	} else {
@@ -635,7 +663,94 @@ func (m *Model) toggleMark(i int) {
 	}
 }
 
-// reload asks the Backend for the list again; applyReload keeps cursor and marks by URL.
+// markable reports whether row i may carry a mark: not a PR merged or declined elsewhere.
+func (m *Model) markable(i int) bool { return !m.rows[i].gone }
+
+// refresh (r) re-reads the rows the next action would hit with one View each; the rows keep their place,
+// the cursor and the marks.
+func (m *Model) refresh() tea.Cmd {
+	t, _, ok := m.targets()
+	if !ok {
+		return nil
+	}
+	cmds := make([]tea.Cmd, 0, len(t))
+	for _, i := range t {
+		pr := m.rows[i].pr
+		if m.rows[i].gone {
+			continue
+		}
+		m.refreshing++
+		cmds = append(cmds, func() tea.Msg {
+			m.sem <- struct{}{}
+			defer func() { <-m.sem }()
+			v, err := m.cfg.Backend.View(m.cfg.Ctx, pr)
+			return refreshedMsg{pr.URL, v, err}
+		})
+	}
+	if len(cmds) == 0 {
+		m.msg = "nothing to refresh"
+		return nil
+	}
+	m.msg = fmt.Sprintf("refreshing %d PR(s)…", m.refreshing)
+	return tea.Batch(cmds...)
+}
+
+func (m *Model) applyRefresh(msg refreshedMsg) {
+	r := m.rowByURL(msg.url)
+	switch {
+	case msg.err != nil:
+		ref := msg.url
+		if r != nil {
+			ref = r.pr.Project + "/" + r.pr.Repo + "#" + fmt.Sprint(r.pr.Number)
+		}
+		m.refreshFails = append(m.refreshFails, ref+": "+oneLine(msg.err.Error()))
+	case r != nil:
+		m.update(r, msg.pr)
+		m.refreshOK++
+	}
+	if m.refreshing--; m.refreshing <= 0 {
+		m.msg = fmt.Sprintf("refreshed %d PR(s)", m.refreshOK)
+		if len(m.refreshFails) > 0 {
+			m.msg += fmt.Sprintf(", FAIL %d: %s", len(m.refreshFails), strings.Join(m.refreshFails, "; "))
+		}
+		m.refreshing, m.refreshOK, m.refreshFails = 0, 0, nil
+	}
+	m.pruneMarks()
+	m.clamp()
+}
+
+// update puts a re-read PR on its row. A PR merged or declined elsewhere makes the row gone. Otherwise
+// the columns follow the forge, and a stale FAIL, NOT MERGED or APPROVED is cleared only when the PR
+// changed, so the outcome of the last action stays readable until there is news. A row with an action
+// in flight, or one this session merged or declined, is left alone.
+func (m *Model) update(r *row, pr adapter.PR) {
+	if r.busy() || r.locked {
+		return
+	}
+	if pr.URL == "" {
+		pr.URL = r.pr.URL
+	}
+	switch pr.State {
+	case "MERGED", "DECLINED":
+		r.pr, r.gone, r.locked = pr, true, true
+		r.result, r.resCode, r.resMsg = pr.State, cDim, strings.ToLower(pr.State)+" elsewhere"
+		return
+	}
+	old := r.pr
+	old.State, pr.State = "", ""
+	if old == pr {
+		return
+	}
+	r.pr = pr
+	switch r.result {
+	case wFail, wNotMerged, wApproved:
+		r.result, r.resCode, r.resMsg = "", "", ""
+	}
+}
+
+// reload (R) asks the Backend for the list again. Rows stay in place and are updated from it; PRs that
+// are new are appended, so marks (held by row index) stay put; a row the list no longer has is re-read
+// with View to tell merged or declined elsewhere from an error.
 func (m *Model) reload() tea.Cmd {
 	if m.reloading {
 		m.msg = "already reloading…"
@@ -643,9 +758,48 @@ func (m *Model) reload() tea.Cmd {
 	}
 	m.reloading = true
 	m.msg = "reloading…"
+	var known []adapter.PR
+	for _, r := range m.rows {
+		if !r.locked {
+			known = append(known, r.pr)
+		}
+	}
 	return func() tea.Msg {
 		prs, err := m.cfg.Backend.List(m.cfg.Ctx)
-		return reloadedMsg{prs, err}
+		if err != nil {
+			return reloadedMsg{err: err}
+		}
+		listed := map[string]bool{}
+		for _, pr := range prs {
+			listed[pr.URL] = true
+		}
+		var missing []adapter.PR
+		for _, pr := range known {
+			if !listed[pr.URL] {
+				missing = append(missing, pr)
+			}
+		}
+		gone, goneErr := map[string]adapter.PR{}, map[string]error{}
+		var mu sync.Mutex
+		var wg sync.WaitGroup
+		for _, pr := range missing {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				m.sem <- struct{}{}
+				defer func() { <-m.sem }()
+				v, err := m.cfg.Backend.View(m.cfg.Ctx, pr)
+				mu.Lock()
+				defer mu.Unlock()
+				if err != nil {
+					goneErr[pr.URL] = err
+				} else {
+					gone[pr.URL] = v
+				}
+			}()
+		}
+		wg.Wait()
+		return reloadedMsg{prs: prs, gone: gone, goneErr: goneErr}
 	}
 }
 
@@ -659,18 +813,29 @@ func (m *Model) applyReload(msg reloadedMsg) {
 	if i, ok := m.current(); ok {
 		curURL = m.rows[i].pr.URL
 	}
-	marked := map[string]bool{}
-	for i := range m.marks {
-		marked[m.rows[i].pr.URL] = true
+	byURL := map[string]int{}
+	for i, r := range m.rows {
+		byURL[r.pr.URL] = i
 	}
-	m.rows = nil
-	m.marks = map[int]bool{}
-	for i, pr := range msg.prs {
+	added := 0
+	for _, pr := range msg.prs {
+		if i, ok := byURL[pr.URL]; ok {
+			m.update(&m.rows[i], pr)
+			continue
+		}
 		m.rows = append(m.rows, row{pr: pr})
-		if marked[pr.URL] {
-			m.marks[i] = true
+		added++
+	}
+	gone, failed := 0, 0
+	for url, pr := range msg.gone {
+		if i, ok := byURL[url]; ok {
+			m.update(&m.rows[i], pr)
+			if m.rows[i].gone {
+				gone++
+			}
 		}
 	}
+	failed = len(msg.goneErr)
 	m.reloadIgnored()
 	for n, i := range m.visible() {
 		if m.rows[i].pr.URL == curURL {
@@ -679,12 +844,21 @@ func (m *Model) applyReload(msg reloadedMsg) {
 		}
 	}
 	m.hover = -1
-	if m.mode != modeList { // indexes held by a prompt are stale now
+	if m.mode != modeList { // a prompt's pending rows may have changed under it
 		m.mode, m.pending, m.input = modeList, nil, nil
 	}
 	m.pruneMarks()
 	m.clamp()
 	m.msg = fmt.Sprintf("reloaded %d PRs", len(msg.prs))
+	if added > 0 {
+		m.msg += fmt.Sprintf(", %d new", added)
+	}
+	if gone > 0 {
+		m.msg += fmt.Sprintf(", %d closed elsewhere", gone)
+	}
+	if failed > 0 {
+		m.msg += fmt.Sprintf(", %d not re-read", failed)
+	}
 }
 
 // rowAt maps a screen line to a visible index (-1 when it is not a list row).
@@ -744,7 +918,7 @@ func (m *Model) mouse(e tea.MouseMsg) {
 func (m *Model) pruneMarks() {
 	vis := map[int]bool{}
 	for _, i := range m.visible() {
-		vis[i] = true
+		vis[i] = m.markable(i)
 	}
 	for i := range m.marks {
 		if !vis[i] {
@@ -796,6 +970,10 @@ func (m *Model) targets() (t []int, batch, ok bool) {
 	}
 	if m.rows[i].busy() {
 		m.msg = "row busy"
+		return nil, false, false
+	}
+	if m.rows[i].gone {
+		m.msg = "refused: " + m.rows[i].resMsg
 		return nil, false, false
 	}
 	return []int{i}, false, true
@@ -1074,6 +1252,9 @@ func (m *Model) renderRow(idx int, selected, hovered bool) string {
 	}
 	if m.marks[idx] {
 		mark = cBold + cYellow + "▌" + cReset
+	}
+	if r.gone { // merged or declined elsewhere: the whole line dim, like an inactive entry
+		line = cDim + stripSGR(line) + cReset
 	}
 	out := m.fit(cur + mark + line)
 	bg := ""
@@ -1373,7 +1554,7 @@ func (m *Model) logIgnore(pr adapter.PR, word, dep string) {
 
 // Summary is what is printed to stdout after the TUI quits: the session's actions as a table in the
 // CLI's fixed-width format followed by a tally line, or "No changes made." The text comes from the
-// session log, not from the row states (a reload resets those). It ends with a newline.
+// session log, not from the row states. It ends with a newline.
 func (m *Model) Summary() string {
 	if len(m.log) == 0 {
 		return "No changes made.\n"

@@ -150,28 +150,111 @@ func TestCtrlAMarksEligibleOnly(t *testing.T) {
 	}
 }
 
-func TestReloadKeepsCursorAndMarksByURL(t *testing.T) {
+func TestReloadUpdatesInPlaceAddsNewAndKeepsClosedRows(t *testing.T) {
 	m, fb, _, _ := fixture(t)
-	send(m, "x", "j", "x", "j", "j") // marks 1,2; cursor on #4
-	m.rows[3].result = "FAIL"
-	fb.prs = []adapter.PR{mkPR(4, "chore(deps): update dependency npm to v1.2.4"), mkPR(9, "chore(deps): update dependency new to v1.0.1"),
-		mkPR(2, "chore(deps): update dependency lodash to v4.17.21")}
-	c := send(m, "r")
+	send(m, "x", "j", "x", "j", "j") // marks #1 and #2; cursor on #4
+	m.rows[3].result = wFail
+	m.rows[1].result = wNotMerged
+	merged := mkPR(1, fb.prs[0].Title)
+	merged.State = "MERGED"
+	changed := fb.prs[1]
+	changed.Build = "failed"
+	fb.views = map[string]adapter.PR{merged.URL: merged}
+	fb.errs["view https://bb/pr/3"] = errors.New("boom")
+	fb.prs = []adapter.PR{fb.prs[3], mkPR(9, "chore(deps): update dependency new to v1.0.1"), changed}
+	c := send(m, "R")
 	if m.msg != "reloading…" {
 		t.Fatalf("msg %q", m.msg)
 	}
 	drain(m, c)
-	if m.msg != "reloaded 3 PRs" || len(m.rows) != 3 {
+	if m.msg != "reloaded 3 PRs, 1 new, 1 closed elsewhere, 1 not re-read" || len(m.rows) != 5 {
 		t.Fatalf("msg %q rows %d", m.msg, len(m.rows))
+	}
+	if m.rows[4].pr.Number != 9 {
+		t.Fatalf("new PR not appended: %+v", m.rows[4].pr)
 	}
 	if i, _ := m.current(); m.rows[i].pr.URL != "https://bb/pr/4" {
 		t.Fatalf("cursor on %s", m.rows[i].pr.URL)
 	}
-	if len(m.marks) != 1 || !m.marks[2] {
-		t.Fatalf("marks by URL (only #2 survives): %v", m.marks)
+	if r := m.rows[0]; !r.gone || !r.locked || r.result != "MERGED" || r.resMsg != "merged elsewhere" {
+		t.Fatalf("closed row: %+v", r)
 	}
-	if m.rows[0].result != "" {
-		t.Fatal("statuses must reset")
+	if len(m.marks) != 1 || !m.marks[1] {
+		t.Fatalf("the closed row loses its mark, #2 keeps it: %v", m.marks)
+	}
+	if r := m.rows[1]; r.result != "" || r.pr.Build != "failed" {
+		t.Fatalf("changed PR: stale NOT MERGED must clear and the build follow: %+v", r)
+	}
+	if m.rows[3].result != wFail {
+		t.Fatal("unchanged PR keeps its FAIL")
+	}
+	if m.rows[2].gone || m.rows[2].pr.Number != 3 {
+		t.Fatalf("a row whose View failed stays as it was: %+v", m.rows[2])
+	}
+	line := m.renderRow(0, false, false)
+	if !strings.HasPrefix(line, "  "+cDim) || strings.Contains(line, cGreen) {
+		t.Fatalf("closed row must be dim only: %q", line)
+	}
+	m.cursor = 0
+	send(m, "x")
+	if m.marks[0] || m.msg != "refused: merged elsewhere" {
+		t.Fatalf("closed row markable: %v %q", m.marks, m.msg)
+	}
+	send(m, "u", "M", "d")
+	if m.mode != modeList || m.msg != "refused: merged elsewhere" {
+		t.Fatalf("closed row actionable: mode %v msg %q", m.mode, m.msg)
+	}
+}
+
+func TestReloadLeavesRowsMergedHereAlone(t *testing.T) {
+	m, fb, _, _ := fixture(t)
+	drain(m, send(m, "m")) // #1 merged by this session
+	fb.prs = fb.prs[1:]
+	drain(m, send(m, "R"))
+	if len(fb.viewed) != 0 || m.rows[0].result != wMerged || m.rows[0].gone {
+		t.Fatalf("viewed %v row %+v", fb.viewed, m.rows[0])
+	}
+}
+
+func TestRefreshRereadsTargetsOnly(t *testing.T) {
+	m, fb, _, _ := fixture(t)
+	m.rows[0].result, m.rows[1].result, m.rows[3].result = wApproved, wFail, wFail
+	upd := fb.prs[0]
+	upd.Approvals, upd.CommentCount = 2, 5
+	fb.views = map[string]adapter.PR{upd.URL: upd}
+	drain(m, send(m, "r")) // nothing marked: cursor row #1
+	if strings.Join(fb.viewed, " ") != "https://bb/pr/1" || m.msg != "refreshed 1 PR(s)" {
+		t.Fatalf("viewed %v msg %q", fb.viewed, m.msg)
+	}
+	if r := m.rows[0]; r.result != "" || r.pr.Approvals != 2 || r.pr.CommentCount != 5 {
+		t.Fatalf("refreshed row: %+v", r)
+	}
+	fb.viewed = nil
+	declined := fb.prs[3]
+	declined.State = "DECLINED"
+	fb.views[declined.URL] = declined
+	send(m, "j", "x", "j", "j", "x") // mark #2 and #4, cursor on #4
+	drain(m, send(m, "r"))
+	if len(fb.viewed) != 2 || m.msg != "refreshed 2 PR(s)" {
+		t.Fatalf("viewed %v msg %q", fb.viewed, m.msg)
+	}
+	if m.rows[1].result != wFail {
+		t.Fatal("unchanged PR keeps its FAIL")
+	}
+	if r := m.rows[3]; !r.gone || r.result != "DECLINED" {
+		t.Fatalf("declined elsewhere: %+v", r)
+	}
+	if !m.marks[1] || m.marks[3] {
+		t.Fatalf("marks kept, except on the closed row: %v", m.marks)
+	}
+	if i, _ := m.current(); i != 3 {
+		t.Fatalf("cursor moved to %d", i)
+	}
+	fb.errs["view https://bb/pr/2"] = errors.New("nope")
+	send(m, "u", "k", "k")
+	drain(m, send(m, "r"))
+	if m.msg != "refreshed 0 PR(s), FAIL 1: PRJ/repo#2: nope" {
+		t.Fatalf("msg %q", m.msg)
 	}
 }
 

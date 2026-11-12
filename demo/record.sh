@@ -31,14 +31,12 @@ SOCK="bbapprove-demo-rec-$$"
 SESSION=rec
 
 # The scripted session: each step sends keys (empty: none; a step may send several, \r is Enter) and then records for
-# the given milliseconds. Keys are the TUI's own: ? toggles the grouped help panel, j moves down, a approves,
+# the given milliseconds. Keys are the TUI's own: j moves down, a approves,
 # m merges, d declines with a typed reason, r refreshes the selected row, R reloads the list, q quits.
 # Row 101 is approved only; 102 already has an approval, so m merges it; 105 has a failed build, so m fails, the
 # row reopens and m retries it; the retry fails again, r refreshes the row, and 105 is declined with a comment.
 STEPS=(
   "" 1500                # the list as it opens
-  "?" 2500               # the grouped help panel
-  "?" 750                # back to the list
   "a" 1500               # approve 101 only; the row shows APPROVED
   "j" 750                # cursor onto ACME/shop#102
   "m" 2000               # merge; the row shows MERGED

@@ -206,7 +206,7 @@ test_shipped_shots_have_a_monospace_fallback() {
 test_record_reports_progress_on_stderr() {
   local out="$REC_OUT"
   assert_status 0 "$REC_RC" "record exits 0 for the progress check"
-  assert_contains "$out" "recording 14 steps, about 22 s" "record says how long the recording takes"
+  assert_contains "$out" "recording 12 steps, about 19 s" "record says how long the recording takes"
   assert_contains "$out" "rendering $REC_DIR/demo.svg from 1 frames" "record says it is rendering"
   assert_contains "$out" "wrote $REC_DIR/demo.cast and $REC_DIR/demo.svg" "record says what it wrote"
 }

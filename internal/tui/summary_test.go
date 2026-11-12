@@ -89,7 +89,7 @@ func TestHAliasesDotToggle(t *testing.T) {
 	}
 	m, _, _, _ := fixture(t)
 	send(m, "?")
-	if !strings.Contains(plain(m.View().Content), ". or h ignored") {
+	if !strings.Contains(plain(m.View().Content), ". or h        show or hide ignored rows") {
 		t.Fatal("help lacks h")
 	}
 }

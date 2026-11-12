@@ -274,6 +274,7 @@ func TestBatchKeysUnderEnhancements(t *testing.T) {
 		t.Fatal("h then . must toggle twice")
 	}
 	m.Update(tea.WindowSizeMsg{Width: 90, Height: 24})
+	m.Update(tea.KeyPressMsg{Code: '/', ShiftedCode: '?', Text: "?", Mod: tea.ModShift}) // close help
 	m.Update(tea.MouseClickMsg{X: 10, Y: 2, Button: tea.MouseLeft})
 	if m.cursor != 1 {
 		t.Fatalf("mouse click under enhancements: cursor %d", m.cursor)
@@ -301,10 +302,10 @@ func TestShiftHintsNeverWrap(t *testing.T) {
 
 func TestHelpListsBothSets(t *testing.T) {
 	m, _, _, _ := fixture(t)
-	m.Update(tea.WindowSizeMsg{Width: 130, Height: 24})
+	m.Update(tea.WindowSizeMsg{Width: 130, Height: 60})
 	send(m, "?")
 	out := plain(m.View().Content)
-	for _, w := range []string{"Hints:        a approve  m merge  d decline  c comment  i ignore  x mark  o open  ? help  q quit", "Hints: Shift  M force merge  ctrl+a mark all eligible  x mark", "Shift"} {
+	for _, w := range []string{"Hints", "Shift is held", "M force merge, ctrl+a mark all eligible, x mark, o open"} {
 		if !strings.Contains(out, w) {
 			t.Fatalf("help lacks %q:\n%s", w, out)
 		}

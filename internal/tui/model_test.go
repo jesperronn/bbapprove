@@ -474,11 +474,14 @@ func TestHelpToggle(t *testing.T) {
 	m, _, _, _ := fixture(t)
 	closed := m.bodyHeight()
 	send(m, "?")
-	if !strings.Contains(plain(m.View().Content), "ctrl+a mark all") {
+	if !strings.Contains(plain(m.View().Content), "mark all eligible rows") {
 		t.Fatal("extended help missing")
 	}
-	if m.bodyHeight() != closed-len(m.helpArea()) {
-		t.Fatalf("body %d should shrink from %d", m.bodyHeight(), closed)
+	if m.bodyHeight() != closed {
+		t.Fatalf("body %d, want %d: help replaces the list, the footer stays", m.bodyHeight(), closed)
+	}
+	if strings.Contains(plain(m.View().Content), "STATUS") {
+		t.Fatal("list header still shown over the help")
 	}
 	if n := len(strings.Split(m.View().Content, "\n")); n != 20 {
 		t.Fatalf("view is %d lines, want exactly the height", n)

@@ -334,63 +334,120 @@ func (m *Model) clamp() {
 	}
 }
 
-// helpParagraph is one block of the extended help; hang is the indent of its wrapped continuation lines.
-type helpParagraph struct {
-	text string
-	hang int
+// helpSection is one titled group of the help panel: an optional note, then one key per line.
+type helpSection struct {
+	title string
+	note  string
+	items [][2]string
 }
 
-var helpParagraphs = []helpParagraph{
-	{"↑/↓ j/k move   x/space mark   ctrl+a mark all eligible   u clear marks   r refresh   R reload list   . or h ignored", 2},
-	{"a approve only  m approve+merge (eligible only)  M force approve+merge  d decline (needs a comment)  c comment  i ignore  o open", 2},
-	{"r re-reads the MARKED rows (or the cursor row); R reloads the list, adds new PRs and keeps a PR merged or declined elsewhere as a dim row that cannot be marked. Both keep FAIL, NOT MERGED and APPROVED until the PR changed.", 0},
-	{"a m M d c act on the MARKED rows, or on the cursor row when nothing is marked; marks are cleared afterwards. On the cursor row a and m run at once; marked rows and M ask y/N first. A failed approval never stops the merge. Mouse: click row = cursor, left edge = mark, click the URL at the bottom = open, wheel = scroll, hover.", 0},
-	{"Hints:        a approve  m merge  d decline  c comment  i ignore  x mark  o open  ? help  q quit", 2},
-	{"Hints: Shift  M force merge  ctrl+a mark all eligible  x mark  o open", 2},
-	{"The hint line shows the Shift set while Shift is held (terminals with the kitty keyboard protocol).", 0},
-	{"Mouse capture disables native text selection and cmd-click on links; hold Shift to bypass it (Ghostty, iTerm2, kitty). Off with --no-mouse or BBAPPROVE_MOUSE=0.", 0},
+var helpSections = []helpSection{
+	{"Move", "", [][2]string{
+		{"↑/↓  j/k", "move the cursor"},
+		{". or h", "show or hide ignored rows"},
+	}},
+	{"Mark", "", [][2]string{
+		{"x  space", "mark or unmark the cursor row"},
+		{"ctrl+a", "mark all eligible rows"},
+		{"u", "clear marks"},
+	}},
+	{"Act", "a, m, M, d and c act on the MARKED rows, or on the cursor row when nothing is marked; marks are cleared afterwards. On the cursor row a and m run at once; marked rows and M ask y/N first. A failed approval never stops the merge.", [][2]string{
+		{"a", "approve only"},
+		{"m", "approve and merge (eligible only)"},
+		{"M", "force approve and merge"},
+		{"d", "decline (needs a comment)"},
+		{"c", "comment"},
+		{"i", "ignore"},
+		{"o", "open"},
+	}},
+	{"Refresh", "Both keep FAIL, NOT MERGED and APPROVED until the PR changed.", [][2]string{
+		{"r", "re-read the MARKED rows (or the cursor row)"},
+		{"R", "reload the list, add new PRs and keep a PR merged or declined elsewhere as a dim row that cannot be marked"},
+	}},
+	{"Mouse", "Mouse capture disables native text selection and cmd-click on links; hold Shift to bypass it (Ghostty, iTerm2, kitty). Off with --no-mouse or BBAPPROVE_MOUSE=0.", [][2]string{
+		{"click row", "move the cursor"},
+		{"left edge", "mark the row"},
+		{"click URL", "open it (the URL at the bottom)"},
+		{"wheel", "scroll"},
+	}},
+	{"Hints", "", [][2]string{
+		{"bottom line", "key hints; while Shift is held (terminals with the kitty keyboard protocol) they show the batch set: M force merge, ctrl+a mark all eligible, x mark, o open"},
+		{"? / q", "close this help / quit"},
+	}},
 }
 
-// minListRows is how many list rows the help may never take away on a short terminal.
-const minListRows = 4
+// helpMaxWidth caps the help panel so paragraphs stay readable on a wide terminal.
+const helpMaxWidth = 96
 
-// helpArea is the extended help shown above the two status lines while `?` is on, word-wrapped to
-// the terminal width. On a short terminal its tail is clipped so the list keeps minListRows rows.
-func (m *Model) helpArea() []string {
-	if !m.showHelp {
-		return nil
+// helpKeyCol is the width of the key column of the help panel.
+const helpKeyCol = 14
+
+// wrapText word-wraps s to width columns (at least 1).
+func wrapText(s string, width int) []string {
+	if width < 1 {
+		width = 1
 	}
 	var out []string
-	for _, p := range helpParagraphs {
-		if m.width <= 0 {
-			out = append(out, p.text)
-			continue
-		}
-		hang := p.hang
-		if hang >= m.width {
-			hang = 0
-		}
-		for i, l := range strings.Split(ansi.Wrap(p.text, m.width-hang, ""), "\n") {
-			l = strings.TrimRight(l, " ")
-			if i > 0 {
-				l = strings.Repeat(" ", hang) + l
-			}
-			out = append(out, l)
-		}
-	}
-	if m.height > 0 {
-		limit := m.height - 1 - 2 - minListRows
-		if limit < 0 {
-			limit = 0
-		}
-		if len(out) > limit {
-			out = out[:limit]
-		}
+	for _, l := range strings.Split(ansi.Wrap(s, width, ""), "\n") {
+		out = append(out, strings.TrimRight(l, " "))
 	}
 	return out
 }
 
-func (m *Model) footerHeight() int { return 2 + len(m.helpArea()) }
+// helpPanel renders the help as lines at most width wide: titled sections, one key per line in a
+// key/description layout. A terminal too narrow for two columns stacks the description below the key.
+func helpPanel(width int) []string {
+	if width <= 0 || width > helpMaxWidth {
+		width = helpMaxWidth
+	}
+	const indent = 2
+	keyCol := helpKeyCol
+	stacked := width < indent+keyCol+16
+	var out []string
+	for _, sec := range helpSections {
+		out = append(out, cBold+sec.title+cReset)
+		if sec.note != "" {
+			for _, l := range wrapText(sec.note, width-indent) {
+				out = append(out, cDim+strings.Repeat(" ", indent)+l+cReset)
+			}
+		}
+		for _, it := range sec.items {
+			key := ansi.Truncate(it[0], width-indent, "")
+			if stacked {
+				out = append(out, strings.Repeat(" ", indent)+cBold+key+cReset)
+				for _, l := range wrapText(it[1], width-indent-2) {
+					out = append(out, strings.Repeat(" ", indent+2)+l)
+				}
+				continue
+			}
+			pad := strings.Repeat(" ", max(keyCol-ansi.StringWidth(key), 1))
+			for i, l := range wrapText(it[1], width-indent-keyCol) {
+				if i == 0 {
+					out = append(out, strings.Repeat(" ", indent)+cBold+key+cReset+pad+l)
+				} else {
+					out = append(out, strings.Repeat(" ", indent+keyCol)+l)
+				}
+			}
+		}
+		out = append(out, "")
+	}
+	return out[:len(out)-1]
+}
+
+// helpArea is the help panel while `?` is on: it replaces the list, so it has exactly bodyHeight
+// lines at most. When the terminal is too short its tail is replaced by a "more" line.
+func (m *Model) helpArea() []string {
+	if !m.showHelp {
+		return nil
+	}
+	out := helpPanel(m.width)
+	if h := m.bodyHeight(); m.height > 0 && len(out) > h {
+		out = append(out[:h-1], cDim+"… (make the window taller to see all of the help)"+cReset)
+	}
+	return out
+}
+
+func (m *Model) footerHeight() int { return 2 }
 
 func (m *Model) bodyHeight() int {
 	h := m.height - 1 - m.footerHeight()
@@ -864,7 +921,7 @@ func (m *Model) applyReload(msg reloadedMsg) {
 // rowAt maps a screen line to a visible index (-1 when it is not a list row).
 func (m *Model) rowAt(y int) int {
 	n := y - 1 // line 0 is the header
-	if m.loading || m.loadErr != nil || n < 0 || n >= m.bodyHeight() {
+	if m.loading || m.loadErr != nil || m.showHelp || n < 0 || n >= m.bodyHeight() {
 		return -1
 	}
 	if idx := m.top + n; idx < len(m.visible()) {
@@ -1526,19 +1583,25 @@ func (m *Model) view() string {
 	}
 	m.clamp()
 	st := app.Style{Color: true}
-	b.WriteString(m.fit("  "+st.Header()) + "\n")
+	if m.showHelp {
+		b.WriteString(m.fit("  "+cBold+"Help"+cReset+cDim+"  (press ? to close)"+cReset) + "\n")
+	} else {
+		b.WriteString(m.fit("  "+st.Header()) + "\n")
+	}
 	v := m.visible()
 	h := m.bodyHeight()
+	help := m.helpArea()
 	for n := 0; n < h; n++ {
-		if m.top+n < len(v) {
+		if m.showHelp {
+			if n < len(help) {
+				b.WriteString(m.fit(help[n]))
+			}
+		} else if m.top+n < len(v) {
 			b.WriteString(m.renderRow(v[m.top+n], m.top+n == m.cursor, m.top+n == m.hover))
 		} else if len(v) == 0 && n == 0 {
 			b.WriteString(cDim + "no pull requests" + cReset)
 		}
 		b.WriteString("\n")
-	}
-	for _, l := range m.helpArea() {
-		b.WriteString(m.fit(cDim+l+cReset) + "\n")
 	}
 	b.WriteString(m.statusLine() + "\n")
 	// No trailing newline: a View of exactly m.height lines plus "\n" would make Bubble Tea

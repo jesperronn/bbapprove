@@ -16,6 +16,7 @@ All notable changes to this project are documented here. The format follows
 - Maintainers: `bin/test --timings` also lists the slowest shell tests and what is over the budgets `TEST_SLOW_SUITE_SECONDS` and `TEST_SLOW_TEST_SECONDS` (see `docs/development.md`).
 
 ### Changed
+- TUI: the `?` help is now a panel of grouped sections (Move, Mark, Act, Refresh, Mouse, Hints) with one key per line, at most 96 columns wide; it replaces the list instead of sharing the screen with it, and the status bar below stays as it is.
 - Maintainers: the `bin/` commands and `bin/changelog` now colour their help the way bbapprove does, honouring `NO_COLOR` and `FORCE_COLOR`.
 
 ### Fixed

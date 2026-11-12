@@ -169,9 +169,9 @@ func (e errTest) Error() string { return string(e) }
 
 func TestHelpMentionsFooterClick(t *testing.T) {
 	m, _, _, _ := fixture(t)
-	m.Update(tea.WindowSizeMsg{Width: 130, Height: 24})
+	m.Update(tea.WindowSizeMsg{Width: 130, Height: 60})
 	send(m, "?")
-	if out := plain(m.View().Content); !strings.Contains(out, "click the URL at the bottom = open") {
+	if out := plain(m.View().Content); !strings.Contains(out, "open it (the URL at the bottom)") {
 		t.Fatalf("help:\n%s", out)
 	}
 }

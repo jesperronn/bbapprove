@@ -14,7 +14,7 @@
 #
 # Normalized PR: {url, number, project, repo, title, author:{email,login}, headBranch, approvedByMe,
 #   build: passed|failed|running|none, qualityGate: passed|failed|unknown,
-#   approvals, needsWork (reviewer counts), commentCount, openTasks}
+#   approvals, needsWork (reviewer counts), commentCount, openTasks, state: OPEN|MERGED|DECLINED}
 # Errors: message on stderr, non-zero exit. Env: BBAPPROVE_BASE_URL (required, no default), BBAPPROVE_TOKEN (required by every pr command; exit 2 when unset), BBAPPROVE_TOKEN_NAME (1Password item for `auth token`, no default), BBAPPROVE_MERGE_RETRIES, BBAPPROVE_RETRY_SLEEP, BBAPPROVE_DELETE_SOURCE_BRANCH (true|false, default true).
 
 set -euo pipefail
@@ -72,7 +72,8 @@ normalize() {
     approvals: ([.reviewers[]? | select(.status=="APPROVED")] | length),
     needsWork: ([.reviewers[]? | select(.status=="NEEDS_WORK")] | length),
     commentCount: (.properties.commentCount // 0),
-    openTasks: (.properties.openTaskCount // 0)
+    openTasks: (.properties.openTaskCount // 0),
+    state: (.state // "OPEN")
   }'
 }
 

@@ -22,6 +22,7 @@ type PR struct {
 	NeedsWork    int
 	CommentCount int
 	OpenTasks    int
+	State        string // OPEN|MERGED|DECLINED
 }
 
 // MarshalPR renders p as compact JSON with the exact key order and string escaping of the bash adapter (jq -c).
@@ -79,6 +80,8 @@ func writePR(b *strings.Builder, p PR) {
 	num("commentCount", p.CommentCount)
 	b.WriteByte(',')
 	num("openTasks", p.OpenTasks)
+	b.WriteByte(',')
+	str("state", p.State)
 	b.WriteByte('}')
 }
 
@@ -124,6 +127,7 @@ type rawPerson struct {
 type rawPR struct {
 	ID     int    `json:"id"`
 	Title  string `json:"title"`
+	State  string `json:"state"`
 	Author struct {
 		User struct {
 			EmailAddress string `json:"emailAddress"`
@@ -200,6 +204,7 @@ func normalize(raw rawPR, base, me string, stats map[string]buildCounts) PR {
 		QualityGate:  gate,
 		CommentCount: raw.Properties.CommentCount,
 		OpenTasks:    raw.Properties.OpenTaskCount,
+		State:        nonEmptyState(raw.State),
 	}
 	for _, r := range raw.Reviewers {
 		switch r.Status {
@@ -219,4 +224,12 @@ func normalize(raw rawPR, base, me string, stats map[string]buildCounts) PR {
 		}
 	}
 	return p
+}
+
+// nonEmptyState is the PR state, OPEN when Bitbucket sent none (as the bash adapter's `.state // "OPEN"`).
+func nonEmptyState(s string) string {
+	if s == "" {
+		return "OPEN"
+	}
+	return s
 }

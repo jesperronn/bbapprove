@@ -78,7 +78,7 @@ pr_json() {
   if [[ "$me" == yes ]] || state_has "approved $n"; then approved=true; fi
   approvals=$others
   if [[ "$approved" == true ]]; then approvals=$((others + 1)); fi
-  printf '{"url":"%s/projects/ACME/repos/%s/pull-requests/%s","number":%s,"project":"ACME","repo":"%s","title":"%s","author":{"email":"renovate-bot@acme.test","login":"renovate-bot"},"headBranch":"%s","approvedByMe":%s,"build":"%s","qualityGate":"%s","approvals":%s,"needsWork":%s,"commentCount":%s,"openTasks":%s}' \
+  printf '{"url":"%s/projects/ACME/repos/%s/pull-requests/%s","number":%s,"project":"ACME","repo":"%s","title":"%s","author":{"email":"renovate-bot@acme.test","login":"renovate-bot"},"headBranch":"%s","approvedByMe":%s,"build":"%s","qualityGate":"%s","approvals":%s,"needsWork":%s,"commentCount":%s,"openTasks":%s,"state":"OPEN"}' \
     "$BASE" "$repo" "$n" "$n" "$repo" "$title" "$head" "$approved" "$build" "$qg" "$approvals" "$needs" "$comments" "$tasks"
 }
 

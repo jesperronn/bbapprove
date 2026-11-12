@@ -57,11 +57,11 @@ func TestMarshalPRKeyOrderAndEscapes(t *testing.T) {
 	p := bitbucket.PR{
 		URL: "http://h/projects/P/repos/r/pull-requests/1", Number: 1, Project: "P", Repo: "r", Title: "a\"b\\c\n\t\x01\x7f <&> é",
 		AuthorEmail: "e@example.com", AuthorLogin: "l", HeadBranch: "b", ApprovedByMe: true, Build: "passed", QualityGate: "unknown",
-		Approvals: 2, NeedsWork: 1, CommentCount: 3, OpenTasks: 4,
+		Approvals: 2, NeedsWork: 1, CommentCount: 3, OpenTasks: 4, State: "OPEN",
 	}
 	want := `{"url":"http://h/projects/P/repos/r/pull-requests/1","number":1,"project":"P","repo":"r","title":"a\"b\\c\n\t\u0001\u007f <&> é",` +
 		`"author":{"email":"e@example.com","login":"l"},"headBranch":"b","approvedByMe":true,"build":"passed","qualityGate":"unknown",` +
-		`"approvals":2,"needsWork":1,"commentCount":3,"openTasks":4}`
+		`"approvals":2,"needsWork":1,"commentCount":3,"openTasks":4,"state":"OPEN"}`
 	if got := string(bitbucket.MarshalPR(p)); got != want {
 		t.Errorf("got  %s\nwant %s", got, want)
 	}

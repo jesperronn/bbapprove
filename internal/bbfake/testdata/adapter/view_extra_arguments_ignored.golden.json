@@ -7,7 +7,7 @@
     "x"
   ],
   "exit": 0,
-  "stdout": "{\"url\":\"<BASE>/projects/PROJ/repos/repo/pull-requests/5\",\"number\":5,\"project\":\"PROJ\",\"repo\":\"repo\",\"title\":\"chore(deps): update x to v1.0.1\",\"author\":{\"email\":\"renovate-bot@example.com\",\"login\":\"renovate-bot\"},\"headBranch\":\"renovate/x\",\"approvedByMe\":true,\"build\":\"passed\",\"qualityGate\":\"unknown\",\"approvals\":1,\"needsWork\":1,\"commentCount\":1,\"openTasks\":1}\n",
+  "stdout": "{\"url\":\"<BASE>/projects/PROJ/repos/repo/pull-requests/5\",\"number\":5,\"project\":\"PROJ\",\"repo\":\"repo\",\"title\":\"chore(deps): update x to v1.0.1\",\"author\":{\"email\":\"renovate-bot@example.com\",\"login\":\"renovate-bot\"},\"headBranch\":\"renovate/x\",\"approvedByMe\":true,\"build\":\"passed\",\"qualityGate\":\"unknown\",\"approvals\":1,\"needsWork\":1,\"commentCount\":1,\"openTasks\":1,\"state\":\"OPEN\"}\n",
   "stdoutJSON": {
     "approvals": 1,
     "approvedByMe": true,
@@ -24,6 +24,7 @@
     "project": "PROJ",
     "qualityGate": "unknown",
     "repo": "repo",
+    "state": "OPEN",
     "title": "chore(deps): update x to v1.0.1",
     "url": "<BASE>/projects/PROJ/repos/repo/pull-requests/5"
   },

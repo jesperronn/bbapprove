@@ -172,7 +172,7 @@ var charCases = []charCase{
 		mustJSON(t, r.raw, &prs)
 		want := adapter.PR{URL: "<BASE>/projects/PROJ/repos/repo/pull-requests/5", Number: 5, Project: "PROJ", Repo: "repo",
 			Title: "chore(deps): update x to v1.0.1", HeadBranch: "renovate/x", ApprovedByMe: true, Build: "passed", QualityGate: "passed",
-			Approvals: 1, NeedsWork: 1, CommentCount: 4, OpenTasks: 1}
+			Approvals: 1, NeedsWork: 1, CommentCount: 4, OpenTasks: 1, State: "OPEN"}
 		want.Author.Email, want.Author.Login = "renovate-bot@example.com", "renovate-bot"
 		if len(prs) != 1 {
 			t.Fatalf("want 1 PR, got %d", len(prs))
@@ -217,6 +217,11 @@ var charCases = []charCase{
 		eq(t, "build", p.Build, "passed")
 		eq(t, "qualityGate (single-PR GET carries no properties)", p.QualityGate, "unknown")
 		eq(t, "approvedByMe", p.ApprovedByMe, true)
+	}},
+	{name: "view_merged_pr_reports_state", args: []string{"pr", "view", url5}, sc: func(sc *bbfake.Scenario) { pr5(sc).State = "MERGED" }, check: func(t *testing.T, r result) {
+		var p adapter.PR
+		mustJSON(t, r.raw, &p)
+		eq(t, "state", p.State, "MERGED")
 	}},
 	{name: "view_comment_count_clamped_at_zero", args: []string{"pr", "view", url5}, sc: func(sc *bbfake.Scenario) { pr5(sc).CommentedActivities = 0 }},
 	{name: "view_no_activity_no_tasks", args: []string{"pr", "view", url5}, sc: func(sc *bbfake.Scenario) {

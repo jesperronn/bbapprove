@@ -33,7 +33,7 @@ adapter pr close URL [--comment TEXT]               # decline; the comment is po
 
 `pr merge` retries stale PR versions itself. The core sets `BBAPPROVE_BASE_URL` (required by the adapter, exit 2 when unset), `BBAPPROVE_TOKEN_NAME` and `BBAPPROVE_DELETE_SOURCE_BRANCH` from the configuration; `BBAPPROVE_TOKEN` is required by the `pr` commands (exit 2 when unset). Adapter tunables (`BBAPPROVE_MERGE_RETRIES`, `BBAPPROVE_RETRY_SLEEP`): `bbapprove help env`.
 
-Normalized PR: `{url, number, project, repo, title, author:{email,login}, headBranch, approvedByMe, build: passed|failed|running|none, qualityGate: passed|failed|unknown, approvals, needsWork, commentCount, openTasks}`. Errors go to stderr with a non-zero exit.
+Normalized PR: `{url, number, project, repo, title, author:{email,login}, headBranch, approvedByMe, build: passed|failed|running|none, qualityGate: passed|failed|unknown, approvals, needsWork, commentCount, openTasks, state: OPEN|MERGED|DECLINED}`. Errors go to stderr with a non-zero exit.
 
 ## The Go Bitbucket adapter (`internal/forge/bitbucket`)
 

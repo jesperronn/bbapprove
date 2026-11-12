@@ -41,6 +41,7 @@ type PR struct {
 	NeedsWork    int    `json:"needsWork"`
 	CommentCount int    `json:"commentCount"`
 	OpenTasks    int    `json:"openTasks"`
+	State        string `json:"state"` // OPEN|MERGED|DECLINED; "" from an adapter that predates it
 }
 
 // RunFunc runs one adapter command line (args without the program name) in this process and returns the

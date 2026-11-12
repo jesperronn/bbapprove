@@ -30,15 +30,26 @@ ROWS=28
 SOCK="bbapprove-demo-rec-$$"
 SESSION=rec
 
-# The scripted session: each step sends one key (empty: none) and then records for the given milliseconds.
-# Keys are the TUI's own: j moves down, a approves and merges the cursor row, q quits. The extended help (?) is
-# left out: its wall of text does not fit the pane. Row 102 (http-kit) is the one eligible row below the cursor,
-# so the approval shows a merge.
+# The scripted session: each step sends keys (empty: none; a step may send several, \r is Enter) and then records for
+# the given milliseconds. Keys are the TUI's own: ? toggles the grouped help panel, j moves down, a approves,
+# m merges, d declines with a typed reason, r refreshes the selected row, R reloads the list, q quits.
+# Row 101 is approved only; 102 already has an approval, so m merges it; 105 has a failed build, so m fails, the
+# row reopens and m retries it; the retry fails again, r refreshes the row, and 105 is declined with a comment.
 STEPS=(
-  "" 2000  # the list as it opens
-  "j" 1500 # cursor onto ACME/shop#102
-  "a" 3000 # approve + merge; the row shows MERGED
-  "q" 2500 # quit: the session summary stays on screen
+  "" 1500                # the list as it opens
+  "?" 2500               # the grouped help panel
+  "?" 750                # back to the list
+  "a" 1500               # approve 101 only; the row shows APPROVED
+  "j" 750                # cursor onto ACME/shop#102
+  "m" 2000               # merge; the row shows MERGED
+  "jjj" 750              # cursor onto ACME/shop#105, whose build failed
+  "m" 2000               # the merge fails; the row shows FAIL
+  "m" 2000               # the row reopened: retry
+  "r" 1500               # refresh the selected row
+  "d" 1000               # the decline prompt asks for a reason
+  "Superseded"$'\r' 2000 # decline with that comment
+  "R" 2000               # reload the whole list
+  "q" 2000               # quit: the session summary stays on screen
 )
 
 fail() {

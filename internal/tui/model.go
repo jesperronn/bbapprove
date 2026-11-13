@@ -1646,3 +1646,16 @@ func (m *Model) Summary() string {
 	b.WriteString(tally + "\n")
 	return b.String()
 }
+
+// TUI is the contract that a TUI frontend must satisfy. One TUI per
+// application; the built-in bubbletea implementation satisfies this
+// interface. Extracting this contract creates a "hypothetical seam"
+// where new TUI implementations can be added without changing core logic.
+type TUI interface {
+	// Init initializes the TUI model.
+	Init() error
+	// View renders the TUI model to string output.
+	View() string
+	// Update handles input events.
+	Update(event tea.Msg) error
+}

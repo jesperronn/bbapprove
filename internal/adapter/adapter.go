@@ -16,6 +16,28 @@ import (
 	"bbapprove/internal/forge/bitbucket"
 )
 
+// Adapter is the contract that every forge adapter must satisfy. There is one
+// adapter per forge type, and the built-in Bitbucket adapter is one of them, so
+// a new forge type can be added without changing core logic.
+type Adapter interface {
+	// AuthToken runs the adapter's auth command and returns the token.
+	AuthToken(ctx context.Context) (string, error)
+	// List runs the adapter's list command and returns the PRs.
+	List(ctx context.Context) ([]PR, error)
+	// View runs the adapter's view command for a PR URL and returns the PR.
+	View(ctx context.Context, url string) (PR, error)
+	// Approve runs the adapter's approve command for a PR.
+	Approve(ctx context.Context, url string) error
+	// MergeWarn runs the adapter's merge command and returns any warnings.
+	MergeWarn(ctx context.Context, url string) ([]string, error)
+	// Comment runs the adapter's comment command.
+	Comment(ctx context.Context, url, body string) error
+	// Close runs the adapter's close command (e.g. Bitbucket decline).
+	Close(ctx context.Context, url, comment string) error
+}
+
+var _ Adapter = (*Client)(nil)
+
 // DefaultTimeout bounds every adapter call.
 const DefaultTimeout = 10 * time.Second
 

@@ -180,3 +180,12 @@ func (c *Client) loadStats(ctx context.Context, shas []string) (map[string]build
 	}
 	return stats, nil
 }
+
+// ClientDoer is the core contract that a Bitbucket client must satisfy.
+// New implementations can be created without changing core logic; it is safe for concurrent use.
+type ClientDoer interface {
+	// WhoAmI returns the authenticated user info.
+	WhoAmI(ctx context.Context) (string, error)
+	// LoadStats runs the adapters stats command and returns the build statistics.
+	LoadStats(ctx context.Context) (map[string]buildCounts, error)
+}

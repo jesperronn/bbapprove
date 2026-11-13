@@ -217,3 +217,6 @@ func Check(markup string) error {
 	_, err := Theme{}.Render(markup)
 	return err
 }
+
+// OneLine collapses every run of whitespace, newlines included, into one space, so a multi-line error fits a table row.
+func OneLine(s string) string { return strings.Join(strings.Fields(s), " ") }

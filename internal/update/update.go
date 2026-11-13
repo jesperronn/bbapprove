@@ -52,7 +52,7 @@ func (ExecRunner) Run(ctx context.Context, c Cmd) ([]byte, error) {
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	if err := cmd.Run(); err != nil {
 		if s := strings.TrimSpace(errb.String()); s != "" {
-			return out.Bytes(), fmt.Errorf("%w: %s", err, oneLine(s))
+			return out.Bytes(), fmt.Errorf("%w: %s", err, style.OneLine(s))
 		}
 		return out.Bytes(), err
 	}
@@ -161,8 +161,6 @@ type Result struct {
 }
 
 func (o Options) releasesURL() string { return "https://github.com/" + o.Slug + "/releases" }
-
-func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 
 func (o Options) capture(ctx context.Context, c Cmd) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, o.Timeout)

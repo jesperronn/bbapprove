@@ -443,20 +443,18 @@ func (o Options) errTheme() style.Theme { return style.New(style.Enabled(o.env, 
 // act approves then merges one PR and returns the single result line (not width-truncated, so errors stay readable).
 func act(ctx context.Context, c *adapter.Client, st Style, pr adapter.PR) string {
 	if err := c.Approve(ctx, pr.URL); err != nil {
-		return st.rowFull("FAIL", red, pr, oneLine(err.Error()))
+		return st.rowFull("FAIL", red, pr, style.OneLine(err.Error()))
 	}
 	warns, err := c.MergeWarn(ctx, pr.URL)
 	if err != nil {
-		return st.rowFull("NOT MERGED", red, pr, oneLine(err.Error()))
+		return st.rowFull("NOT MERGED", red, pr, style.OneLine(err.Error()))
 	}
 	line := st.rowFull("MERGED", green+bold, pr, "")
 	for _, w := range warns { // the merge went through; what the adapter had to say follows its line
-		line += "\n" + st.c(yellow, "  ! "+oneLine(w))
+		line += "\n" + st.c(yellow, "  ! "+style.OneLine(w))
 	}
 	return line
 }
-
-func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 
 func fetchAll(ctx context.Context, c *adapter.Client, urls []string, jobs int) ([]adapter.PR, error) {
 	prs := make([]adapter.PR, len(urls))

@@ -155,3 +155,9 @@ func TestSourcesTag(t *testing.T) {
 		t.Errorf("coloured: %q", got)
 	}
 }
+
+func TestOneLine(t *testing.T) {
+	if got := OneLine("  a\n\tb   c\n"); got != "a b c" {
+		t.Errorf("OneLine = %q", got)
+	}
+}

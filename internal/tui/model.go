@@ -13,6 +13,7 @@ import (
 	"bbapprove/internal/app"
 	"bbapprove/internal/ignore"
 	"bbapprove/internal/rules"
+	"bbapprove/internal/style"
 )
 
 // Config is everything the model needs from the outside world.
@@ -344,23 +345,23 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.err == nil:
 			// Merged, with the adapter's note (e.g. branch not deleted) as the reason; the MERGED word already
 			// says "merge ok", so the long row only keeps the part that is news.
-			text = strings.TrimPrefix(oneLine(msg.warning), "merge ok, but ")
+			text = strings.TrimPrefix(style.OneLine(msg.warning), "merge ok, but ")
 		case errors.As(msg.err, &pe):
-			word, code, text = wNotMerged, cRed, oneLine(msg.err.Error())
+			word, code, text = wNotMerged, cRed, style.OneLine(msg.err.Error())
 		default:
-			word, code, text = wFail, cRed, oneLine(msg.err.Error())
+			word, code, text = wFail, cRed, style.OneLine(msg.err.Error())
 		}
 		m.finish(msg.url, "approve", word, code, text, true)
 	case approveDoneMsg:
 		word, code, text := wApproved, cGreen, ""
 		if msg.err != nil {
-			word, code, text = wFail, cRed, oneLine(msg.err.Error())
+			word, code, text = wFail, cRed, style.OneLine(msg.err.Error())
 		}
 		m.finish(msg.url, "approve", word, code, text, false)
 	case declineDoneMsg:
 		word, code, text := wDeclined, cRed, ""
 		if msg.err != nil {
-			word, code, text = wFail, cRed, oneLine(msg.err.Error())
+			word, code, text = wFail, cRed, style.OneLine(msg.err.Error())
 		}
 		m.finish(msg.url, "decline", word, code, text, true)
 	case commentDoneMsg:
@@ -368,8 +369,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cmtOK++
 			m.finish(msg.url, "comment", wCommented, cGreen, "", false)
 		} else {
-			m.cmtFails = append(m.cmtFails, msg.ref+": "+oneLine(msg.err.Error()))
-			m.finish(msg.url, "comment", wFail, cRed, oneLine(msg.err.Error()), false)
+			m.cmtFails = append(m.cmtFails, msg.ref+": "+style.OneLine(msg.err.Error()))
+			m.finish(msg.url, "comment", wFail, cRed, style.OneLine(msg.err.Error()), false)
 		}
 		if m.cmtOutstanding--; m.cmtOutstanding <= 0 {
 			m.msg = fmt.Sprintf("COMMENTED on %d PR(s)", m.cmtOK)
@@ -437,8 +438,6 @@ func (m *Model) logPut(e logEntry) {
 	}
 	m.log = append(m.log, e)
 }
-
-func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 
 func (m *Model) rowByURL(url string) *row {
 	for i := range m.rows {

@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"bbapprove/internal/app"
+	"bbapprove/internal/style"
 )
 
 // withBG paints bg behind a whole line. Every inner reset would cancel the background, so it is
@@ -328,7 +329,7 @@ func (m *Model) view() string {
 		return b.String()
 	}
 	if m.loadErr != nil {
-		return m.fit("error: "+oneLine(m.loadErr.Error())) + "\n" + m.fit("q quit") + "\n"
+		return m.fit("error: "+style.OneLine(m.loadErr.Error())) + "\n" + m.fit("q quit") + "\n"
 	}
 	m.clamp()
 	st := colorStyle

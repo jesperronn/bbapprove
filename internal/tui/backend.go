@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"bbapprove/internal/adapter"
+	"bbapprove/internal/style"
 )
 
 // Backend holds every forge side effect of the TUI so the model can be tested with a fake.
@@ -60,12 +61,12 @@ func approveThenMerge(ctx context.Context, pr adapter.PR, approve func(context.C
 	warns, err := merge(ctx, pr.URL)
 	if err != nil {
 		if aerr != nil {
-			return "", fmt.Errorf("%s (approve failed: %s)", strings.TrimSpace(err.Error()), oneLine(aerr.Error()))
+			return "", fmt.Errorf("%s (approve failed: %s)", strings.TrimSpace(err.Error()), style.OneLine(aerr.Error()))
 		}
 		return "", &PartialError{Err: err}
 	}
 	if aerr != nil {
-		warns = append([]string{"approve failed: " + oneLine(aerr.Error())}, warns...)
+		warns = append([]string{"approve failed: " + style.OneLine(aerr.Error())}, warns...)
 	}
 	return strings.Join(warns, "; "), nil
 }

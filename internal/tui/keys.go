@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+
+	"bbapprove/internal/style"
 )
 
 // isModifierKey reports a press of a bare modifier or lock key (only reported by the kitty protocol).
@@ -120,7 +122,7 @@ func (m *Model) key(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m *Model) openCurrent() {
 	if i, ok := m.current(); ok {
 		if err := m.cfg.Opener(m.rows[i].pr.URL); err != nil {
-			m.msg = "open failed: " + oneLine(err.Error())
+			m.msg = "open failed: " + style.OneLine(err.Error())
 		} else {
 			m.msg = "opened " + m.rows[i].pr.URL
 		}

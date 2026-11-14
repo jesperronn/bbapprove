@@ -10,6 +10,7 @@ import (
 	"bbapprove/internal/adapter"
 	"bbapprove/internal/ignore"
 	"bbapprove/internal/rules"
+	"bbapprove/internal/style"
 )
 
 // refresh (r) re-reads the rows the next action would hit with one View each; the rows keep their place,
@@ -47,7 +48,7 @@ func (m *Model) applyRefresh(msg refreshedMsg) {
 		if r != nil {
 			ref = r.pr.Project + "/" + r.pr.Repo + "#" + fmt.Sprint(r.pr.Number)
 		}
-		m.refreshFails = append(m.refreshFails, ref+": "+oneLine(msg.err.Error()))
+		m.refreshFails = append(m.refreshFails, ref+": "+style.OneLine(msg.err.Error()))
 	case r != nil:
 		m.update(r, msg.pr)
 		m.refreshOK++
@@ -150,7 +151,7 @@ func (m *Model) reload() tea.Cmd {
 func (m *Model) applyReload(msg reloadedMsg) {
 	m.reloading = false
 	if msg.err != nil {
-		m.msg = "reload failed: " + oneLine(msg.err.Error())
+		m.msg = "reload failed: " + style.OneLine(msg.err.Error())
 		return
 	}
 	curURL := ""
@@ -361,7 +362,7 @@ func (m *Model) toggleIgnore() {
 	pr := m.rows[i].pr
 	if e, ign := ignore.Matches(m.ignored, pr.Title); ign {
 		if err := ignore.Remove(m.cfg.IgnorePath, e); err != nil {
-			m.msg = "un-ignore failed: " + oneLine(err.Error())
+			m.msg = "un-ignore failed: " + style.OneLine(err.Error())
 			return
 		}
 		m.msg = "un-ignored '" + e + "'"
@@ -373,7 +374,7 @@ func (m *Model) toggleIgnore() {
 			return
 		}
 		if err := ignore.Add(m.cfg.IgnorePath, dep); err != nil {
-			m.msg = "ignore failed: " + oneLine(err.Error())
+			m.msg = "ignore failed: " + style.OneLine(err.Error())
 			return
 		}
 		m.msg = "ignored '" + dep + "'"

@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -57,6 +59,26 @@ func BuiltIn(typ string) RunFunc {
 	return func(ctx context.Context, args, environ []string, stdout, stderr io.Writer) int {
 		return bitbucket.Run(ctx, args, bitbucket.EnvFromEnviron(environ), stdout, stderr)
 	}
+}
+
+// New builds the Client for the adapter at path. When builtIn is set (config.Config.BuiltIn) the adapter of
+// forge type typ runs in this process (see BuiltIn) and path is not run. token may be empty; ResolveToken
+// then asks the adapter for it.
+func New(path, typ string, builtIn bool, token string, environ []string) *Client {
+	c := &Client{Path: path, Token: token, Environ: environ}
+	if builtIn {
+		c.InProcess = BuiltIn(typ)
+	}
+	return c
+}
+
+// Jobs returns the number of parallel adapter calls: BBAPPROVE_JOBS (via getenv) when it is a positive
+// integer, else the CPU count.
+func Jobs(getenv func(string) string) int {
+	if n, err := strconv.Atoi(getenv("BBAPPROVE_JOBS")); err == nil && n > 0 {
+		return n
+	}
+	return runtime.NumCPU()
 }
 
 // Client runs the adapter: in this process when InProcess is set, else the executable at Path as a subprocess.
@@ -116,6 +138,20 @@ func (c *Client) runFor(ctx context.Context, def time.Duration, args ...string) 
 		return "", "", errors.New(msg)
 	}
 	return strings.TrimSpace(out.String()), strings.TrimSpace(errb.String()), nil
+}
+
+// ResolveToken asks the adapter for the token and stores it in c.Token, unless c.Token is already set
+// (BBAPPROVE_TOKEN wins; otherwise the named 1Password item is looked up).
+func (c *Client) ResolveToken(ctx context.Context) error {
+	if c.Token != "" {
+		return nil
+	}
+	t, err := c.AuthToken(ctx)
+	if err != nil {
+		return err
+	}
+	c.Token = t
+	return nil
 }
 
 // AuthToken runs `auth token`.

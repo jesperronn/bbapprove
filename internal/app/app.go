@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -327,10 +326,7 @@ func Run(ctx context.Context, o Options) int {
 		return 1
 	}
 	adapterPath := cfg.Adapter.Value
-	jobs := runtime.NumCPU()
-	if n, err := strconv.Atoi(o.env("BBAPPROVE_JOBS")); err == nil && n > 0 {
-		jobs = n
-	}
+	jobs := adapter.Jobs(o.env)
 
 	ignorePath := o.ignorePath()
 	// Fail closed: an unreadable ignore list must never be treated as empty, or an ignored PR could be merged.
@@ -341,18 +337,10 @@ func Run(ctx context.Context, o Options) int {
 	}
 
 	rc := rules.Config{AuthorEmail: cfg.AuthorEmail.Value, Disallow: cfg.Disallow}
-	client := &adapter.Client{Path: adapterPath, Token: token, Environ: cfg.ChildEnv(o.Environ)}
-	if cfg.BuiltIn {
-		client.InProcess = adapter.BuiltIn(cfg.Type.Value)
-	}
-
-	if token == "" { // BBAPPROVE_TOKEN wins; otherwise look the named 1Password item up
-		t, err := client.AuthToken(ctx)
-		if err != nil {
-			o.errf("{err:%s}", err)
-			return 1
-		}
-		client.Token = t
+	client := adapter.New(adapterPath, cfg.Type.Value, cfg.BuiltIn, token, cfg.ChildEnv(o.Environ))
+	if err := client.ResolveToken(ctx); err != nil {
+		o.errf("{err:%s}", err)
+		return 1
 	}
 
 	var prs []adapter.PR

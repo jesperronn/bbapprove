@@ -16,6 +16,7 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 
+	"bbapprove/internal/adapter"
 	"bbapprove/internal/rules"
 	"bbapprove/internal/style"
 	"bbapprove/internal/userconfig"
@@ -92,10 +93,11 @@ type Config struct {
 	Warnings    []string // e.g. unknown keys; the caller prints them to stderr
 }
 
-// UsesBuiltIn reports whether forge type typ is served by the adapter built into the binary: only
-// "bitbucket", and only while BBAPPROVE_ADAPTER (adapterEnv) is not set. Any other type, and an
+// UsesBuiltIn reports whether forge type typ is served by the adapter built into the binary: a type
+// adapter.BuiltIn has a function for (the one place that names the types), and only while BBAPPROVE_ADAPTER
+// (adapterEnv) is not set. Any other type, and an explicit adapter, run an executable.
 // explicit adapter, run an executable.
-func UsesBuiltIn(typ, adapterEnv string) bool { return typ == "bitbucket" && adapterEnv == "" }
+func UsesBuiltIn(typ, adapterEnv string) bool { return adapterEnv == "" && adapter.BuiltIn(typ) != nil }
 
 // RootOfExecutable is the install root for the binary at exe: the parent of the directory holding it
 // when that directory is named bin (<root>/bin/bbapprove-go, the git checkout and Unix archive layout),

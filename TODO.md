@@ -14,9 +14,8 @@
   - Compare the real old vs new version instead (e.g. from the PR diff or the Renovate PR description table), and only approve minor/patch/digest.
   - Check the vitest and spotless bumps that were reported eligible in the first dry run.
 - [x] **CI, release and dependency updates**: GitHub Actions CI, tag-driven release and Dependabot (`.github/`).
-  - [ ] Build provenance attestations (`actions/attest-build-provenance`): needs a plan that supports attestations for private repos.
-  - [ ] Verify the first release run end to end (`v*` tag on GitHub) and add a Windows build only if someone needs it. (`bin/release` now drives the tag and push.)
-- [ ] verify release assets with build provenance/attestation (`gh attestation verify`) in addition to SHA256SUMS
+  - [x] Release run verified end to end: the Release workflow succeeded for v1.0.0-rc.2, v1.0.0, v1.1.0 and v1.2.0, and a Windows zip is built (`bin/package`).
+  - [ ] Build provenance attestations (`actions/attest-build-provenance`): needs a plan that supports attestations for private repos. Then verify release assets with `gh attestation verify` in addition to SHA256SUMS.
 - [ ] **Search / filter in the TUI (1.1)**: `/` filters the list as you type (plain case-insensitive substring terms,
   AND-ed; `!term` excludes) over status, `PROJECT/repo#id`, title and skip reason. Enter keeps the filter, Esc clears it,
   footer shows `filter: <text> (shown/total)`. `ctrl+a` marks eligible visible rows; `A`/`D`/`C` act only on marked rows
@@ -24,4 +23,5 @@
   (`repo:`, `status:`, `build:failed`).
 - [x] **Standard scripts**: `bin/setup`, `bin/test`, `bin/lint`, `bin/build`, `bin/install`, `bin/release`, `bin/help`.
 - [x] **Maintainer docs**: `AGENTS.md` and `docs/` (development, architecture, releasing, CI).
-- [x] **First-run helper**: create the config from the embedded template (`--init`, interactive offer).
+- [x] **First-run helper**: create the config from the embedded template (`--init`, also offered interactively on a first run).
+- [ ] **Quality gate in the single-PR view**: `ViewPR` in `internal/forge/bitbucket/commands.go` always reports the quality gate as "unknown" because the single-PR GET has no `qgStatus` (the list call does). Check against a real server whether another endpoint exposes it, then fix the code and drop the stale comment.

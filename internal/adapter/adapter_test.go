@@ -239,6 +239,44 @@ func TestMergeWarnSilentAdapterAndFailure(t *testing.T) {
 	}
 }
 
+func TestNewUsesBuiltInOnlyWhenAsked(t *testing.T) {
+	if c := New("/x", "bitbucket", true, "tok", []string{"A=1"}); c.InProcess == nil || c.Path != "/x" || c.Token != "tok" {
+		t.Errorf("built-in client: %+v", c)
+	}
+	if c := New("/x", "bitbucket", false, "", nil); c.InProcess != nil {
+		t.Error("an explicit adapter must run the executable")
+	}
+}
+
+func TestResolveToken(t *testing.T) {
+	c := fakeAdapter(t, `echo from-adapter`)
+	c.Token = "given"
+	if err := c.ResolveToken(context.Background()); err != nil || c.Token != "given" {
+		t.Fatalf("a set token must stay: %q %v", c.Token, err)
+	}
+	c.Token = ""
+	if err := c.ResolveToken(context.Background()); err != nil || c.Token != "from-adapter" {
+		t.Fatalf("got %q %v", c.Token, err)
+	}
+	c = fakeAdapter(t, `echo boom >&2; exit 1`)
+	c.Token = ""
+	if err := c.ResolveToken(context.Background()); err == nil || !strings.Contains(err.Error(), "boom") {
+		t.Fatalf("want adapter error, got %v", err)
+	}
+}
+
+func TestJobs(t *testing.T) {
+	get := func(v string) func(string) string { return func(string) string { return v } }
+	if got := Jobs(get("3")); got != 3 {
+		t.Errorf("got %d", got)
+	}
+	for _, v := range []string{"", "0", "-2", "x"} {
+		if got := Jobs(get(v)); got < 1 {
+			t.Errorf("%q: got %d", v, got)
+		}
+	}
+}
+
 func TestBuiltInOnlyForBitbucket(t *testing.T) {
 	if BuiltIn("bitbucket") == nil {
 		t.Error("bitbucket is built in")

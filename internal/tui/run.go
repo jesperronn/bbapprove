@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"runtime"
-	"strconv"
 	"strings"
 
 	"golang.org/x/term"
@@ -101,22 +99,12 @@ func Run(ctx context.Context, o RunOptions) int {
 		return 1
 	}
 	path := cfg.Adapter.Value
-	jobs := runtime.NumCPU()
-	if n, err := strconv.Atoi(env("BBAPPROVE_JOBS")); err == nil && n > 0 {
-		jobs = n
-	}
+	jobs := adapter.Jobs(env)
 	rc := rules.Config{AuthorEmail: cfg.AuthorEmail.Value, Disallow: cfg.Disallow}
-	client := &adapter.Client{Path: path, Token: token, Environ: cfg.ChildEnv(o.Environ)}
-	if cfg.BuiltIn {
-		client.InProcess = adapter.BuiltIn(cfg.Type.Value)
-	}
-	if token == "" { // BBAPPROVE_TOKEN wins; otherwise look the named 1Password item up
-		t, err := client.AuthToken(ctx)
-		if err != nil {
-			fmt.Fprintln(o.Stderr, err)
-			return 1
-		}
-		client.Token = t
+	client := adapter.New(path, cfg.Type.Value, cfg.BuiltIn, token, cfg.ChildEnv(o.Environ))
+	if err := client.ResolveToken(ctx); err != nil {
+		fmt.Fprintln(o.Stderr, err)
+		return 1
 	}
 	mouse := MouseEnabled(env("BBAPPROVE_MOUSE"), o.Args)
 	m := New(Config{

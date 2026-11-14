@@ -26,12 +26,10 @@ func (m *Model) refresh() tea.Cmd {
 			continue
 		}
 		m.refreshing++
-		cmds = append(cmds, func() tea.Msg {
-			m.sem <- struct{}{}
-			defer func() { <-m.sem }()
+		cmds = append(cmds, m.withSlot(func() tea.Msg {
 			v, err := m.cfg.Backend.View(m.cfg.Ctx, pr)
 			return refreshedMsg{pr.URL, v, err}
-		})
+		}))
 	}
 	if len(cmds) == 0 {
 		m.msg = "nothing to refresh"
@@ -207,39 +205,48 @@ func (m *Model) applyReload(msg reloadedMsg) {
 	}
 }
 
-func (m *Model) runDecline(comment string) tea.Cmd {
+// withSlot runs f once one of the parallel-call slots is free.
+func (m *Model) withSlot(f func() tea.Msg) tea.Cmd {
+	return func() tea.Msg {
+		m.sem <- struct{}{}
+		defer func() { <-m.sem }()
+		return f()
+	}
+}
+
+// dispatch marks every pending row as working (word), logs it under verb, drops its mark and collects
+// the command call returns for it.
+func (m *Model) dispatch(word, verb string, call func(i int, pr adapter.PR) tea.Cmd) []tea.Cmd {
 	cmds := make([]tea.Cmd, 0, len(m.pending))
 	for _, i := range m.pending {
-		i, pr := i, m.rows[i].pr
-		m.rows[i].result, m.rows[i].resCode, m.rows[i].resMsg = wDeclining, cYellow, ""
-		m.logStart(pr, "decline")
+		pr := m.rows[i].pr
+		m.rows[i].result, m.rows[i].resCode, m.rows[i].resMsg = word, cYellow, ""
+		m.logStart(pr, verb)
 		m.unmark(i)
-		cmds = append(cmds, func() tea.Msg {
-			m.sem <- struct{}{}
-			defer func() { <-m.sem }()
+		cmds = append(cmds, call(i, pr))
+	}
+	return cmds
+}
+
+func (m *Model) runDecline(comment string) tea.Cmd {
+	cmds := m.dispatch(wDeclining, "decline", func(_ int, pr adapter.PR) tea.Cmd {
+		return m.withSlot(func() tea.Msg {
 			return declineDoneMsg{pr.URL, m.cfg.Backend.Decline(m.cfg.Ctx, pr, comment)}
 		})
-	}
+	})
 	m.msg = fmt.Sprintf("declining %d PR(s)…", len(m.pending))
 	m.pending = nil
 	return tea.Batch(cmds...)
 }
 
 func (m *Model) runComment(body string) tea.Cmd {
-	cmds := make([]tea.Cmd, 0, len(m.pending))
-	for _, i := range m.pending {
-		i, pr := i, m.rows[i].pr
-		m.rows[i].result, m.rows[i].resCode, m.rows[i].resMsg = wCommenting, cYellow, ""
-		m.logStart(pr, "comment")
-		m.unmark(i)
+	cmds := m.dispatch(wCommenting, "comment", func(i int, pr adapter.PR) tea.Cmd {
 		ref := m.ref(i)
 		m.cmtOutstanding++
-		cmds = append(cmds, func() tea.Msg {
-			m.sem <- struct{}{}
-			defer func() { <-m.sem }()
+		return m.withSlot(func() tea.Msg {
 			return commentDoneMsg{pr.URL, ref, m.cfg.Backend.Comment(m.cfg.Ctx, pr, body)}
 		})
-	}
+	})
 	m.msg = fmt.Sprintf("commenting on %d PR(s)…", len(m.pending))
 	m.pending = nil
 	return tea.Batch(cmds...)
@@ -320,28 +327,20 @@ func (m *Model) confirmPrompt() string {
 }
 
 func (m *Model) runPending() tea.Cmd {
-	cmds := make([]tea.Cmd, 0, len(m.pending))
-	for _, i := range m.pending {
-		i, pr := i, m.rows[i].pr
-		m.rows[i].result, m.rows[i].resCode, m.rows[i].resMsg = wApproving, cYellow, ""
-		m.logStart(pr, "approve")
-		m.unmark(i)
+	cmds := m.dispatch(wApproving, "approve", func(_ int, pr adapter.PR) tea.Cmd {
 		if m.act == actApprove {
-			cmds = append(cmds, func() tea.Msg {
-				m.sem <- struct{}{}
-				defer func() { <-m.sem }()
+			return m.withSlot(func() tea.Msg {
 				return approveDoneMsg{pr.URL, m.cfg.Backend.Approve(m.cfg.Ctx, pr)}
 			})
-			continue
 		}
-		cmds = append(cmds, func() tea.Msg {
+		return func() tea.Msg {
 			defer m.repoLocks.Lock(pr)() // before the slot, so a PR waiting on its repository holds none
-			m.sem <- struct{}{}
-			defer func() { <-m.sem }()
-			warn, err := m.cfg.Backend.ApproveAndMerge(m.cfg.Ctx, pr)
-			return doneMsg{pr.URL, err, warn}
-		})
-	}
+			return m.withSlot(func() tea.Msg {
+				warn, err := m.cfg.Backend.ApproveAndMerge(m.cfg.Ctx, pr)
+				return doneMsg{pr.URL, err, warn}
+			})()
+		}
+	})
 	m.msg = fmt.Sprintf("working on %d PR(s)…", len(m.pending))
 	if m.pendingSkipped > 0 {
 		m.msg += fmt.Sprintf(" (skipped %d)", m.pendingSkipped)

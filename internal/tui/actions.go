@@ -205,6 +205,14 @@ func (m *Model) applyReload(msg reloadedMsg) {
 	}
 }
 
+// reasonOr is reason, or the lowercased status word when the row has no reason.
+func reasonOr(reason, word string) string {
+	if reason == "" {
+		return strings.ToLower(word)
+	}
+	return reason
+}
+
 // withSlot runs f once one of the parallel-call slots is free.
 func (m *Model) withSlot(f func() tea.Msg) tea.Cmd {
 	return func() tea.Msg {
@@ -273,9 +281,7 @@ func (m *Model) approve(act action) tea.Cmd {
 			m.msg = "refused: already " + strings.ToLower(m.rows[t[0]].result)
 		case act == actMerge:
 			w, _, why := m.status(m.rows[t[0]])
-			if why == "" {
-				why = strings.ToLower(w)
-			}
+			why = reasonOr(why, w)
 			m.msg = "refused: not eligible (" + why + "); M merges anyway"
 		default:
 			m.msg = "refused: ignored (i un-ignores)"
@@ -311,9 +317,7 @@ func (m *Model) confirmPrompt() string {
 		for _, i := range m.pending {
 			if !m.eligible(i) {
 				w, _, r := m.status(m.rows[i])
-				if r == "" {
-					r = strings.ToLower(w)
-				}
+				r = reasonOr(r, w)
 				why = append(why, m.ref(i)+": "+r)
 			}
 		}

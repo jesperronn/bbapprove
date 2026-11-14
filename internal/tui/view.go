@@ -46,7 +46,7 @@ func (m *Model) fit(s string) string {
 func (m *Model) renderRow(idx int, selected, hovered bool) string {
 	r := m.rows[idx]
 	word, code, reason := m.status(r)
-	st := app.Style{Color: true}
+	st := colorStyle
 	line := st.Row(word, code, r.pr, reason)
 	ref := st.Ref(r.pr)
 	if r.pr.URL != "" {
@@ -331,7 +331,7 @@ func (m *Model) view() string {
 		return m.fit("error: "+oneLine(m.loadErr.Error())) + "\n" + m.fit("q quit") + "\n"
 	}
 	m.clamp()
-	st := app.Style{Color: true}
+	st := colorStyle
 	if m.showHelp {
 		b.WriteString(m.fit("  "+cBold+"Help"+cReset+cDim+"  (press ? to close)"+cReset) + "\n")
 	} else {
@@ -358,3 +358,6 @@ func (m *Model) view() string {
 	b.WriteString(m.hintLine(len(v)))
 	return b.String()
 }
+
+// colorStyle formats rows and refs with colour; the TUI always draws in colour.
+var colorStyle = app.Style{Color: true}

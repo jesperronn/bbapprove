@@ -5,6 +5,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-11-16
+
 ### BREAKING
 - TUI keys: `a` now approves only (no merge), `m` approves and merges, and the new `M` approves and merges a PR the rules skip (asks first, naming the reason). `a`, `m`, `d` and `c` act on the marked rows, or on the cursor row when nothing is marked; `A`, `D` and `C` are gone.
 - TUI decline needs a comment: `d` asks for it straight away, without the y/N step, and refuses an empty one.
